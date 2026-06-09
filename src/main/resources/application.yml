@@ -1,0 +1,18 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: camel-route-tracer
+
+# Default framework source directory to analyse. Override per-request via the
+# 'sourceDir' field, or globally via the TRACER_SOURCE_DIR environment variable.
+# Defaults to the bundled sample framework so the app is runnable out of the box.
+tracer:
+  source-dir: ${TRACER_SOURCE_DIR:samples}
+
+logging:
+  level:
+    com.arjun.tracer: INFO
+    # Each XML file is parsed in a throwaway CamelContext; silence its lifecycle chatter.
+    org.apache.camel: WARN

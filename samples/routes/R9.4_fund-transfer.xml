@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Entry route for fundTransferSubmitV2Api at release 9.4 -->
+    <route id="R9.4_fundTransferSubmitV2Api">
+        <from uri="direct:R9.4_fundTransferSubmitV2Api"/>
+        <to uri="direct:R9.4_masterFundTransferSubmitApi"/>
+    </route>
+
+    <!-- Master route branches on transfer type: OWN / INTRA / INTER -->
+    <route id="R9.4_masterFundTransferSubmitApi">
+        <from uri="direct:R9.4_masterFundTransferSubmitApi"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'OWN'</simple>
+                <to uri="direct:R9.4_ftOwnAccountProcessSubmitDGEApi"/>
+            </when>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'INTRA'</simple>
+                <to uri="direct:R9.4_ftIntrabankProcessSubmitDGEApi"/>
+            </when>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'INTER'</simple>
+                <to uri="direct:R9.4_ftInterbankProcessSubmitDGEApi"/>
+            </when>
+        </choice>
+    </route>
+
+    <route id="R9.4_ftOwnAccountProcessSubmitDGEApi">
+        <from uri="direct:R9.4_ftOwnAccountProcessSubmitDGEApi"/>
+        <setProperty name="hostUrl">
+            <constant>/bfs/ft/own/submit</constant>
+        </setProperty>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/bfs/ft/own/submit</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <route id="R9.4_ftIntrabankProcessSubmitDGEApi">
+        <from uri="direct:R9.4_ftIntrabankProcessSubmitDGEApi"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/bfs/ft/intra/submit</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <route id="R9.4_ftInterbankProcessSubmitDGEApi">
+        <from uri="direct:R9.4_ftInterbankProcessSubmitDGEApi"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/bfs/ft/inter/submit</simple>
+        </setProperty>
+        <!-- interbank also performs a fraud pre-check against another host -->
+        <setProperty name="api">
+            <simple>{{baseUrl}}/bfs/ft/inter/fraud-check</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

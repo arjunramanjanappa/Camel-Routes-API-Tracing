@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Release 9.3 entry. Demonstrates version fallback: a client on 9.3 (or a
+         9.4 request when no R9.4 route exists) resolves here. This master also
+         reuses a 9.4 downstream route, showing cross-version delegation. -->
+    <route id="R9.3_fundTransferSubmitV2Api">
+        <from uri="direct:R9.3_fundTransferSubmitV2Api"/>
+        <to uri="direct:R9.3_masterFundTransferSubmitApi"/>
+    </route>
+
+    <route id="R9.3_masterFundTransferSubmitApi">
+        <from uri="direct:R9.3_masterFundTransferSubmitApi"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'INTER'</simple>
+                <!-- 9.3 delegates interbank handling to the 9.4 implementation -->
+                <to uri="direct:R9.4_ftInterbankProcessSubmitDGEApi"/>
+            </when>
+            <otherwise>
+                <setProperty name="api">
+                    <simple>{{baseUrl}}/bfs/ft/intra/submit</simple>
+                </setProperty>
+                <to uri="direct:callUFWDGE"/>
+            </otherwise>
+        </choice>
+    </route>
+
+</routes>

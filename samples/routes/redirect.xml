@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Central routing: findRouteProcessorV1 sets operationName to
+         R<version>_<operation>, then the recipientList dispatches to it. -->
+    <route id="redirectRoute">
+        <from uri="direct:redirectRoute"/>
+        <to uri="bean:findRouteProcessorV1"/>
+        <recipientList>
+            <simple>direct:${exchangeProperty[operationName]}</simple>
+        </recipientList>
+    </route>
+
+    <!-- Shared host route that performs the actual backend HTTP call using the
+         'api' exchange property set by the business routes. -->
+    <route id="callUFWDGE">
+        <from uri="direct:callUFWDGE"/>
+        <log message="Calling backend ${exchangeProperty.api}"/>
+    </route>
+
+</routes>

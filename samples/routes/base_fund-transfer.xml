@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- BASE (un-versioned) route. Used when the requested version is blank, or
+         when no R<version>_ route at or below the requested version exists. -->
+    <route id="fundTransferSubmitV2Api">
+        <from uri="direct:fundTransferSubmitV2Api"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/bfs/ft/base/submit</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

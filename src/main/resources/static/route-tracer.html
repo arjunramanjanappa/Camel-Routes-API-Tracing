@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Camel Route Tracer</title>
+    <!-- Cytoscape + dagre hierarchical layout via CDN (no React/Angular/Node) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1f2933; }
+        header { background: #1f2933; color: #fff; padding: 14px 20px; }
+        header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+        header span { color: #9aa5b1; font-size: 13px; }
+        .layout { display: flex; height: calc(100vh - 52px); }
+        .sidebar { width: 360px; padding: 18px; overflow-y: auto; border-right: 1px solid #e4e7eb; background: #f7f9fb; }
+        .main { flex: 1; position: relative; }
+        #cy { width: 100%; height: 100%; background: #fff; }
+        label { display: block; font-size: 12px; font-weight: 600; color: #52606d; margin: 12px 0 4px; }
+        input { width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 13px; }
+        button { margin-top: 16px; width: 100%; padding: 10px; background: #2563eb; color: #fff; border: 0;
+                 border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #9aa5b1; cursor: default; }
+        .panel { margin-top: 18px; background: #fff; border: 1px solid #e4e7eb; border-radius: 8px; padding: 12px; }
+        .panel h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #7b8794; }
+        .kv { font-size: 13px; margin: 4px 0; }
+        .kv b { color: #323f4b; }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .pill.base { background: #fef3c7; color: #92400e; }
+        .pill.versioned { background: #dcfce7; color: #166534; }
+        ol, ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+        code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+        .warn { color: #b45309; font-size: 12px; }
+        .legend { position: absolute; right: 14px; bottom: 14px; background: rgba(255,255,255,.95);
+                  border: 1px solid #e4e7eb; border-radius: 8px; padding: 8px 12px; font-size: 12px; }
+        .legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .err { color: #b91c1c; font-size: 13px; margin-top: 12px; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Camel Route Tracer</h1>
+    <span>API → Resolved Route → Sub-routes → Backend APIs</span>
+</header>
+<div class="layout">
+    <aside class="sidebar">
+        <label for="api">API path</label>
+        <input id="api" value="/payment/v2/fund/submit" placeholder="/payment/v2/fund/submit"/>
+
+        <label for="version">Client release version</label>
+        <input id="version" value="9.4" placeholder="9.4 (blank = BASE)"/>
+
+        <label for="transferType">Transfer type (optional)</label>
+        <input id="transferType" value="" placeholder="OWN / INTRA / INTER (blank = all)"/>
+
+        <label for="sourceDir">Source directory (optional)</label>
+        <input id="sourceDir" value="" placeholder="defaults to server config"/>
+
+        <button id="trace">Trace</button>
+
+        <div id="error" class="err" style="display:none;"></div>
+
+        <div id="summary" class="panel" style="display:none;">
+            <h2>Resolution</h2>
+            <div class="kv"><b>Operation:</b> <span id="op"></span></div>
+            <div class="kv"><b>Command:</b> <span id="cmd"></span></div>
+            <div class="kv"><b>Resolved route:</b> <code id="route"></code> <span id="basePill"></span></div>
+        </div>
+
+        <div id="flowPanel" class="panel" style="display:none;">
+            <h2>Flow</h2>
+            <ol id="flow"></ol>
+        </div>
+
+        <div id="backendPanel" class="panel" style="display:none;">
+            <h2>Backend APIs</h2>
+            <ul id="backends"></ul>
+        </div>
+
+        <div id="warnPanel" class="panel" style="display:none;">
+            <h2>Warnings</h2>
+            <ul id="warnings"></ul>
+        </div>
+    </aside>
+    <div class="main">
+        <div id="cy"></div>
+        <div class="legend">
+            <div><span class="dot" style="background:#2563eb"></span>API</div>
+            <div><span class="dot" style="background:#059669"></span>Route</div>
+            <div><span class="dot" style="background:#ea580c"></span>Backend</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+    let cy;
+
+    function show(el, on) { el.style.display = on ? '' : 'none'; }
+
+    async function trace() {
+        const btn = $('trace');
+        btn.disabled = true;
+        $('error').style.display = 'none';
+        try {
+            const params = new URLSearchParams();
+            params.set('api', $('api').value.trim());
+            if ($('version').value.trim()) params.set('version', $('version').value.trim());
+            if ($('transferType').value.trim()) params.set('transferType', $('transferType').value.trim());
+            if ($('sourceDir').value.trim()) params.set('sourceDir', $('sourceDir').value.trim());
+
+            const res = await fetch('/internal/route-graph?' + params.toString());
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || ('HTTP ' + res.status));
+            }
+            render(data);
+        } catch (e) {
+            const err = $('error');
+            err.textContent = 'Error: ' + e.message;
+            err.style.display = '';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function render(data) {
+        // Summary
+        show($('summary'), true);
+        $('op').textContent = data.operationName || '(unresolved)';
+        $('cmd').textContent = data.command || '—';
+        $('route').textContent = data.resolvedRoute || '—';
+        const pill = $('basePill');
+        if (data.resolvedRoute) {
+            pill.className = 'pill ' + (data.baseFallback ? 'base' : 'versioned');
+            pill.textContent = data.baseFallback ? 'BASE' : ('R' + (data.resolvedVersion || ''));
+        } else {
+            pill.textContent = '';
+        }
+
+        // Flow
+        const flow = $('flow');
+        flow.innerHTML = '';
+        (data.flow || []).forEach(r => {
+            const li = document.createElement('li');
+            li.innerHTML = '<code>' + r + '</code>';
+            flow.appendChild(li);
+        });
+        show($('flowPanel'), (data.flow || []).length > 0);
+
+        // Backends
+        const backends = $('backends');
+        backends.innerHTML = '';
+        (data.backendApis || []).forEach(b => {
+            const li = document.createElement('li');
+            li.innerHTML = '<code>' + b + '</code>';
+            backends.appendChild(li);
+        });
+        show($('backendPanel'), (data.backendApis || []).length > 0);
+
+        // Warnings
+        const warnings = $('warnings');
+        warnings.innerHTML = '';
+        (data.warnings || []).forEach(w => {
+            const li = document.createElement('li');
+            li.className = 'warn';
+            li.textContent = w;
+            warnings.appendChild(li);
+        });
+        show($('warnPanel'), (data.warnings || []).length > 0);
+
+        drawGraph(data.graph || { nodes: [], edges: [] });
+    }
+
+    function drawGraph(graph) {
+        const elements = [];
+        (graph.nodes || []).forEach(n => elements.push({ data: { id: n.id, label: n.label, type: n.type } }));
+        (graph.edges || []).forEach((e, i) =>
+            elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, label: e.label || '' } }));
+
+        if (cy) { cy.destroy(); }
+        cy = cytoscape({
+            container: $('cy'),
+            elements: elements,
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'label': 'data(label)', 'font-size': 10, 'color': '#fff',
+                        'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
+                        'text-max-width': 160, 'width': 'label', 'height': 'label',
+                        'padding': '10px', 'shape': 'round-rectangle', 'background-color': '#64748b'
+                    }
+                },
+                { selector: 'node[type="API"]', style: { 'background-color': '#2563eb' } },
+                { selector: 'node[type="ROUTE"]', style: { 'background-color': '#059669' } },
+                { selector: 'node[type="BACKEND"]', style: { 'background-color': '#ea580c', 'shape': 'cut-rectangle' } },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8',
+                        'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
+                        'label': 'data(label)', 'font-size': 9, 'color': '#475569',
+                        'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2
+                    }
+                }
+            ]
+        });
+        const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 28, rankSep: 90 });
+        layout.one('layoutstop', () => cy.fit(undefined, 40));
+        layout.run();
+    }
+
+    $('trace').addEventListener('click', trace);
+    window.addEventListener('load', trace);
+</script>
+</body>
+</html>

@@ -59,6 +59,7 @@
         .err { color: #b91c1c; font-size: 13px; margin-top: 12px; }
         .toolbar { position: absolute; left: 14px; top: 12px; display: flex; gap: 6px; align-items: center; z-index: 5; }
         .toolbar input { width: 150px; padding: 6px 9px; font-size: 12px; }
+        .toolhint { position: absolute; left: 14px; top: 48px; z-index: 5; font-size: 11px; color: #9aa5b1; background: rgba(255,255,255,.8); padding: 1px 4px; border-radius: 4px; }
         #detail .role { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; color:#fff; }
         #detailClose { float:right; cursor:pointer; color:#9aa5b1; font-weight:700; border:0; background:none; font-size:14px; width:auto; }
         #tooltip { position: absolute; pointer-events: none; background: #1f2933; color: #fff; font-size: 11px;
@@ -140,10 +141,11 @@
         <div id="cy"></div>
         <div class="toolbar">
             <input id="search" placeholder="Search nodes…"/>
-            <button class="minibtn" id="fitBtn">Fit</button>
+            <button class="minibtn" id="fitBtn" title="Zoom out to the whole graph">Fit</button>
             <button class="minibtn" id="pngBtn">PNG</button>
             <button class="minibtn" id="jsonBtn">JSON</button>
         </div>
+        <div class="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
         <div id="tooltip"></div>
         <div id="overlay"><div class="spinner"></div><div class="spin-label">Scanning source…</div></div>
         <div class="legend">
@@ -347,7 +349,7 @@
         cy = cytoscape({
             container: $('cy'), elements: elements,
             style: [
-                { selector: 'node', style: { 'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 130, 'width': 'label', 'height': 'label', 'padding': '12px', 'shape': 'round-rectangle', 'background-color': '#64748b' } },
+                { selector: 'node', style: { 'label': 'data(label)', 'font-size': 13, 'font-weight': 600, 'color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 150, 'width': 'label', 'height': 'label', 'padding': '13px', 'shape': 'round-rectangle', 'background-color': '#64748b' } },
                 { selector: 'node[role="api"]', style: { 'background-color': COLORS.api } },
                 { selector: 'node[role="versioned"]', style: { 'background-color': COLORS.versioned } },
                 { selector: 'node[role="base"]', style: { 'background-color': COLORS.base } },
@@ -362,7 +364,20 @@
                 { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } }
             ]
         });
-        const fit = () => { cy.fit(undefined, 45); if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); } };
+        // Keep nodes readable: never auto-zoom below MIN_ZOOM. For a big graph that
+        // would otherwise be crammed, show it at a legible size anchored to the
+        // start (top-left) and let the user pan/scroll. The Fit button still does a
+        // true fit-everything overview on demand.
+        const MIN_ZOOM = 0.7;
+        const fit = () => {
+            cy.fit(undefined, 45);
+            if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); return; }
+            if (cy.zoom() < MIN_ZOOM) {
+                cy.zoom(MIN_ZOOM);
+                const bb = cy.elements().boundingBox();
+                cy.pan({ x: -bb.x1 * MIN_ZOOM + 50, y: -bb.y1 * MIN_ZOOM + 40 });
+            }
+        };
         const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 100 });
         layout.one('layoutstop', fit); layout.run(); fit(); setTimeout(fit, 200);
 

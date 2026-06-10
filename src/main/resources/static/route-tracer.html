@@ -20,24 +20,29 @@
         #cy { width: 100%; height: 100%; background: #fff; }
         label { display: block; font-size: 12px; font-weight: 600; color: #52606d; margin: 12px 0 4px; }
         input { width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 13px; }
-        button { margin-top: 16px; width: 100%; padding: 10px; background: #2563eb; color: #fff; border: 0;
+        button#trace { margin-top: 16px; width: 100%; padding: 10px; background: #2563eb; color: #fff; border: 0;
                  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
-        button:hover { background: #1d4ed8; }
-        button:disabled { background: #9aa5b1; cursor: default; }
+        button#trace:hover { background: #1d4ed8; }
+        button#trace:disabled { background: #9aa5b1; cursor: default; }
         .panel { margin-top: 18px; background: #fff; border: 1px solid #e4e7eb; border-radius: 8px; padding: 12px; }
         .panel h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #7b8794; }
-        .kv { font-size: 13px; margin: 4px 0; }
+        .kv { font-size: 13px; margin: 4px 0; word-break: break-word; }
         .kv b { color: #323f4b; }
         .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
         .pill.base { background: #fef3c7; color: #92400e; }
         .pill.versioned { background: #dcfce7; color: #166534; }
         ol, ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+        li { word-break: break-word; }
         code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
         .warn { color: #b45309; font-size: 12px; }
         .legend { position: absolute; right: 14px; bottom: 14px; background: rgba(255,255,255,.95);
                   border: 1px solid #e4e7eb; border-radius: 8px; padding: 8px 12px; font-size: 12px; }
         .legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .legend .ring { width: 11px; height: 11px; border-radius: 3px; border: 2px solid #f59e0b; background: #fff; }
         .err { color: #b91c1c; font-size: 13px; margin-top: 12px; }
+        .hint { position: absolute; left: 14px; top: 14px; font-size: 12px; color: #9aa5b1; }
+        #detail .role { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; color:#fff; }
+        #detailClose { float:right; cursor:pointer; color:#9aa5b1; font-weight:700; border:0; background:none; font-size:14px; }
     </style>
 </head>
 <body>
@@ -63,6 +68,13 @@
 
         <div id="error" class="err" style="display:none;"></div>
 
+        <!-- Detail panel: populated when a graph node is clicked -->
+        <div id="detail" class="panel" style="display:none;">
+            <button id="detailClose" title="close">✕</button>
+            <h2>Selected node</h2>
+            <div id="detailBody"></div>
+        </div>
+
         <div id="summary" class="panel" style="display:none;">
             <h2>Resolution</h2>
             <div class="kv"><b>Operation:</b> <span id="op"></span></div>
@@ -87,10 +99,14 @@
     </aside>
     <div class="main">
         <div id="cy"></div>
+        <div class="hint">Click a node for details · scroll to zoom · drag to pan</div>
         <div class="legend">
             <div><span class="dot" style="background:#2563eb"></span>API</div>
-            <div><span class="dot" style="background:#059669"></span>Route</div>
-            <div><span class="dot" style="background:#ea580c"></span>Backend</div>
+            <div><span class="dot" style="background:#059669"></span>Versioned route</div>
+            <div><span class="dot" style="background:#d97706"></span>BASE route</div>
+            <div><span class="dot" style="background:#0891b2"></span>Shared / host route</div>
+            <div><span class="dot" style="background:#ea580c"></span>Backend API</div>
+            <div><span class="dot ring"></span>Resolved entry route</div>
         </div>
     </div>
 </div>
@@ -99,7 +115,24 @@
     const $ = (id) => document.getElementById(id);
     let cy;
 
+    const COLORS = { api: '#2563eb', versioned: '#059669', base: '#d97706', shared: '#0891b2', backend: '#ea580c' };
+    const ROLE_LABEL = { api: 'API', versioned: 'Versioned route', base: 'BASE route', shared: 'Shared / host route', backend: 'Backend API' };
+
     function show(el, on) { el.style.display = on ? '' : 'none'; }
+
+    // --- label shortening so long real-world names stay readable ---
+    const VER_PREFIX = /^R[\d.]+_/;
+    function routeShort(name) {
+        const m = name.match(/^R([\d.]+)_(.+)$/);
+        return m ? m[2] : name;
+    }
+    function routeVersion(name) {
+        const m = name.match(VER_PREFIX);
+        return m ? m[0].slice(1, -1) : null;
+    }
+    function backendShort(value) {
+        return value.replace(/^\{\{[^}]+\}\}/, '').replace(/^https?:\/\/[^/]+/, '') || value;
+    }
 
     async function trace() {
         const btn = $('trace');
@@ -114,9 +147,7 @@
 
             const res = await fetch('/internal/route-graph?' + params.toString());
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error || ('HTTP ' + res.status));
-            }
+            if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
             render(data);
         } catch (e) {
             const err = $('error');
@@ -128,7 +159,7 @@
     }
 
     function render(data) {
-        // Summary
+        show($('detail'), false);
         show($('summary'), true);
         $('op').textContent = data.operationName || '(unresolved)';
         $('cmd').textContent = data.command || '—';
@@ -141,27 +172,9 @@
             pill.textContent = '';
         }
 
-        // Flow
-        const flow = $('flow');
-        flow.innerHTML = '';
-        (data.flow || []).forEach(r => {
-            const li = document.createElement('li');
-            li.innerHTML = '<code>' + r + '</code>';
-            flow.appendChild(li);
-        });
-        show($('flowPanel'), (data.flow || []).length > 0);
+        fillList($('flow'), data.flow, $('flowPanel'), true);
+        fillList($('backends'), data.backendApis, $('backendPanel'), true);
 
-        // Backends
-        const backends = $('backends');
-        backends.innerHTML = '';
-        (data.backendApis || []).forEach(b => {
-            const li = document.createElement('li');
-            li.innerHTML = '<code>' + b + '</code>';
-            backends.appendChild(li);
-        });
-        show($('backendPanel'), (data.backendApis || []).length > 0);
-
-        // Warnings
         const warnings = $('warnings');
         warnings.innerHTML = '';
         (data.warnings || []).forEach(w => {
@@ -172,16 +185,58 @@
         });
         show($('warnPanel'), (data.warnings || []).length > 0);
 
-        drawGraph(data.graph || { nodes: [], edges: [] });
+        drawGraph(data.graph || { nodes: [], edges: [] }, data);
     }
 
-    function drawGraph(graph) {
+    function fillList(listEl, items, panelEl, code) {
+        listEl.innerHTML = '';
+        (items || []).forEach(t => {
+            const li = document.createElement('li');
+            li.innerHTML = code ? ('<code>' + t + '</code>') : t;
+            listEl.appendChild(li);
+        });
+        show(panelEl, (items || []).length > 0);
+    }
+
+    // Classify a route node so the graph can colour/highlight it meaningfully.
+    function roleOf(node, ctx) {
+        if (node.type === 'API') return 'api';
+        if (node.type === 'BACKEND') return 'backend';
+        const name = node.label;
+        if (ctx.baseFallback && name === ctx.resolvedRoute) return 'base';
+        if (VER_PREFIX.test(name)) return 'versioned';
+        if (name === ctx.operationName) return 'base';
+        return 'shared';
+    }
+
+    function drawGraph(graph, ctx) {
+        // Pre-compute, per node, the branch labels that reach it.
+        const reachedBy = {};
+        (graph.edges || []).forEach(e => {
+            if (e.label) (reachedBy[e.to] = reachedBy[e.to] || []).push(e.label);
+        });
+
         const elements = [];
-        (graph.nodes || []).forEach(n => elements.push({ data: { id: n.id, label: n.label, type: n.type } }));
+        (graph.nodes || []).forEach(n => {
+            const role = roleOf(n, ctx);
+            let display;
+            if (n.type === 'ROUTE') display = routeShort(n.label);
+            else if (n.type === 'BACKEND') display = backendShort(n.label);
+            else display = ctx.operationName || n.label;
+            elements.push({
+                data: {
+                    id: n.id, label: display, full: n.label, type: n.type, role: role,
+                    isEntry: (n.type === 'ROUTE' && n.label === ctx.resolvedRoute) ? 'yes' : 'no',
+                    version: n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '',
+                    source: (n.data && n.data.source) || '',
+                    reached: (reachedBy[n.id] || []).join(', ')
+                }
+            });
+        });
         (graph.edges || []).forEach((e, i) =>
             elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, label: e.label || '' } }));
 
-        if (cy) { cy.destroy(); }
+        if (cy) cy.destroy();
         cy = cytoscape({
             container: $('cy'),
             elements: elements,
@@ -189,31 +244,84 @@
                 {
                     selector: 'node',
                     style: {
-                        'label': 'data(label)', 'font-size': 10, 'color': '#fff',
+                        'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff',
                         'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
-                        'text-max-width': 160, 'width': 'label', 'height': 'label',
-                        'padding': '10px', 'shape': 'round-rectangle', 'background-color': '#64748b'
+                        'text-max-width': 130, 'width': 'label', 'height': 'label',
+                        'padding': '12px', 'shape': 'round-rectangle', 'background-color': '#64748b'
                     }
                 },
-                { selector: 'node[type="API"]', style: { 'background-color': '#2563eb' } },
-                { selector: 'node[type="ROUTE"]', style: { 'background-color': '#059669' } },
-                { selector: 'node[type="BACKEND"]', style: { 'background-color': '#ea580c', 'shape': 'cut-rectangle' } },
+                { selector: 'node[role="api"]', style: { 'background-color': COLORS.api } },
+                { selector: 'node[role="versioned"]', style: { 'background-color': COLORS.versioned } },
+                { selector: 'node[role="base"]', style: { 'background-color': COLORS.base } },
+                { selector: 'node[role="shared"]', style: { 'background-color': COLORS.shared } },
+                { selector: 'node[role="backend"]', style: { 'background-color': COLORS.backend, 'shape': 'cut-rectangle' } },
+                { selector: 'node[isEntry="yes"]', style: { 'border-width': 4, 'border-color': '#f59e0b' } },
                 {
                     selector: 'edge',
                     style: {
                         'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8',
                         'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
-                        'label': 'data(label)', 'font-size': 9, 'color': '#475569',
+                        'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309',
                         'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2
                     }
-                }
+                },
+                { selector: '.faded', style: { 'opacity': 0.2 } },
+                { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
+                { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } }
             ]
         });
-        const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 28, rankSep: 90 });
-        layout.one('layoutstop', () => cy.fit(undefined, 40));
+
+        const fitGraph = () => {
+            cy.fit(undefined, 45);
+            // Only a tiny graph (1–2 nodes) needs a zoom cap; wide graphs must stay fitted.
+            if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); }
+        };
+        const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 28, rankSep: 100 });
+        layout.one('layoutstop', fitGraph);
         layout.run();
+        fitGraph();                 // dagre is synchronous — positions are ready now
+        setTimeout(fitGraph, 200);  // safety net if the container sized late
+
+        cy.on('tap', 'node', (evt) => selectNode(evt.target));
+        cy.on('tap', (evt) => { if (evt.target === cy) clearSelection(); });
     }
 
+    function selectNode(node) {
+        const d = node.data();
+        cy.elements().addClass('faded');
+        const hood = node.closedNeighborhood();
+        hood.removeClass('faded');
+        node.connectedEdges().removeClass('faded').addClass('hl');
+        cy.nodes().removeClass('selected');
+        node.addClass('selected');
+
+        const rows = [];
+        rows.push(`<span class="role" style="background:${COLORS[d.role]}">${ROLE_LABEL[d.role]}</span>`);
+        rows.push(`<div class="kv" style="margin-top:8px"><b>${d.type === 'BACKEND' ? 'Endpoint' : 'Name'}:</b><br><code>${d.full}</code></div>`);
+        if (d.type === 'ROUTE') {
+            rows.push(`<div class="kv"><b>Version:</b> ${d.version ? ('R' + d.version) : 'BASE / un-versioned'}</div>`);
+            rows.push(`<div class="kv"><b>Entry route:</b> ${d.isEntry === 'yes' ? 'yes (resolved target)' : 'no'}</div>`);
+            rows.push(`<div class="kv"><b>Loaded via:</b> ${sourceLabel(d.source)}</div>`);
+        }
+        if (d.reached) rows.push(`<div class="kv"><b>Reached via branch:</b> ${d.reached}</div>`);
+        $('detailBody').innerHTML = rows.join('');
+        show($('detail'), true);
+    }
+
+    function sourceLabel(s) {
+        if (s === 'camel') return 'Camel RouteDefinition';
+        if (s === 'dom') return 'DOM fallback parser';
+        if (s === 'not-found') return 'not found in source';
+        return s || '—';
+    }
+
+    function clearSelection() {
+        if (!cy) return;
+        cy.elements().removeClass('faded hl selected');
+        show($('detail'), false);
+    }
+
+    $('detailClose') && $('detailClose').addEventListener('click', clearSelection);
     $('trace').addEventListener('click', trace);
     window.addEventListener('load', trace);
 </script>

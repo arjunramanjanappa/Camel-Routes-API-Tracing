@@ -64,15 +64,16 @@ public class RouteTraverser {
 
     private void visitRoute(String routeName, String parentNodeId, String branch) {
         String nodeId = "route:" + routeName;
-        graph.addNode(new GraphNode(nodeId, routeName, GraphNode.TYPE_ROUTE));
+        RouteModel route = registry.lookup(routeName);
+        String source = route != null ? route.source() : "not-found";
+        graph.addNode(new GraphNode(nodeId, routeName, GraphNode.TYPE_ROUTE,
+                java.util.Map.of("source", source)));
         if (parentNodeId != null) {
             graph.addEdge(parentNodeId, nodeId, branch);
         }
         if (!expandedRoutes.add(routeName)) {
             return; // already expanded — edge recorded, but don't recurse (loop guard)
         }
-
-        RouteModel route = registry.lookup(routeName);
         if (route == null) {
             response.getWarnings().add("Route not found in source: " + routeName);
             return;

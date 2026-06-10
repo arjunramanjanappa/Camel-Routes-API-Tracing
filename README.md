@@ -160,6 +160,23 @@ directory (`classpath:`/`file:` schemes and a trailing `*` wildcard are handled)
 
 ---
 
+## UI
+
+`/route-tracer` (plain HTML + Cytoscape):
+
+* **Single vs catalog** — a mode chip reflects whether an API is entered; catalog
+  entries have a **Trace ▶** button to drill into one API, with **← Catalog** to
+  return.
+* **Pickers** — `version` and `transferType` are combo-boxes populated from the
+  discovered values; the **country** dropdown lists the bootstraps; inputs are
+  remembered across reloads (localStorage).
+* **Graph** — nodes coloured by role with a gold ring on the entry route; click a
+  node for details (version, loader source, branch); hover for the full name;
+  **Search** highlights, **Fit** re-frames, **PNG**/**JSON** export the graph.
+* **Feedback** — a "Scanning source…" overlay while a request runs.
+
+---
+
 ## Layout
 
 ```

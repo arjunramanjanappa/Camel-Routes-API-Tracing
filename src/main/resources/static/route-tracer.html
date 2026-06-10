@@ -15,12 +15,21 @@
         header h1 { margin: 0; font-size: 18px; font-weight: 600; }
         header span { color: #9aa5b1; font-size: 13px; }
         .layout { display: flex; height: calc(100vh - 52px); }
-        .sidebar { width: 370px; padding: 18px; overflow-y: auto; border-right: 1px solid #e4e7eb; background: #f7f9fb; }
+        .sidebar { width: 374px; padding: 18px; overflow-y: auto; border-right: 1px solid #e4e7eb; background: #f7f9fb; }
         .main { flex: 1; position: relative; }
         #cy { width: 100%; height: 100%; background: #fff; }
         label { display: block; font-size: 12px; font-weight: 600; color: #52606d; margin: 12px 0 4px; }
         input, select { width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 13px; background: #fff; }
         .sub { font-size: 11px; color: #9aa5b1; margin-top: 3px; }
+        .row { display: flex; gap: 8px; align-items: center; }
+        .row input { flex: 1; }
+        .chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .chip.single { background: #dbeafe; color: #1e40af; }
+        .chip.catalog { background: #ede9fe; color: #5b21b6; }
+        .linkbtn { background: none; border: 0; color: #2563eb; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; width: auto; }
+        .linkbtn:hover { text-decoration: underline; }
+        .minibtn { width: auto; padding: 7px 10px; font-size: 12px; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; cursor: pointer; white-space: nowrap; }
+        .minibtn:hover { background: #eef2f7; }
         button#trace { margin-top: 16px; width: 100%; padding: 10px; background: #2563eb; color: #fff; border: 0;
                  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
         button#trace:hover { background: #1d4ed8; }
@@ -37,8 +46,9 @@
         li { word-break: break-word; }
         code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
         .warn { color: #b45309; font-size: 12px; }
-        .entry { border: 1px solid #eef2f7; border-radius: 6px; padding: 6px 8px; margin: 6px 0; cursor: pointer; }
+        .entry { border: 1px solid #eef2f7; border-radius: 6px; padding: 6px 8px; margin: 6px 0; display: flex; gap: 8px; align-items: center; }
         .entry:hover { background: #f3f6fb; border-color: #c7d2e0; }
+        .entry .body { flex: 1; cursor: pointer; }
         .entry .op { font-weight: 600; font-size: 12px; color: #334155; }
         .entry .meta { font-size: 11px; color: #94a3b8; }
         .legend { position: absolute; right: 14px; bottom: 14px; background: rgba(255,255,255,.95);
@@ -46,9 +56,17 @@
         .legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
         .legend .ring { width: 11px; height: 11px; border-radius: 3px; border: 2px solid #f59e0b; background: #fff; }
         .err { color: #b91c1c; font-size: 13px; margin-top: 12px; }
-        .hint { position: absolute; left: 14px; top: 14px; font-size: 12px; color: #9aa5b1; }
+        .toolbar { position: absolute; left: 14px; top: 12px; display: flex; gap: 6px; align-items: center; z-index: 5; }
+        .toolbar input { width: 150px; padding: 6px 9px; font-size: 12px; }
         #detail .role { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; color:#fff; }
-        #detailClose { float:right; cursor:pointer; color:#9aa5b1; font-weight:700; border:0; background:none; font-size:14px; }
+        #detailClose { float:right; cursor:pointer; color:#9aa5b1; font-weight:700; border:0; background:none; font-size:14px; width:auto; }
+        #tooltip { position: absolute; pointer-events: none; background: #1f2933; color: #fff; font-size: 11px;
+                   padding: 4px 8px; border-radius: 5px; transform: translate(-50%, -120%); white-space: nowrap; display: none; z-index: 10; }
+        #overlay { position: absolute; inset: 0; background: rgba(255,255,255,.7); display: none; align-items: center; justify-content: center; z-index: 8; }
+        #overlay.on { display: flex; }
+        .spinner { width: 26px; height: 26px; border: 3px solid #cbd5e1; border-top-color: #2563eb; border-radius: 50%; animation: spin .8s linear infinite; }
+        .spin-label { margin-left: 10px; color: #475569; font-size: 13px; font-weight: 600; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -58,28 +76,33 @@
 </header>
 <div class="layout">
     <aside class="sidebar">
+        <div class="row" style="justify-content:space-between;">
+            <span id="modeChip" class="chip single">Single trace</span>
+            <button id="catalogAll" class="linkbtn">Catalog all APIs →</button>
+        </div>
+
         <label for="api">API path</label>
-        <input id="api" value="/payment/v2/fund/submit" placeholder="/payment/v2/fund/submit"/>
-        <div class="sub">Leave blank to catalog <b>all</b> APIs grouped by version.</div>
+        <input id="api" value="/payment/v2/fund/submit" placeholder="blank = catalog all APIs"/>
 
         <label for="version">Client release version</label>
-        <input id="version" value="9.4" placeholder="9.4 (blank = BASE / all)"/>
+        <input id="version" list="versionList" value="9.4" placeholder="9.4 (blank = BASE / all)"/>
+        <datalist id="versionList"></datalist>
 
         <label for="transferType">Transfer type (optional)</label>
-        <input id="transferType" value="" placeholder="OWN / INTRA / INTER (blank = all)"/>
+        <input id="transferType" list="branchList" value="" placeholder="OWN / INTRA / INTER (blank = all)"/>
+        <datalist id="branchList"></datalist>
 
         <label for="country">Country</label>
         <select id="country"><option value="">(all countries)</option></select>
         <div class="sub">Scope to one bootstrap (e.g. SG, MY) via its imports / routeContextRef.</div>
 
-        <label for="sourceDir">Source directory (optional)</label>
+        <label for="sourceDir">Source directory</label>
         <input id="sourceDir" value="" placeholder="defaults to server config"/>
 
         <button id="trace">Trace</button>
 
         <div id="error" class="err" style="display:none;"></div>
 
-        <!-- Detail panel: populated when a graph node is clicked -->
         <div id="detail" class="panel" style="display:none;">
             <button id="detailClose" title="close">✕</button>
             <h2>Selected node</h2>
@@ -88,7 +111,10 @@
 
         <!-- Single-trace panels -->
         <div id="summary" class="panel" style="display:none;">
-            <h2>Resolution</h2>
+            <div class="row" style="justify-content:space-between;">
+                <h2 style="margin:0;">Resolution</h2>
+                <button id="backToCatalog" class="linkbtn">← Catalog</button>
+            </div>
             <div class="kv"><b>Operation:</b> <span id="op"></span></div>
             <div class="kv"><b>Command:</b> <span id="cmd"></span></div>
             <div class="kv"><b>Resolved route:</b> <code id="route"></code> <span id="basePill"></span></div>
@@ -102,7 +128,6 @@
             <ul id="backends"></ul>
         </div>
 
-        <!-- Catalog panels (built dynamically) -->
         <div id="catalog" style="display:none;"></div>
 
         <div id="warnPanel" class="panel" style="display:none;">
@@ -112,7 +137,14 @@
     </aside>
     <div class="main">
         <div id="cy"></div>
-        <div class="hint">Click a node for details · scroll to zoom · drag to pan</div>
+        <div class="toolbar">
+            <input id="search" placeholder="Search nodes…"/>
+            <button class="minibtn" id="fitBtn">Fit</button>
+            <button class="minibtn" id="pngBtn">PNG</button>
+            <button class="minibtn" id="jsonBtn">JSON</button>
+        </div>
+        <div id="tooltip"></div>
+        <div id="overlay"><div class="spinner"></div><div class="spin-label">Scanning source…</div></div>
         <div class="legend">
             <div><span class="dot" style="background:#2563eb"></span>API</div>
             <div><span class="dot" style="background:#059669"></span>Versioned route</div>
@@ -126,21 +158,58 @@
 
 <script>
     const $ = (id) => document.getElementById(id);
-    let cy;
+    let cy, lastData;
 
     const COLORS = { api: '#2563eb', versioned: '#059669', base: '#d97706', shared: '#0891b2', backend: '#ea580c' };
     const ROLE_LABEL = { api: 'API', versioned: 'Versioned route', base: 'BASE route', shared: 'Shared / host route', backend: 'Backend API' };
     const VER_PREFIX = /^R[\d.]+_/;
+    const FIELDS = ['api', 'version', 'transferType', 'country', 'sourceDir'];
 
     function show(el, on) { el.style.display = on ? '' : 'none'; }
-
     function routeShort(name) { const m = name.match(/^R([\d.]+)_(.+)$/); return m ? m[2] : name; }
     function routeVersion(name) { const m = name.match(VER_PREFIX); return m ? m[0].slice(1, -1) : null; }
     function backendShort(value) { return value.replace(/^\{\{[^}]+\}\}/, '').replace(/^https?:\/\/[^/]+/, '') || value; }
 
+    // --- persistence (1) ---
+    function persist() { FIELDS.forEach(f => localStorage.setItem('tracer.' + f, $(f).value)); }
+    function restore() {
+        FIELDS.forEach(f => { const v = localStorage.getItem('tracer.' + f); if (v !== null) $(f).value = v; });
+        updateModeChip();
+    }
+
+    // --- mode clarity (3) ---
+    function updateModeChip() {
+        const single = $('api').value.trim() !== '';
+        const chip = $('modeChip');
+        chip.className = 'chip ' + (single ? 'single' : 'catalog');
+        chip.textContent = single ? 'Single trace' : 'Catalog: all APIs';
+        show($('catalogAll'), single);
+    }
+
+    // --- discovery metadata for dropdowns (4,5) ---
+    async function loadMeta() {
+        try {
+            const p = new URLSearchParams();
+            if ($('sourceDir').value.trim()) p.set('sourceDir', $('sourceDir').value.trim());
+            if ($('country').value) p.set('country', $('country').value);
+            const res = await fetch('/internal/meta?' + p.toString());
+            if (!res.ok) return;
+            const m = await res.json();
+            fillDatalist('versionList', m.versions);
+            fillDatalist('branchList', m.transferTypes);
+            populateCountries(m.countries, $('country').value);
+        } catch (e) { /* meta is best-effort */ }
+    }
+    function fillDatalist(id, values) {
+        $(id).innerHTML = (values || []).map(v => '<option value="' + v + '">').join('');
+    }
+
+    // --- trace (2 loading) ---
     async function trace() {
+        persist();
         const btn = $('trace');
-        btn.disabled = true;
+        btn.disabled = true; btn.textContent = 'Scanning…';
+        $('overlay').classList.add('on');
         $('error').style.display = 'none';
         try {
             const params = new URLSearchParams();
@@ -153,20 +222,19 @@
             const res = await fetch('/internal/route-graph?' + params.toString());
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            lastData = data;
             populateCountries(data.availableCountries, data.country);
             if (data.mode === 'catalog') renderCatalog(data); else renderSingle(data);
         } catch (e) {
-            const err = $('error');
-            err.textContent = 'Error: ' + e.message;
-            err.style.display = '';
+            $('error').textContent = 'Error: ' + e.message; $('error').style.display = '';
         } finally {
-            btn.disabled = false;
+            btn.disabled = false; btn.textContent = 'Trace';
+            $('overlay').classList.remove('on');
         }
     }
 
     function hideSinglePanels() { ['summary', 'flowPanel', 'backendPanel'].forEach(id => show($(id), false)); }
 
-    // --- single-trace rendering ---
     function renderSingle(data) {
         show($('detail'), false);
         show($('catalog'), false);
@@ -183,11 +251,9 @@
         fillList($('flow'), data.flow, $('flowPanel'));
         fillList($('backends'), data.backendApis, $('backendPanel'));
         fillWarnings(data.warnings);
-
         drawGraph(data.graph || { nodes: [], edges: [] }, [data.operationName]);
     }
 
-    // --- catalog rendering ---
     function renderCatalog(data) {
         show($('detail'), false);
         hideSinglePanels();
@@ -197,31 +263,33 @@
 
         const head = document.createElement('div');
         head.className = 'panel';
-        head.innerHTML = '<h2>Catalog</h2>'
+        head.innerHTML = '<h2>Catalog' + (data.country ? ' · ' + data.country : '') + '</h2>'
             + '<div class="kv"><b>APIs discovered:</b> ' + data.operationCount + '</div>'
-            + '<div class="kv"><b>Version groups:</b> ' + (data.versionsFound || []).join(', ') + '</div>'
-            + (data.requestedVersion ? '<div class="kv"><b>Resolved for client:</b> ' + data.requestedVersion + '</div>' : '');
+            + '<div class="kv"><b>Version groups:</b> ' + (data.versionsFound || []).join(', ') + '</div>';
         cat.appendChild(head);
 
         const opNames = new Set();
         (data.groups || []).forEach(g => {
             const panel = document.createElement('div');
             panel.className = 'panel';
-            const isBase = g.version === 'BASE';
             const isNone = g.version === '(no route found)';
-            const pillCls = isNone ? 'none' : (isBase ? 'base' : 'versioned');
-            panel.innerHTML = '<h2>' + g.version
-                + ' <span class="pill ' + pillCls + '">' + g.traces.length + '</span></h2>';
+            const pillCls = isNone ? 'none' : (g.version === 'BASE' ? 'base' : 'versioned');
+            panel.innerHTML = '<h2>' + g.version + ' <span class="pill ' + pillCls + '">' + g.traces.length + '</span></h2>';
             g.traces.forEach(t => {
                 if (t.operationName) opNames.add(t.operationName);
                 const div = document.createElement('div');
                 div.className = 'entry';
                 const target = t.resolvedRoute ? ('<code>' + t.resolvedRoute + '</code>') : '<span class="warn">no route</span>';
                 const back = (t.backendApis && t.backendApis.length) ? (' · ' + t.backendApis.length + ' backend' + (t.backendApis.length > 1 ? 's' : '')) : '';
-                div.innerHTML = '<div class="op">' + t.operationName + '</div>'
-                    + '<div class="meta">' + (t.api || '') + '</div>'
-                    + '<div class="kv">' + target + back + '</div>';
-                div.addEventListener('click', () => focusApi('api:' + (t.api || t.operationName)));
+                const body = document.createElement('div');
+                body.className = 'body';
+                body.innerHTML = '<div class="op">' + t.operationName + '</div><div class="meta">' + (t.api || '') + '</div><div class="kv">' + target + back + '</div>';
+                body.addEventListener('click', () => focusApi('api:' + (t.api || t.operationName)));
+                const traceBtn = document.createElement('button');
+                traceBtn.className = 'minibtn'; traceBtn.textContent = 'Trace ▶';
+                traceBtn.title = 'Open this API as a single trace';
+                traceBtn.addEventListener('click', () => drillInto(t.api || t.operationName));
+                div.appendChild(body); div.appendChild(traceBtn);
                 panel.appendChild(div);
             });
             cat.appendChild(panel);
@@ -231,33 +299,30 @@
         drawGraph(data.graph || { nodes: [], edges: [] }, [...opNames]);
     }
 
+    // --- drill-down (3) ---
+    function drillInto(api) { $('api').value = api; updateModeChip(); trace(); }
+    function backToCatalog() { $('api').value = ''; updateModeChip(); trace(); }
+
     function fillList(listEl, items, panelEl) {
         listEl.innerHTML = '';
         (items || []).forEach(t => { const li = document.createElement('li'); li.innerHTML = '<code>' + t + '</code>'; listEl.appendChild(li); });
         show(panelEl, (items || []).length > 0);
     }
-
-    // Populate the country dropdown from a response, preserving the chosen scope.
+    function fillWarnings(items) {
+        const w = $('warnings'); w.innerHTML = '';
+        (items || []).forEach(x => { const li = document.createElement('li'); li.className = 'warn'; li.textContent = x; w.appendChild(li); });
+        show($('warnPanel'), (items || []).length > 0);
+    }
     function populateCountries(countries, selected) {
         const sel = $('country');
         const current = selected || sel.value || '';
-        const list = countries || [];
-        const desired = '|' + list.join('|');
+        const desired = '|' + (countries || []).join('|');
         if (sel.dataset.list === desired) { sel.value = current; return; }
         sel.dataset.list = desired;
-        sel.innerHTML = '<option value="">(all countries)</option>'
-            + list.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+        sel.innerHTML = '<option value="">(all countries)</option>' + (countries || []).map(c => '<option value="' + c + '">' + c + '</option>').join('');
         sel.value = current;
     }
 
-    function fillWarnings(items) {
-        const warnings = $('warnings');
-        warnings.innerHTML = '';
-        (items || []).forEach(w => { const li = document.createElement('li'); li.className = 'warn'; li.textContent = w; warnings.appendChild(li); });
-        show($('warnPanel'), (items || []).length > 0);
-    }
-
-    // Classify a node for colour. Works in both modes (no single-trace context).
     function roleOf(node, opNames) {
         if (node.type === 'API') return 'api';
         if (node.type === 'BACKEND') return 'backend';
@@ -267,38 +332,29 @@
     }
 
     function drawGraph(graph, opNames) {
-        // Entry routes = any route directly targeted by an API node.
-        const entry = new Set();
-        const reachedBy = {};
+        const entry = new Set(), reachedBy = {};
         (graph.edges || []).forEach(e => {
             if (String(e.from).startsWith('api:')) entry.add(e.to);
             if (e.label) (reachedBy[e.to] = reachedBy[e.to] || []).push(e.label);
         });
-
         const elements = [];
         (graph.nodes || []).forEach(n => {
             const role = roleOf(n, opNames);
-            let display;
-            if (n.type === 'ROUTE') display = routeShort(n.label);
-            else if (n.type === 'BACKEND') display = backendShort(n.label);
-            else display = n.label.replace(/\s*\[.*\]$/, '');
-            elements.push({
-                data: {
-                    id: n.id, label: display, full: n.label, type: n.type, role: role,
-                    isEntry: entry.has(n.id) ? 'yes' : 'no',
-                    version: n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '',
-                    source: (n.data && n.data.source) || '',
-                    reached: (reachedBy[n.id] || []).join(', ')
-                }
-            });
+            let display = n.type === 'ROUTE' ? routeShort(n.label)
+                : n.type === 'BACKEND' ? backendShort(n.label) : n.label.replace(/\s*\[.*\]$/, '');
+            elements.push({ data: {
+                id: n.id, label: display, full: n.label, type: n.type, role: role,
+                isEntry: entry.has(n.id) ? 'yes' : 'no',
+                version: n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '',
+                source: (n.data && n.data.source) || '',
+                reached: (reachedBy[n.id] || []).join(', ')
+            } });
         });
-        (graph.edges || []).forEach((e, i) =>
-            elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, label: e.label || '' } }));
+        (graph.edges || []).forEach((e, i) => elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, label: e.label || '' } }));
 
         if (cy) cy.destroy();
         cy = cytoscape({
-            container: $('cy'),
-            elements: elements,
+            container: $('cy'), elements: elements,
             style: [
                 { selector: 'node', style: {
                     'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff',
@@ -316,24 +372,22 @@
                     'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
                     'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309',
                     'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
-                { selector: '.faded', style: { 'opacity': 0.2 } },
+                { selector: '.faded', style: { 'opacity': 0.15 } },
                 { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
+                { selector: 'node.match', style: { 'border-width': 4, 'border-color': '#7c3aed' } },
                 { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } }
             ]
         });
-
-        const fitGraph = () => {
-            cy.fit(undefined, 45);
-            if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); }
-        };
+        const fitGraph = () => { cy.fit(undefined, 45); if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); } };
         const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 100 });
         layout.one('layoutstop', fitGraph);
-        layout.run();
-        fitGraph();
-        setTimeout(fitGraph, 200);
+        layout.run(); fitGraph(); setTimeout(fitGraph, 200);
 
         cy.on('tap', 'node', (evt) => selectNode(evt.target));
         cy.on('tap', (evt) => { if (evt.target === cy) clearSelection(); });
+        cy.on('mouseover', 'node', (evt) => showTooltip(evt.target));   // (7)
+        cy.on('mouseout', 'node', hideTooltip);
+        cy.on('pan zoom drag', hideTooltip);
     }
 
     function focusApi(nodeId) {
@@ -341,15 +395,12 @@
         const node = cy.getElementById(nodeId);
         if (node && node.nonempty()) { selectNode(node); cy.animate({ center: { eles: node }, zoom: 1.0 }, { duration: 250 }); }
     }
-
     function selectNode(node) {
         const d = node.data();
         cy.elements().addClass('faded');
         node.closedNeighborhood().removeClass('faded');
         node.connectedEdges().removeClass('faded').addClass('hl');
-        cy.nodes().removeClass('selected');
-        node.addClass('selected');
-
+        cy.nodes().removeClass('selected'); node.addClass('selected');
         const rows = [];
         rows.push(`<span class="role" style="background:${COLORS[d.role]}">${ROLE_LABEL[d.role]}</span>`);
         rows.push(`<div class="kv" style="margin-top:8px"><b>${d.type === 'BACKEND' ? 'Endpoint' : 'Name'}:</b><br><code>${d.full}</code></div>`);
@@ -362,23 +413,62 @@
         $('detailBody').innerHTML = rows.join('');
         show($('detail'), true);
     }
-
     function sourceLabel(s) {
         if (s === 'camel') return 'Camel RouteDefinition';
         if (s === 'dom') return 'DOM fallback parser';
         if (s === 'not-found') return 'not found in source';
         return s || '—';
     }
+    function clearSelection() { if (cy) { cy.elements().removeClass('faded hl selected match'); show($('detail'), false); } }
 
-    function clearSelection() {
+    // --- tooltips (7) ---
+    function showTooltip(node) {
+        const tip = $('tooltip'); const p = node.renderedPosition();
+        tip.textContent = node.data('full'); tip.style.left = p.x + 'px'; tip.style.top = p.y + 'px'; tip.style.display = 'block';
+    }
+    function hideTooltip() { $('tooltip').style.display = 'none'; }
+
+    // --- search (8) ---
+    function search(q) {
         if (!cy) return;
-        cy.elements().removeClass('faded hl selected');
-        show($('detail'), false);
+        q = q.trim().toLowerCase();
+        cy.nodes().removeClass('match');
+        if (!q) { cy.elements().removeClass('faded'); return; }
+        const matches = cy.nodes().filter(n => (n.data('full') + ' ' + n.data('label')).toLowerCase().includes(q));
+        cy.elements().addClass('faded');
+        matches.removeClass('faded').addClass('match');
+        matches.connectedEdges().removeClass('faded');
+        if (matches.nonempty()) cy.animate({ fit: { eles: matches, padding: 60 } }, { duration: 250 });
     }
 
-    $('detailClose') && $('detailClose').addEventListener('click', clearSelection);
+    // --- export (6) ---
+    function exportPng() {
+        if (!cy) return;
+        const a = document.createElement('a');
+        a.href = cy.png({ full: true, scale: 2, bg: '#ffffff' });
+        a.download = 'route-trace.png'; a.click();
+    }
+    async function copyJson() {
+        if (!lastData) return;
+        try { await navigator.clipboard.writeText(JSON.stringify(lastData, null, 2)); flash($('jsonBtn'), 'Copied!'); }
+        catch (e) { flash($('jsonBtn'), 'Copy failed'); }
+    }
+    function flash(btn, msg) { const t = btn.textContent; btn.textContent = msg; setTimeout(() => btn.textContent = t, 1200); }
+
+    // --- wiring ---
+    $('detailClose').addEventListener('click', clearSelection);
     $('trace').addEventListener('click', trace);
-    window.addEventListener('load', trace);
+    $('catalogAll').addEventListener('click', backToCatalog);
+    $('backToCatalog').addEventListener('click', backToCatalog);
+    $('api').addEventListener('input', updateModeChip);
+    $('sourceDir').addEventListener('change', () => { persist(); loadMeta(); });
+    $('country').addEventListener('change', () => { persist(); loadMeta(); });
+    $('search').addEventListener('input', (e) => search(e.target.value));
+    $('fitBtn').addEventListener('click', () => cy && cy.fit(undefined, 45));
+    $('pngBtn').addEventListener('click', exportPng);
+    $('jsonBtn').addEventListener('click', copyJson);
+
+    window.addEventListener('load', async () => { restore(); await loadMeta(); trace(); });
 </script>
 </body>
 </html>

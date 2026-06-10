@@ -54,6 +54,14 @@ public class RouteGraphController {
                 new TraceRequest(null, null, null, sourceDir, null)));
     }
 
+    /** Discovery metadata for the UI: countries, versions and transferType values. */
+    @GetMapping("/internal/meta")
+    public Map<String, Object> meta(
+            @RequestParam(required = false) String sourceDir,
+            @RequestParam(required = false) String country) {
+        return service.meta(new TraceRequest(null, null, null, sourceDir, country));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> badRequest(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)

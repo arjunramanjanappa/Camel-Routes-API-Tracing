@@ -72,6 +72,26 @@ public class RouteTraceService {
         return scanner.scan(resolveRoot(request)).countries();
     }
 
+    /**
+     * Discovery metadata for the UI: available countries, release versions and
+     * branch ({@code transferType}) values. Versions/branches honour the country
+     * scope when one is given.
+     */
+    public Map<String, Object> meta(TraceRequest request) {
+        SourceIndex index = scanner.scan(resolveRoot(request));
+        String country = (request.country() != null && !request.country().isBlank())
+                ? request.country().trim() : null;
+        RouteRegistry registry = country != null
+                ? index.scopedRegistry(country, new ArrayList<>())
+                : index.fullRegistry();
+        List<String> versions = registry.allVersions();
+        versions.sort((a, b) -> compareVersions(b, a));
+        return Map.of(
+                "countries", index.countries(),
+                "versions", versions,
+                "transferTypes", registry.allBranchValues());
+    }
+
     // --- shared preparation ---
 
     private Prepared prepare(TraceRequest request) {

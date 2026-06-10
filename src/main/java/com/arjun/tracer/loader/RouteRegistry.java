@@ -1,12 +1,18 @@
 package com.arjun.tracer.loader;
 
+import com.arjun.tracer.model.ChoiceElement;
+import com.arjun.tracer.model.ContainerElement;
+import com.arjun.tracer.model.RouteElement;
 import com.arjun.tracer.model.RouteModel;
+import com.arjun.tracer.model.WhenElement;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -82,4 +88,53 @@ public class RouteRegistry {
         }
         return versions;
     }
+
+    /** All distinct release versions present across every route (for UI suggestions). */
+    public List<String> allVersions() {
+        Set<String> versions = new LinkedHashSet<>();
+        for (RouteModel route : all) {
+            String key = route.fromName() != null ? route.fromName() : route.routeId();
+            if (key == null) {
+                continue;
+            }
+            Matcher m = VERSIONED.matcher(key);
+            if (m.matches()) {
+                versions.add(m.group(1));
+            }
+        }
+        return new ArrayList<>(versions);
+    }
+
+    /**
+     * All distinct quoted constants compared in {@code <choice>}/{@code <when>}
+     * predicates (e.g. {@code OWN}, {@code INTRA}, {@code INTER}) — the candidate
+     * {@code transferType} values, for UI suggestions.
+     */
+    public List<String> allBranchValues() {
+        Set<String> values = new LinkedHashSet<>();
+        for (RouteModel route : all) {
+            collectBranchValues(route.elements(), values);
+        }
+        return new ArrayList<>(values);
+    }
+
+    private void collectBranchValues(List<RouteElement> elements, Set<String> out) {
+        for (RouteElement el : elements) {
+            if (el instanceof ChoiceElement choice) {
+                for (WhenElement when : choice.whens()) {
+                    Matcher m = QUOTED.matcher(when.predicate() == null ? "" : when.predicate());
+                    while (m.find()) {
+                        out.add(m.group(1));
+                    }
+                    collectBranchValues(when.children(), out);
+                }
+                collectBranchValues(choice.otherwise(), out);
+            } else if (el instanceof ContainerElement container) {
+                collectBranchValues(container.children(), out);
+            }
+        }
+    }
+
+    /** A single- or double-quoted literal, e.g. the {@code 'INTER'} in a when. */
+    private static final Pattern QUOTED = Pattern.compile("['\"]([A-Za-z0-9_\\-]+)['\"]");
 }

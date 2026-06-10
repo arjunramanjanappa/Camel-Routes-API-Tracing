@@ -31,7 +31,8 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
                                Set<String> definedContexts, boolean hasCamelContext,
                                Set<String> hostRouteIds) {
 
-    private static final String HTTP_URI_MARKER = "CamelHttpUri";
+    /** Lower-cased so detection is case-insensitive (CamelHttpUri / camelHttpUri / …). */
+    private static final String HTTP_URI_MARKER = "camelhttpuri";
 
     public static RouteXmlMetadata parse(String xml) {
         try {
@@ -63,8 +64,7 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
     private static boolean mentionsHttpUri(Element el) {
         var attributes = el.getAttributes();
         for (int i = 0; i < attributes.getLength(); i++) {
-            if (attributes.item(i).getNodeValue() != null
-                    && attributes.item(i).getNodeValue().contains(HTTP_URI_MARKER)) {
+            if (containsMarker(attributes.item(i).getNodeValue())) {
                 return true;
             }
         }
@@ -74,12 +74,15 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
             if (n.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && mentionsHttpUri((Element) n)) {
                 return true;
             }
-            if (n.getNodeType() == org.w3c.dom.Node.TEXT_NODE && n.getNodeValue() != null
-                    && n.getNodeValue().contains(HTTP_URI_MARKER)) {
+            if (n.getNodeType() == org.w3c.dom.Node.TEXT_NODE && containsMarker(n.getNodeValue())) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean containsMarker(String value) {
+        return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(HTTP_URI_MARKER);
     }
 
     private static List<String> attrs(Document doc, String localName, String attr) {

@@ -346,7 +346,10 @@
                 source: (n.data && n.data.source) || '', reached: (reachedBy[n.id] || []).join(', ')
             } });
         });
-        (graph.edges || []).forEach((e, i) => elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, label: e.label || '' } }));
+        (graph.edges || []).forEach((e, i) => elements.push({ data: {
+            id: 'e' + i, source: e.from, target: e.to, label: e.label || '',
+            async: (e.label && e.label.indexOf('async') >= 0) ? 'yes' : 'no'
+        } }));
 
         if (cy) cy.destroy();
         cy = cytoscape({
@@ -365,6 +368,7 @@
                 { selector: '.faded', style: { 'opacity': 0.15 } },
                 { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
                 { selector: 'node.match', style: { 'border-width': 4, 'border-color': '#7c3aed' } },
+                { selector: 'edge[async="yes"]', style: { 'line-style': 'dashed' } },   // seda/vm async call
                 { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } }
             ]
         });

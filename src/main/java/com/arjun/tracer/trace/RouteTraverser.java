@@ -91,13 +91,14 @@ public class RouteTraverser {
             return nodeId;
         }
         if (host) {
-            // The host performs the backend call: it consumes the api (set here or
-            // upstream) and does NOT forward it onward. Collect any api it sets
-            // itself (once), then attach inherited + collected to this host.
+            // The host performs the backend call. Attach the api (set here or
+            // upstream) but do NOT expand the host's internal logic (its choice on
+            // URI_PROTOCOL / camelHttpUri is not shown). Collect only the api it
+            // sets itself, if any.
             List<PendingApi> collected = new ArrayList<>(inherited);
             if (firstVisit) {
                 response.getFlow().add(identity);
-                collected.addAll(walk(route.elements(), nodeId, null, new ArrayList<>(), false));
+                collected.addAll(collectApis(route.elements(), null));
             }
             attach(collected, nodeId);
             return nodeId;
@@ -118,6 +119,32 @@ public class RouteTraverser {
         for (PendingApi p : apis) {
             addBackend(p.value(), nodeId, p.branch());
         }
+    }
+
+    /**
+     * Collect {@code setProperty name="api"} values within a host route WITHOUT
+     * traversing its routing — a host's internal logic (its choice on the URI
+     * protocol / camelHttpUri) is not expanded onto the graph.
+     */
+    private List<PendingApi> collectApis(List<RouteElement> elements, String branch) {
+        List<PendingApi> out = new ArrayList<>();
+        for (RouteElement el : elements) {
+            if (el instanceof SetPropertyElement sp) {
+                if (sp.name() != null && sp.name().equalsIgnoreCase("api")
+                        && sp.value() != null && !sp.value().isBlank()) {
+                    out.add(new PendingApi(sp.value().trim(), branch));
+                }
+            } else if (el instanceof ChoiceElement choice) {
+                for (WhenElement when : choice.whens()) {
+                    out.addAll(collectApis(when.children(), branchLabel(when.predicate())));
+                }
+                out.addAll(collectApis(choice.otherwise(), "OTHERWISE"));
+            } else if (el instanceof ContainerElement container) {
+                out.addAll(collectApis(container.children(), branch));
+            }
+            // ToElement / RecipientListElement intentionally not traversed for hosts
+        }
+        return out;
     }
 
     /**
@@ -162,19 +189,27 @@ public class RouteTraverser {
         int colon = uri.indexOf(':');
         String scheme = colon > 0 ? uri.substring(0, colon) : uri;
         String remainder = colon > 0 ? uri.substring(colon + 1) : "";
+        int query = remainder.indexOf('?');
+        if (query >= 0) {
+            remainder = remainder.substring(0, query);       // strip endpoint options, e.g. seda:x?waitForTaskToComplete=Never
+        }
+        boolean async = scheme.equals("seda") || scheme.equals("vm");
 
-        if (scheme.equals("direct") || scheme.equals("direct-vm") || scheme.equals("seda")
-                || scheme.equals("vm")) {
+        if (scheme.equals("direct") || scheme.equals("direct-vm") || async) {
             String target = resolveDynamicName(remainder);
             if (target == null) {
                 response.getWarnings().add("Unresolved dynamic target: " + uri);
                 return;
             }
+            // Flag async (seda/vm) calls on the edge so they read as fire-and-forget.
+            String edgeLabel = async
+                    ? (branch != null && !branch.isBlank() ? branch + " · async" : "async")
+                    : branch;
             if (forward) {
-                visitRoute(target, currentNodeId, branch, new ArrayList<>(active));
+                visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>(active));
                 active.clear();                              // handed off downstream
             } else {
-                visitRoute(target, currentNodeId, branch, new ArrayList<>());
+                visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
             addBackend(uri, currentNodeId, branch); // external call is itself a backend

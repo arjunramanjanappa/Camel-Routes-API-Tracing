@@ -1,0 +1,80 @@
+package com.arjun.tracer;
+
+import com.arjun.tracer.api.GraphNode;
+import com.arjun.tracer.api.TraceRequest;
+import com.arjun.tracer.api.TraceResponse;
+import com.arjun.tracer.service.RouteTraceService;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * The reported pattern: a route calls the host ({@code direct:callUFWDGE}) and
+ * also fires an async ({@code seda:}) call to another route that sets its own
+ * api and calls the same host. Both api values must land on the host; the host's
+ * own internal {@code camelHttpUri} logic must NOT be shown.
+ */
+class SedaAsyncHostTest {
+
+    private static final String ROUTES = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="commonMtyContext">
+                <route id="R9.14_getFxRateRoute">
+                  <from uri="direct:R9.14_getFxRate"/>
+                  <setProperty name="api"><simple>/bfs/fx/rates</simple></setProperty>
+                  <to uri="direct:callUFWDGE"/>
+                  <to uri="seda:accTXn?waitForTaskToComplete=Never"/>
+                </route>
+                <route id="accTXnRoute">
+                  <from uri="seda:accTXn"/>
+                  <setProperty name="api"><simple>/asv/doactivityLogging</simple></setProperty>
+                  <to uri="direct:callUFWDGE"/>
+                </route>
+                <route id="callUFWDGERoute">
+                  <from uri="direct:callUFWDGE"/>
+                  <choice>
+                    <when>
+                      <simple>${exchangeProperty[URI_PROTOCOL]} == 'https'</simple>
+                      <setProperty name="camelHttpUri"><simple>/asv/fixed</simple></setProperty>
+                    </when>
+                    <otherwise>
+                      <setProperty name="camelHttpUri"><simple>${exchangeProperty[api]}</simple></setProperty>
+                    </otherwise>
+                  </choice>
+                </route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    private boolean edge(TraceResponse r, String from, String to, String label) {
+        return r.getGraph().getEdges().stream().anyMatch(e ->
+                e.from().equals(from) && e.to().equals(to)
+                        && (label == null ? e.label() == null : label.equals(e.label())));
+    }
+
+    @Test
+    void sedaAsyncIsFollowedAndBothApisLandOnTheHost(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("r.xml"), ROUTES);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("R9.14_getFxRate", "", null, null));
+
+        // The async seda route was followed (its ?query stripped).
+        assertThat(r.getFlow()).contains("R9.14_getFxRateRoute", "callUFWDGERoute", "accTXnRoute");
+        assertThat(edge(r, "route:R9.14_getFxRateRoute", "route:accTXnRoute", "async")).isTrue();
+
+        // Both callers' api values land on the host; the host's internal
+        // camelHttpUri literal (/asv/fixed) is NOT shown.
+        assertThat(r.getBackendApis())
+                .containsExactlyInAnyOrder("/bfs/fx/rates", "/asv/doactivityLogging");
+        assertThat(edge(r, "route:callUFWDGERoute", "backend:/bfs/fx/rates", null)).isTrue();
+        assertThat(edge(r, "route:callUFWDGERoute", "backend:/asv/doactivityLogging", null)).isTrue();
+
+        GraphNode host = r.getGraph().getNodes().stream()
+                .filter(n -> n.id().equals("route:callUFWDGERoute")).findFirst().orElseThrow();
+        assertThat(host.data().get("host")).isEqualTo(true);
+    }
+}

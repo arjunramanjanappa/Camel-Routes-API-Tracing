@@ -62,24 +62,33 @@ public class RouteTraverser {
         visitRoute(entryRouteName, apiNodeId, null);
     }
 
-    private void visitRoute(String routeName, String parentNodeId, String branch) {
-        String nodeId = "route:" + routeName;
-        RouteModel route = registry.lookup(routeName);
+    /**
+     * Visit a route referenced by an endpoint name (e.g. {@code direct:NAME}).
+     * The route is labelled by its version-bearing {@code id} (e.g.
+     * {@code R9.18_redirectRoute}) rather than its {@code from} endpoint, which
+     * is often un-versioned. Returns the graph node id so a pending backend can
+     * be attached to a host route.
+     */
+    private String visitRoute(String endpoint, String parentNodeId, String branch) {
+        RouteModel route = registry.lookup(endpoint);
+        // Prefer the route id (carries the version); fall back to the endpoint name.
+        String identity = (route != null && route.routeId() != null) ? route.routeId() : endpoint;
+        String nodeId = "route:" + identity;
         String source = route != null ? route.source() : "not-found";
-        graph.addNode(new GraphNode(nodeId, routeName, GraphNode.TYPE_ROUTE,
+        graph.addNode(new GraphNode(nodeId, identity, GraphNode.TYPE_ROUTE,
                 java.util.Map.of("source", source)));
         if (parentNodeId != null) {
             graph.addEdge(parentNodeId, nodeId, branch);
         }
-        if (!expandedRoutes.add(routeName)) {
-            return; // already expanded — edge recorded, but don't recurse (loop guard)
+        if (expandedRoutes.add(identity)) {        // expand once (loop guard)
+            if (route == null) {
+                response.getWarnings().add("Route not found in source: " + endpoint);
+            } else {
+                response.getFlow().add(identity);
+                walk(route.elements(), nodeId, null);
+            }
         }
-        if (route == null) {
-            response.getWarnings().add("Route not found in source: " + routeName);
-            return;
-        }
-        response.getFlow().add(routeName);
-        walk(route.elements(), nodeId, null);
+        return nodeId;
     }
 
     private void walk(List<RouteElement> elements, String currentNodeId, String branch) {
@@ -133,8 +142,7 @@ public class RouteTraverser {
                 || scheme.equals("vm")) {
             String target = resolveDynamicName(remainder);
             if (target != null) {
-                visitRoute(target, currentNodeId, branch);
-                return "route:" + target;
+                return visitRoute(target, currentNodeId, branch);
             }
             response.getWarnings().add("Unresolved dynamic target: " + uri);
             return null;

@@ -70,8 +70,9 @@ class SedaAsyncHostTest {
         // camelHttpUri literal (/asv/fixed) is NOT shown.
         assertThat(r.getBackendApis())
                 .containsExactlyInAnyOrder("/bfs/fx/rates", "/asv/doactivityLogging");
-        assertThat(edge(r, "route:callUFWDGERoute", "backend:/bfs/fx/rates", null)).isTrue();
-        assertThat(edge(r, "route:callUFWDGERoute", "backend:/asv/doactivityLogging", null)).isTrue();
+        // Backends converge INTO the host barrel.
+        assertThat(edge(r, "backend:/bfs/fx/rates", "route:callUFWDGERoute", null)).isTrue();
+        assertThat(edge(r, "backend:/asv/doactivityLogging", "route:callUFWDGERoute", null)).isTrue();
 
         GraphNode host = r.getGraph().getNodes().stream()
                 .filter(n -> n.id().equals("route:callUFWDGERoute")).findFirst().orElseThrow();

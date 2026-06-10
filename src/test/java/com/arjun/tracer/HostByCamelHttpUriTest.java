@@ -54,11 +54,12 @@ class HostByCamelHttpUriTest {
         assertThat(r.getFlow()).containsExactly("R9.5_getRate", "enrichRoute", "callHost");
         assertThat(r.getBackendApis()).containsExactly("/bfs/rate");
 
-        // Attached to the host (CamelHttpUri), not the intermediate or the setter.
-        assertThat(edge(r, "route:callHost", "backend:/bfs/rate")).isTrue();
+        // Backend converges INTO the host barrel (CamelHttpUri), not the intermediate/setter.
+        assertThat(edge(r, "backend:/bfs/rate", "route:callHost")).isTrue();
         assertThat(r.getGraph().getEdges()).noneMatch(e ->
-                e.to().startsWith("backend:")
-                        && (e.from().equals("route:enrichRoute") || e.from().equals("route:R9.5_getRate")));
+                (e.from().startsWith("backend:") || e.to().startsWith("backend:"))
+                        && (e.from().equals("route:enrichRoute") || e.to().equals("route:enrichRoute")
+                        || e.from().equals("route:R9.5_getRate") || e.to().equals("route:R9.5_getRate")));
 
         // The host route is flagged.
         GraphNode host = r.getGraph().getNodes().stream()

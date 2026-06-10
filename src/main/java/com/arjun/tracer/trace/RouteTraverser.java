@@ -87,7 +87,7 @@ public class RouteTraverser {
             if (firstVisit) {
                 response.getWarnings().add("Route not found in source: " + endpoint);
             }
-            attach(inherited, nodeId);                       // still record the inherited backend(s)
+            attach(inherited, nodeId, false);                // still record the inherited backend(s)
             return nodeId;
         }
         if (host) {
@@ -100,7 +100,7 @@ public class RouteTraverser {
                 response.getFlow().add(identity);
                 collected.addAll(collectApis(route.elements(), null));
             }
-            attach(collected, nodeId);
+            attach(collected, nodeId, true);                 // backends fan INTO the host barrel
             return nodeId;
         }
         if (firstVisit) {
@@ -108,16 +108,17 @@ public class RouteTraverser {
             List<PendingApi> active = new ArrayList<>(inherited);
             // Leftover = api set in/inherited by this route that no downstream route
             // consumed → this route is itself the consumer.
-            attach(walk(route.elements(), nodeId, null, active, true), nodeId);
+            attach(walk(route.elements(), nodeId, null, active, true), nodeId, false);
         } else {
-            attach(inherited, nodeId);                       // revisit: record inherited here (deduped)
+            attach(inherited, nodeId, false);                // revisit: record inherited here (deduped)
         }
         return nodeId;
     }
 
-    private void attach(List<PendingApi> apis, String nodeId) {
+    /** @param into true to draw backend → node (into a host barrel); false for node → backend. */
+    private void attach(List<PendingApi> apis, String nodeId, boolean into) {
         for (PendingApi p : apis) {
-            addBackend(p.value(), nodeId, p.branch());
+            addBackend(p.value(), nodeId, p.branch(), into);
         }
     }
 
@@ -212,7 +213,7 @@ public class RouteTraverser {
                 visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch); // external call is itself a backend
+            addBackend(uri, currentNodeId, branch, false); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
     }
@@ -279,10 +280,14 @@ public class RouteTraverser {
         return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
     }
 
-    private void addBackend(String value, String currentNodeId, String branch) {
+    private void addBackend(String value, String routeNodeId, String branch, boolean into) {
         String nodeId = "backend:" + value;
         graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
-        graph.addEdge(currentNodeId, nodeId, branch);
+        if (into) {
+            graph.addEdge(nodeId, routeNodeId, branch);      // backend → host (converges into the barrel)
+        } else {
+            graph.addEdge(routeNodeId, nodeId, branch);      // route → backend
+        }
         if (!backendsSeen.contains(value)) {
             backendsSeen.add(value);
             response.getBackendApis().add(value);

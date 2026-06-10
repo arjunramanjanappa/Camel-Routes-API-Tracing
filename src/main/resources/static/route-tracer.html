@@ -157,172 +157,151 @@
 </div>
 
 <script>
+    /*
+     * Reactive vanilla architecture (no framework, no build):
+     *   state  — single source of truth
+     *   setState(patch) — merge + re-render
+     *   render() — derives the whole DOM from state; idempotent.
+     * The expensive Cytoscape graph is rebuilt only when `state.data` changes;
+     * selection/search are applied as cheap class toggles every render.
+     */
     const $ = (id) => document.getElementById(id);
-    let cy, lastData;
-
     const COLORS = { api: '#2563eb', versioned: '#059669', base: '#d97706', shared: '#0891b2', backend: '#ea580c' };
     const ROLE_LABEL = { api: 'API', versioned: 'Versioned route', base: 'BASE route', shared: 'Shared / host route', backend: 'Backend API' };
     const VER_PREFIX = /^R[\d.]+_/;
-    const FIELDS = ['api', 'version', 'transferType', 'country', 'sourceDir'];
+    const INPUTS = ['api', 'version', 'transferType', 'country', 'sourceDir'];
+
+    const state = {
+        api: '', version: '', transferType: '', country: '', sourceDir: '', search: '',
+        meta: { countries: [], versions: [], transferTypes: [] },
+        loading: false, error: null, data: null, selectedId: null
+    };
+    let cy = null, renderedData = undefined, appliedSelection = null, appliedSearch = null;
+
+    function setState(patch) { Object.assign(state, patch); render(); }
+
+    // ---------------- render ----------------
+    function render() {
+        renderControls();
+        renderStatus();
+        if (state.data !== renderedData) {     // rebuild heavy parts only on new data
+            renderedData = state.data;
+            renderResultPanels();
+            rebuildGraph();
+            appliedSelection = appliedSearch = null;
+        }
+        applyHighlight();
+        renderDetail();
+    }
 
     function show(el, on) { el.style.display = on ? '' : 'none'; }
+    function syncInput(id) { const el = $(id); if (el.value !== state[id]) el.value = state[id]; }
+    function setOptions(el, values) {
+        const sig = '|' + (values || []).join('|');
+        if (el.dataset.sig !== sig) { el.dataset.sig = sig; el.innerHTML = (values || []).map(v => `<option value="${v}">`).join(''); }
+    }
     function routeShort(name) { const m = name.match(/^R([\d.]+)_(.+)$/); return m ? m[2] : name; }
     function routeVersion(name) { const m = name.match(VER_PREFIX); return m ? m[0].slice(1, -1) : null; }
     function backendShort(value) { return value.replace(/^\{\{[^}]+\}\}/, '').replace(/^https?:\/\/[^/]+/, '') || value; }
 
-    // --- persistence (1) ---
-    function persist() { FIELDS.forEach(f => localStorage.setItem('tracer.' + f, $(f).value)); }
-    function restore() {
-        FIELDS.forEach(f => { const v = localStorage.getItem('tracer.' + f); if (v !== null) $(f).value = v; });
-        updateModeChip();
-    }
-
-    // --- mode clarity (3) ---
-    function updateModeChip() {
-        const single = $('api').value.trim() !== '';
+    function renderControls() {
+        ['api', 'version', 'transferType', 'sourceDir', 'search'].forEach(syncInput);
+        const single = state.api.trim() !== '';
         const chip = $('modeChip');
         chip.className = 'chip ' + (single ? 'single' : 'catalog');
         chip.textContent = single ? 'Single trace' : 'Catalog: all APIs';
         show($('catalogAll'), single);
+        setOptions($('versionList'), state.meta.versions);
+        setOptions($('branchList'), state.meta.transferTypes);
+        renderCountrySelect();
     }
-
-    // --- discovery metadata for dropdowns (4,5) ---
-    async function loadMeta() {
-        try {
-            const p = new URLSearchParams();
-            if ($('sourceDir').value.trim()) p.set('sourceDir', $('sourceDir').value.trim());
-            if ($('country').value) p.set('country', $('country').value);
-            const res = await fetch('/internal/meta?' + p.toString());
-            if (!res.ok) return;
-            const m = await res.json();
-            fillDatalist('versionList', m.versions);
-            fillDatalist('branchList', m.transferTypes);
-            populateCountries(m.countries, $('country').value);
-        } catch (e) { /* meta is best-effort */ }
-    }
-    function fillDatalist(id, values) {
-        $(id).innerHTML = (values || []).map(v => '<option value="' + v + '">').join('');
-    }
-
-    // --- trace (2 loading) ---
-    async function trace() {
-        persist();
-        const btn = $('trace');
-        btn.disabled = true; btn.textContent = 'Scanning…';
-        $('overlay').classList.add('on');
-        $('error').style.display = 'none';
-        try {
-            const params = new URLSearchParams();
-            if ($('api').value.trim()) params.set('api', $('api').value.trim());
-            if ($('version').value.trim()) params.set('version', $('version').value.trim());
-            if ($('transferType').value.trim()) params.set('transferType', $('transferType').value.trim());
-            if ($('sourceDir').value.trim()) params.set('sourceDir', $('sourceDir').value.trim());
-            if ($('country').value) params.set('country', $('country').value);
-
-            const res = await fetch('/internal/route-graph?' + params.toString());
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
-            lastData = data;
-            populateCountries(data.availableCountries, data.country);
-            if (data.mode === 'catalog') renderCatalog(data); else renderSingle(data);
-        } catch (e) {
-            $('error').textContent = 'Error: ' + e.message; $('error').style.display = '';
-        } finally {
-            btn.disabled = false; btn.textContent = 'Trace';
-            $('overlay').classList.remove('on');
+    function renderCountrySelect() {
+        const sel = $('country');
+        const countries = state.meta.countries.length ? state.meta.countries
+            : (state.data && state.data.availableCountries) || [];
+        const sig = '|' + countries.join('|');
+        if (sel.dataset.sig !== sig) {
+            sel.dataset.sig = sig;
+            sel.innerHTML = '<option value="">(all countries)</option>' + countries.map(c => `<option value="${c}">${c}</option>`).join('');
         }
+        if (sel.value !== state.country) sel.value = state.country;
+    }
+    function renderStatus() {
+        $('overlay').classList.toggle('on', state.loading);
+        $('trace').disabled = state.loading;
+        $('trace').textContent = state.loading ? 'Scanning…' : 'Trace';
+        if (state.error) { $('error').textContent = 'Error: ' + state.error; show($('error'), true); }
+        else show($('error'), false);
     }
 
-    function hideSinglePanels() { ['summary', 'flowPanel', 'backendPanel'].forEach(id => show($(id), false)); }
-
-    function renderSingle(data) {
-        show($('detail'), false);
-        show($('catalog'), false);
+    // ---------------- result panels ----------------
+    function renderResultPanels() {
+        const d = state.data;
+        if (!d) { ['summary', 'flowPanel', 'backendPanel', 'catalog', 'warnPanel'].forEach(id => show($(id), false)); return; }
+        if (d.mode === 'catalog') {
+            ['summary', 'flowPanel', 'backendPanel'].forEach(id => show($(id), false));
+            renderCatalogPanel(d); show($('catalog'), true);
+        } else {
+            show($('catalog'), false); renderSinglePanel(d);
+        }
+        renderWarnings(d.warnings);
+    }
+    function renderSinglePanel(d) {
         show($('summary'), true);
-        $('op').textContent = data.operationName || '(unresolved)';
-        $('cmd').textContent = data.command || '—';
-        $('route').textContent = data.resolvedRoute || '—';
+        $('op').textContent = d.operationName || '(unresolved)';
+        $('cmd').textContent = d.command || '—';
+        $('route').textContent = d.resolvedRoute || '—';
         const pill = $('basePill');
-        if (data.resolvedRoute) {
-            pill.className = 'pill ' + (data.baseFallback ? 'base' : 'versioned');
-            pill.textContent = data.baseFallback ? 'BASE' : ('R' + (data.resolvedVersion || ''));
-        } else { pill.className = 'pill none'; pill.textContent = data.operationName ? 'no route' : ''; }
-
-        fillList($('flow'), data.flow, $('flowPanel'));
-        fillList($('backends'), data.backendApis, $('backendPanel'));
-        fillWarnings(data.warnings);
-        drawGraph(data.graph || { nodes: [], edges: [] }, [data.operationName]);
+        if (d.resolvedRoute) { pill.className = 'pill ' + (d.baseFallback ? 'base' : 'versioned'); pill.textContent = d.baseFallback ? 'BASE' : ('R' + (d.resolvedVersion || '')); }
+        else { pill.className = 'pill none'; pill.textContent = d.operationName ? 'no route' : ''; }
+        fillList($('flow'), d.flow, $('flowPanel'));
+        fillList($('backends'), d.backendApis, $('backendPanel'));
     }
-
-    function renderCatalog(data) {
-        show($('detail'), false);
-        hideSinglePanels();
-        const cat = $('catalog');
-        cat.innerHTML = '';
-        show(cat, true);
-
+    function renderCatalogPanel(d) {
+        const cat = $('catalog'); cat.innerHTML = '';
         const head = document.createElement('div');
         head.className = 'panel';
-        head.innerHTML = '<h2>Catalog' + (data.country ? ' · ' + data.country : '') + '</h2>'
-            + '<div class="kv"><b>APIs discovered:</b> ' + data.operationCount + '</div>'
-            + '<div class="kv"><b>Version groups:</b> ' + (data.versionsFound || []).join(', ') + '</div>';
+        head.innerHTML = '<h2>Catalog' + (d.country ? ' · ' + d.country : '') + '</h2>'
+            + '<div class="kv"><b>APIs discovered:</b> ' + d.operationCount + '</div>'
+            + '<div class="kv"><b>Version groups:</b> ' + (d.versionsFound || []).join(', ') + '</div>';
         cat.appendChild(head);
-
-        const opNames = new Set();
-        (data.groups || []).forEach(g => {
+        (d.groups || []).forEach(g => {
             const panel = document.createElement('div');
             panel.className = 'panel';
-            const isNone = g.version === '(no route found)';
-            const pillCls = isNone ? 'none' : (g.version === 'BASE' ? 'base' : 'versioned');
-            panel.innerHTML = '<h2>' + g.version + ' <span class="pill ' + pillCls + '">' + g.traces.length + '</span></h2>';
+            const cls = g.version === '(no route found)' ? 'none' : (g.version === 'BASE' ? 'base' : 'versioned');
+            panel.innerHTML = '<h2>' + g.version + ' <span class="pill ' + cls + '">' + g.traces.length + '</span></h2>';
             g.traces.forEach(t => {
-                if (t.operationName) opNames.add(t.operationName);
-                const div = document.createElement('div');
-                div.className = 'entry';
+                const div = document.createElement('div'); div.className = 'entry';
                 const target = t.resolvedRoute ? ('<code>' + t.resolvedRoute + '</code>') : '<span class="warn">no route</span>';
                 const back = (t.backendApis && t.backendApis.length) ? (' · ' + t.backendApis.length + ' backend' + (t.backendApis.length > 1 ? 's' : '')) : '';
-                const body = document.createElement('div');
-                body.className = 'body';
+                const body = document.createElement('div'); body.className = 'body';
                 body.innerHTML = '<div class="op">' + t.operationName + '</div><div class="meta">' + (t.api || '') + '</div><div class="kv">' + target + back + '</div>';
-                body.addEventListener('click', () => focusApi('api:' + (t.api || t.operationName)));
-                const traceBtn = document.createElement('button');
-                traceBtn.className = 'minibtn'; traceBtn.textContent = 'Trace ▶';
-                traceBtn.title = 'Open this API as a single trace';
-                traceBtn.addEventListener('click', () => drillInto(t.api || t.operationName));
-                div.appendChild(body); div.appendChild(traceBtn);
-                panel.appendChild(div);
+                body.onclick = () => setState({ selectedId: 'api:' + (t.api || t.operationName), search: '' });
+                const btn = document.createElement('button'); btn.className = 'minibtn'; btn.textContent = 'Trace ▶';
+                btn.title = 'Open this API as a single trace';
+                btn.onclick = () => drillInto(t.api || t.operationName, t.resolvedVersion);
+                div.appendChild(body); div.appendChild(btn); panel.appendChild(div);
             });
             cat.appendChild(panel);
         });
-
-        fillWarnings(data.warnings);
-        drawGraph(data.graph || { nodes: [], edges: [] }, [...opNames]);
     }
-
-    // --- drill-down (3) ---
-    function drillInto(api) { $('api').value = api; updateModeChip(); trace(); }
-    function backToCatalog() { $('api').value = ''; updateModeChip(); trace(); }
-
     function fillList(listEl, items, panelEl) {
         listEl.innerHTML = '';
         (items || []).forEach(t => { const li = document.createElement('li'); li.innerHTML = '<code>' + t + '</code>'; listEl.appendChild(li); });
         show(panelEl, (items || []).length > 0);
     }
-    function fillWarnings(items) {
+    function renderWarnings(items) {
         const w = $('warnings'); w.innerHTML = '';
         (items || []).forEach(x => { const li = document.createElement('li'); li.className = 'warn'; li.textContent = x; w.appendChild(li); });
         show($('warnPanel'), (items || []).length > 0);
     }
-    function populateCountries(countries, selected) {
-        const sel = $('country');
-        const current = selected || sel.value || '';
-        const desired = '|' + (countries || []).join('|');
-        if (sel.dataset.list === desired) { sel.value = current; return; }
-        sel.dataset.list = desired;
-        sel.innerHTML = '<option value="">(all countries)</option>' + (countries || []).map(c => '<option value="' + c + '">' + c + '</option>').join('');
-        sel.value = current;
-    }
 
+    // ---------------- graph ----------------
+    function opNamesOf(d) {
+        if (!d) return [];
+        if (d.mode === 'catalog') { const s = new Set(); (d.groups || []).forEach(g => g.traces.forEach(t => t.operationName && s.add(t.operationName))); return [...s]; }
+        return [d.operationName];
+    }
     function roleOf(node, opNames) {
         if (node.type === 'API') return 'api';
         if (node.type === 'BACKEND') return 'backend';
@@ -330,8 +309,9 @@
         if (opNames.includes(node.label)) return 'base';
         return 'shared';
     }
-
-    function drawGraph(graph, opNames) {
+    function rebuildGraph() {
+        const graph = (state.data && state.data.graph) || { nodes: [], edges: [] };
+        const opNames = opNamesOf(state.data);
         const entry = new Set(), reachedBy = {};
         (graph.edges || []).forEach(e => {
             if (String(e.from).startsWith('api:')) entry.add(e.to);
@@ -340,14 +320,12 @@
         const elements = [];
         (graph.nodes || []).forEach(n => {
             const role = roleOf(n, opNames);
-            let display = n.type === 'ROUTE' ? routeShort(n.label)
-                : n.type === 'BACKEND' ? backendShort(n.label) : n.label.replace(/\s*\[.*\]$/, '');
+            const display = n.type === 'ROUTE' ? routeShort(n.label) : n.type === 'BACKEND' ? backendShort(n.label) : n.label.replace(/\s*\[.*\]$/, '');
             elements.push({ data: {
                 id: n.id, label: display, full: n.label, type: n.type, role: role,
                 isEntry: entry.has(n.id) ? 'yes' : 'no',
                 version: n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '',
-                source: (n.data && n.data.source) || '',
-                reached: (reachedBy[n.id] || []).join(', ')
+                source: (n.data && n.data.source) || '', reached: (reachedBy[n.id] || []).join(', ')
             } });
         });
         (graph.edges || []).forEach((e, i) => elements.push({ data: { id: 'e' + i, source: e.from, target: e.to, label: e.label || '' } }));
@@ -356,52 +334,53 @@
         cy = cytoscape({
             container: $('cy'), elements: elements,
             style: [
-                { selector: 'node', style: {
-                    'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff',
-                    'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
-                    'text-max-width': 130, 'width': 'label', 'height': 'label',
-                    'padding': '12px', 'shape': 'round-rectangle', 'background-color': '#64748b' } },
+                { selector: 'node', style: { 'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 130, 'width': 'label', 'height': 'label', 'padding': '12px', 'shape': 'round-rectangle', 'background-color': '#64748b' } },
                 { selector: 'node[role="api"]', style: { 'background-color': COLORS.api } },
                 { selector: 'node[role="versioned"]', style: { 'background-color': COLORS.versioned } },
                 { selector: 'node[role="base"]', style: { 'background-color': COLORS.base } },
                 { selector: 'node[role="shared"]', style: { 'background-color': COLORS.shared } },
                 { selector: 'node[role="backend"]', style: { 'background-color': COLORS.backend, 'shape': 'cut-rectangle' } },
                 { selector: 'node[isEntry="yes"]', style: { 'border-width': 4, 'border-color': '#f59e0b' } },
-                { selector: 'edge', style: {
-                    'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8',
-                    'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
-                    'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309',
-                    'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
+                { selector: 'edge', style: { 'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309', 'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
                 { selector: '.faded', style: { 'opacity': 0.15 } },
                 { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
                 { selector: 'node.match', style: { 'border-width': 4, 'border-color': '#7c3aed' } },
                 { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } }
             ]
         });
-        const fitGraph = () => { cy.fit(undefined, 45); if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); } };
+        const fit = () => { cy.fit(undefined, 45); if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); } };
         const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 100 });
-        layout.one('layoutstop', fitGraph);
-        layout.run(); fitGraph(); setTimeout(fitGraph, 200);
+        layout.one('layoutstop', fit); layout.run(); fit(); setTimeout(fit, 200);
 
-        cy.on('tap', 'node', (evt) => selectNode(evt.target));
-        cy.on('tap', (evt) => { if (evt.target === cy) clearSelection(); });
-        cy.on('mouseover', 'node', (evt) => showTooltip(evt.target));   // (7)
-        cy.on('mouseout', 'node', hideTooltip);
-        cy.on('pan zoom drag', hideTooltip);
+        cy.on('tap', 'node', (e) => setState({ selectedId: e.target.id(), search: '' }));
+        cy.on('tap', (e) => { if (e.target === cy) setState({ selectedId: null }); });
+        cy.on('mouseover', 'node', (e) => { const t = $('tooltip'), p = e.target.renderedPosition(); t.textContent = e.target.data('full'); t.style.left = p.x + 'px'; t.style.top = p.y + 'px'; t.style.display = 'block'; });
+        cy.on('mouseout', 'node', () => $('tooltip').style.display = 'none');
+        cy.on('pan zoom drag', () => $('tooltip').style.display = 'none');
     }
-
-    function focusApi(nodeId) {
+    function applyHighlight() {
         if (!cy) return;
-        const node = cy.getElementById(nodeId);
-        if (node && node.nonempty()) { selectNode(node); cy.animate({ center: { eles: node }, zoom: 1.0 }, { duration: 250 }); }
+        cy.elements().removeClass('faded hl selected match');
+        const q = state.search.trim().toLowerCase();
+        if (q) {
+            const matches = cy.nodes().filter(n => (n.data('full') + ' ' + n.data('label')).toLowerCase().includes(q));
+            cy.elements().addClass('faded'); matches.removeClass('faded').addClass('match'); matches.connectedEdges().removeClass('faded');
+            if (state.search !== appliedSearch && matches.nonempty()) cy.animate({ fit: { eles: matches, padding: 60 } }, { duration: 250 });
+        } else if (state.selectedId) {
+            const node = cy.getElementById(state.selectedId);
+            if (node && node.nonempty()) {
+                cy.elements().addClass('faded'); node.closedNeighborhood().removeClass('faded');
+                node.connectedEdges().removeClass('faded').addClass('hl'); node.addClass('selected');
+                if (state.selectedId !== appliedSelection) cy.animate({ center: { eles: node } }, { duration: 250 });
+            }
+        }
+        appliedSearch = state.search; appliedSelection = state.selectedId;
     }
-    function selectNode(node) {
-        const d = node.data();
-        cy.elements().addClass('faded');
-        node.closedNeighborhood().removeClass('faded');
-        node.connectedEdges().removeClass('faded').addClass('hl');
-        cy.nodes().removeClass('selected'); node.addClass('selected');
-        const rows = [];
+    function renderDetail() {
+        if (!cy || state.search || !state.selectedId) { show($('detail'), false); return; }
+        const node = cy.getElementById(state.selectedId);
+        if (!node || node.empty()) { show($('detail'), false); return; }
+        const d = node.data(), rows = [];
         rows.push(`<span class="role" style="background:${COLORS[d.role]}">${ROLE_LABEL[d.role]}</span>`);
         rows.push(`<div class="kv" style="margin-top:8px"><b>${d.type === 'BACKEND' ? 'Endpoint' : 'Name'}:</b><br><code>${d.full}</code></div>`);
         if (d.type === 'ROUTE') {
@@ -413,62 +392,72 @@
         $('detailBody').innerHTML = rows.join('');
         show($('detail'), true);
     }
-    function sourceLabel(s) {
-        if (s === 'camel') return 'Camel RouteDefinition';
-        if (s === 'dom') return 'DOM fallback parser';
-        if (s === 'not-found') return 'not found in source';
-        return s || '—';
-    }
-    function clearSelection() { if (cy) { cy.elements().removeClass('faded hl selected match'); show($('detail'), false); } }
+    function sourceLabel(s) { return s === 'camel' ? 'Camel RouteDefinition' : s === 'dom' ? 'DOM fallback parser' : s === 'not-found' ? 'not found in source' : (s || '—'); }
 
-    // --- tooltips (7) ---
-    function showTooltip(node) {
-        const tip = $('tooltip'); const p = node.renderedPosition();
-        tip.textContent = node.data('full'); tip.style.left = p.x + 'px'; tip.style.top = p.y + 'px'; tip.style.display = 'block';
-    }
-    function hideTooltip() { $('tooltip').style.display = 'none'; }
+    // ---------------- actions ----------------
+    function persistInputs() { INPUTS.forEach(f => localStorage.setItem('tracer.' + f, state[f])); }
+    function drillInto(api, version) { setState({ api, version: version || '', selectedId: null, search: '' }); persistInputs(); trace(); }
 
-    // --- search (8) ---
-    function search(q) {
-        if (!cy) return;
-        q = q.trim().toLowerCase();
-        cy.nodes().removeClass('match');
-        if (!q) { cy.elements().removeClass('faded'); return; }
-        const matches = cy.nodes().filter(n => (n.data('full') + ' ' + n.data('label')).toLowerCase().includes(q));
-        cy.elements().addClass('faded');
-        matches.removeClass('faded').addClass('match');
-        matches.connectedEdges().removeClass('faded');
-        if (matches.nonempty()) cy.animate({ fit: { eles: matches, padding: 60 } }, { duration: 250 });
+    async function trace() {
+        persistInputs();
+        setState({ loading: true, error: null });
+        try {
+            const p = new URLSearchParams();
+            if (state.api.trim()) p.set('api', state.api.trim());
+            if (state.version.trim()) p.set('version', state.version.trim());
+            if (state.transferType.trim()) p.set('transferType', state.transferType.trim());
+            if (state.sourceDir.trim()) p.set('sourceDir', state.sourceDir.trim());
+            if (state.country) p.set('country', state.country);
+            const res = await fetch('/internal/route-graph?' + p.toString());
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            const countries = (data.availableCountries && data.availableCountries.length) ? data.availableCountries : state.meta.countries;
+            setState({ loading: false, data, selectedId: null, search: '', error: null, meta: { ...state.meta, countries } });
+        } catch (e) { setState({ loading: false, error: e.message }); }
     }
-
-    // --- export (6) ---
-    function exportPng() {
-        if (!cy) return;
-        const a = document.createElement('a');
-        a.href = cy.png({ full: true, scale: 2, bg: '#ffffff' });
-        a.download = 'route-trace.png'; a.click();
+    async function loadMeta() {
+        try {
+            const p = new URLSearchParams();
+            if (state.sourceDir.trim()) p.set('sourceDir', state.sourceDir.trim());
+            if (state.country) p.set('country', state.country);
+            const res = await fetch('/internal/meta?' + p.toString());
+            if (!res.ok) return;
+            const m = await res.json();
+            setState({ meta: { countries: m.countries || [], versions: m.versions || [], transferTypes: m.transferTypes || [] } });
+        } catch (e) { /* best-effort */ }
     }
+    function exportPng() { if (cy) { const a = document.createElement('a'); a.href = cy.png({ full: true, scale: 2, bg: '#ffffff' }); a.download = 'route-trace.png'; a.click(); } }
     async function copyJson() {
-        if (!lastData) return;
-        try { await navigator.clipboard.writeText(JSON.stringify(lastData, null, 2)); flash($('jsonBtn'), 'Copied!'); }
+        if (!state.data) return;
+        try { await navigator.clipboard.writeText(JSON.stringify(state.data, null, 2)); flash($('jsonBtn'), 'Copied!'); }
         catch (e) { flash($('jsonBtn'), 'Copy failed'); }
     }
     function flash(btn, msg) { const t = btn.textContent; btn.textContent = msg; setTimeout(() => btn.textContent = t, 1200); }
 
-    // --- wiring ---
-    $('detailClose').addEventListener('click', clearSelection);
-    $('trace').addEventListener('click', trace);
-    $('catalogAll').addEventListener('click', backToCatalog);
-    $('backToCatalog').addEventListener('click', backToCatalog);
-    $('api').addEventListener('input', updateModeChip);
-    $('sourceDir').addEventListener('change', () => { persist(); loadMeta(); });
-    $('country').addEventListener('change', () => { persist(); loadMeta(); });
-    $('search').addEventListener('input', (e) => search(e.target.value));
-    $('fitBtn').addEventListener('click', () => cy && cy.fit(undefined, 45));
-    $('pngBtn').addEventListener('click', exportPng);
-    $('jsonBtn').addEventListener('click', copyJson);
+    // ---------------- wiring ----------------
+    function bind() {
+        ['api', 'version', 'transferType', 'sourceDir'].forEach(id =>
+            $(id).addEventListener('input', e => { setState({ [id]: e.target.value }); persistInputs(); }));
+        $('sourceDir').addEventListener('change', () => loadMeta());
+        $('country').addEventListener('change', e => { setState({ country: e.target.value }); persistInputs(); loadMeta(); });
+        $('search').addEventListener('input', e => setState({ search: e.target.value }));
+        $('trace').addEventListener('click', trace);
+        $('catalogAll').addEventListener('click', () => { setState({ api: '' }); persistInputs(); trace(); });
+        $('backToCatalog').addEventListener('click', () => { setState({ api: '' }); persistInputs(); trace(); });
+        $('detailClose').addEventListener('click', () => setState({ selectedId: null }));
+        $('fitBtn').addEventListener('click', () => cy && cy.fit(undefined, 45));
+        $('pngBtn').addEventListener('click', exportPng);
+        $('jsonBtn').addEventListener('click', copyJson);
+    }
 
-    window.addEventListener('load', async () => { restore(); await loadMeta(); trace(); });
+    window.addEventListener('load', async () => {
+        INPUTS.forEach(f => { state[f] = $(f).value; });                          // seed from HTML defaults
+        INPUTS.forEach(f => { const v = localStorage.getItem('tracer.' + f); if (v !== null) state[f] = v; }); // restore
+        bind();
+        render();
+        await loadMeta();
+        trace();
+    });
 </script>
 </body>
 </html>

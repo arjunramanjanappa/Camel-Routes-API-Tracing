@@ -1,7 +1,6 @@
 package com.arjun.tracer.web;
 
 import com.arjun.tracer.api.TraceRequest;
-import com.arjun.tracer.api.TraceResponse;
 import com.arjun.tracer.service.RouteTraceService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,18 +26,24 @@ public class RouteGraphController {
         this.service = service;
     }
 
+    /**
+     * Trace or catalog. With {@code api} → a single trace; without {@code api} →
+     * a catalog of every API grouped by client release version. The response is
+     * a {@code TraceResponse} or {@code CatalogResponse} (distinguished by its
+     * {@code mode} field).
+     */
     @GetMapping("/internal/route-graph")
-    public TraceResponse traceGet(
-            @RequestParam String api,
+    public Object traceGet(
+            @RequestParam(required = false) String api,
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String transferType,
             @RequestParam(required = false) String sourceDir) {
-        return service.trace(new TraceRequest(api, version, transferType, sourceDir));
+        return service.analyze(new TraceRequest(api, version, transferType, sourceDir));
     }
 
     @PostMapping("/internal/route-graph")
-    public TraceResponse tracePost(@RequestBody TraceRequest request) {
-        return service.trace(request);
+    public Object tracePost(@RequestBody TraceRequest request) {
+        return service.analyze(request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

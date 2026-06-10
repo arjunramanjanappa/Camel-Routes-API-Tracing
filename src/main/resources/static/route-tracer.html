@@ -15,11 +15,12 @@
         header h1 { margin: 0; font-size: 18px; font-weight: 600; }
         header span { color: #9aa5b1; font-size: 13px; }
         .layout { display: flex; height: calc(100vh - 52px); }
-        .sidebar { width: 360px; padding: 18px; overflow-y: auto; border-right: 1px solid #e4e7eb; background: #f7f9fb; }
+        .sidebar { width: 370px; padding: 18px; overflow-y: auto; border-right: 1px solid #e4e7eb; background: #f7f9fb; }
         .main { flex: 1; position: relative; }
         #cy { width: 100%; height: 100%; background: #fff; }
         label { display: block; font-size: 12px; font-weight: 600; color: #52606d; margin: 12px 0 4px; }
         input { width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 13px; }
+        .sub { font-size: 11px; color: #9aa5b1; margin-top: 3px; }
         button#trace { margin-top: 16px; width: 100%; padding: 10px; background: #2563eb; color: #fff; border: 0;
                  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
         button#trace:hover { background: #1d4ed8; }
@@ -31,10 +32,15 @@
         .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
         .pill.base { background: #fef3c7; color: #92400e; }
         .pill.versioned { background: #dcfce7; color: #166534; }
+        .pill.none { background: #fee2e2; color: #991b1b; }
         ol, ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
         li { word-break: break-word; }
         code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
         .warn { color: #b45309; font-size: 12px; }
+        .entry { border: 1px solid #eef2f7; border-radius: 6px; padding: 6px 8px; margin: 6px 0; cursor: pointer; }
+        .entry:hover { background: #f3f6fb; border-color: #c7d2e0; }
+        .entry .op { font-weight: 600; font-size: 12px; color: #334155; }
+        .entry .meta { font-size: 11px; color: #94a3b8; }
         .legend { position: absolute; right: 14px; bottom: 14px; background: rgba(255,255,255,.95);
                   border: 1px solid #e4e7eb; border-radius: 8px; padding: 8px 12px; font-size: 12px; }
         .legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
@@ -54,9 +60,10 @@
     <aside class="sidebar">
         <label for="api">API path</label>
         <input id="api" value="/payment/v2/fund/submit" placeholder="/payment/v2/fund/submit"/>
+        <div class="sub">Leave blank to catalog <b>all</b> APIs grouped by version.</div>
 
         <label for="version">Client release version</label>
-        <input id="version" value="9.4" placeholder="9.4 (blank = BASE)"/>
+        <input id="version" value="9.4" placeholder="9.4 (blank = BASE / all)"/>
 
         <label for="transferType">Transfer type (optional)</label>
         <input id="transferType" value="" placeholder="OWN / INTRA / INTER (blank = all)"/>
@@ -75,22 +82,24 @@
             <div id="detailBody"></div>
         </div>
 
+        <!-- Single-trace panels -->
         <div id="summary" class="panel" style="display:none;">
             <h2>Resolution</h2>
             <div class="kv"><b>Operation:</b> <span id="op"></span></div>
             <div class="kv"><b>Command:</b> <span id="cmd"></span></div>
             <div class="kv"><b>Resolved route:</b> <code id="route"></code> <span id="basePill"></span></div>
         </div>
-
         <div id="flowPanel" class="panel" style="display:none;">
             <h2>Flow</h2>
             <ol id="flow"></ol>
         </div>
-
         <div id="backendPanel" class="panel" style="display:none;">
             <h2>Backend APIs</h2>
             <ul id="backends"></ul>
         </div>
+
+        <!-- Catalog panels (built dynamically) -->
+        <div id="catalog" style="display:none;"></div>
 
         <div id="warnPanel" class="panel" style="display:none;">
             <h2>Warnings</h2>
@@ -106,7 +115,7 @@
             <div><span class="dot" style="background:#d97706"></span>BASE route</div>
             <div><span class="dot" style="background:#0891b2"></span>Shared / host route</div>
             <div><span class="dot" style="background:#ea580c"></span>Backend API</div>
-            <div><span class="dot ring"></span>Resolved entry route</div>
+            <div><span class="dot ring"></span>Entry route</div>
         </div>
     </div>
 </div>
@@ -117,22 +126,13 @@
 
     const COLORS = { api: '#2563eb', versioned: '#059669', base: '#d97706', shared: '#0891b2', backend: '#ea580c' };
     const ROLE_LABEL = { api: 'API', versioned: 'Versioned route', base: 'BASE route', shared: 'Shared / host route', backend: 'Backend API' };
+    const VER_PREFIX = /^R[\d.]+_/;
 
     function show(el, on) { el.style.display = on ? '' : 'none'; }
 
-    // --- label shortening so long real-world names stay readable ---
-    const VER_PREFIX = /^R[\d.]+_/;
-    function routeShort(name) {
-        const m = name.match(/^R([\d.]+)_(.+)$/);
-        return m ? m[2] : name;
-    }
-    function routeVersion(name) {
-        const m = name.match(VER_PREFIX);
-        return m ? m[0].slice(1, -1) : null;
-    }
-    function backendShort(value) {
-        return value.replace(/^\{\{[^}]+\}\}/, '').replace(/^https?:\/\/[^/]+/, '') || value;
-    }
+    function routeShort(name) { const m = name.match(/^R([\d.]+)_(.+)$/); return m ? m[2] : name; }
+    function routeVersion(name) { const m = name.match(VER_PREFIX); return m ? m[0].slice(1, -1) : null; }
+    function backendShort(value) { return value.replace(/^\{\{[^}]+\}\}/, '').replace(/^https?:\/\/[^/]+/, '') || value; }
 
     async function trace() {
         const btn = $('trace');
@@ -140,7 +140,7 @@
         $('error').style.display = 'none';
         try {
             const params = new URLSearchParams();
-            params.set('api', $('api').value.trim());
+            if ($('api').value.trim()) params.set('api', $('api').value.trim());
             if ($('version').value.trim()) params.set('version', $('version').value.trim());
             if ($('transferType').value.trim()) params.set('transferType', $('transferType').value.trim());
             if ($('sourceDir').value.trim()) params.set('sourceDir', $('sourceDir').value.trim());
@@ -148,7 +148,7 @@
             const res = await fetch('/internal/route-graph?' + params.toString());
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
-            render(data);
+            if (data.mode === 'catalog') renderCatalog(data); else renderSingle(data);
         } catch (e) {
             const err = $('error');
             err.textContent = 'Error: ' + e.message;
@@ -158,8 +158,12 @@
         }
     }
 
-    function render(data) {
+    function hideSinglePanels() { ['summary', 'flowPanel', 'backendPanel'].forEach(id => show($(id), false)); }
+
+    // --- single-trace rendering ---
+    function renderSingle(data) {
         show($('detail'), false);
+        show($('catalog'), false);
         show($('summary'), true);
         $('op').textContent = data.operationName || '(unresolved)';
         $('cmd').textContent = data.command || '—';
@@ -168,65 +172,101 @@
         if (data.resolvedRoute) {
             pill.className = 'pill ' + (data.baseFallback ? 'base' : 'versioned');
             pill.textContent = data.baseFallback ? 'BASE' : ('R' + (data.resolvedVersion || ''));
-        } else {
-            pill.textContent = '';
-        }
+        } else { pill.className = 'pill none'; pill.textContent = data.operationName ? 'no route' : ''; }
 
-        fillList($('flow'), data.flow, $('flowPanel'), true);
-        fillList($('backends'), data.backendApis, $('backendPanel'), true);
+        fillList($('flow'), data.flow, $('flowPanel'));
+        fillList($('backends'), data.backendApis, $('backendPanel'));
+        fillWarnings(data.warnings);
 
-        const warnings = $('warnings');
-        warnings.innerHTML = '';
-        (data.warnings || []).forEach(w => {
-            const li = document.createElement('li');
-            li.className = 'warn';
-            li.textContent = w;
-            warnings.appendChild(li);
-        });
-        show($('warnPanel'), (data.warnings || []).length > 0);
-
-        drawGraph(data.graph || { nodes: [], edges: [] }, data);
+        drawGraph(data.graph || { nodes: [], edges: [] }, [data.operationName]);
     }
 
-    function fillList(listEl, items, panelEl, code) {
-        listEl.innerHTML = '';
-        (items || []).forEach(t => {
-            const li = document.createElement('li');
-            li.innerHTML = code ? ('<code>' + t + '</code>') : t;
-            listEl.appendChild(li);
+    // --- catalog rendering ---
+    function renderCatalog(data) {
+        show($('detail'), false);
+        hideSinglePanels();
+        const cat = $('catalog');
+        cat.innerHTML = '';
+        show(cat, true);
+
+        const head = document.createElement('div');
+        head.className = 'panel';
+        head.innerHTML = '<h2>Catalog</h2>'
+            + '<div class="kv"><b>APIs discovered:</b> ' + data.operationCount + '</div>'
+            + '<div class="kv"><b>Version groups:</b> ' + (data.versionsFound || []).join(', ') + '</div>'
+            + (data.requestedVersion ? '<div class="kv"><b>Resolved for client:</b> ' + data.requestedVersion + '</div>' : '');
+        cat.appendChild(head);
+
+        const opNames = new Set();
+        (data.groups || []).forEach(g => {
+            const panel = document.createElement('div');
+            panel.className = 'panel';
+            const isBase = g.version === 'BASE';
+            const isNone = g.version === '(no route found)';
+            const pillCls = isNone ? 'none' : (isBase ? 'base' : 'versioned');
+            panel.innerHTML = '<h2>' + g.version
+                + ' <span class="pill ' + pillCls + '">' + g.traces.length + '</span></h2>';
+            g.traces.forEach(t => {
+                if (t.operationName) opNames.add(t.operationName);
+                const div = document.createElement('div');
+                div.className = 'entry';
+                const target = t.resolvedRoute ? ('<code>' + t.resolvedRoute + '</code>') : '<span class="warn">no route</span>';
+                const back = (t.backendApis && t.backendApis.length) ? (' · ' + t.backendApis.length + ' backend' + (t.backendApis.length > 1 ? 's' : '')) : '';
+                div.innerHTML = '<div class="op">' + t.operationName + '</div>'
+                    + '<div class="meta">' + (t.api || '') + '</div>'
+                    + '<div class="kv">' + target + back + '</div>';
+                div.addEventListener('click', () => focusApi('api:' + (t.api || t.operationName)));
+                panel.appendChild(div);
+            });
+            cat.appendChild(panel);
         });
+
+        fillWarnings(data.warnings);
+        drawGraph(data.graph || { nodes: [], edges: [] }, [...opNames]);
+    }
+
+    function fillList(listEl, items, panelEl) {
+        listEl.innerHTML = '';
+        (items || []).forEach(t => { const li = document.createElement('li'); li.innerHTML = '<code>' + t + '</code>'; listEl.appendChild(li); });
         show(panelEl, (items || []).length > 0);
     }
 
-    // Classify a route node so the graph can colour/highlight it meaningfully.
-    function roleOf(node, ctx) {
+    function fillWarnings(items) {
+        const warnings = $('warnings');
+        warnings.innerHTML = '';
+        (items || []).forEach(w => { const li = document.createElement('li'); li.className = 'warn'; li.textContent = w; warnings.appendChild(li); });
+        show($('warnPanel'), (items || []).length > 0);
+    }
+
+    // Classify a node for colour. Works in both modes (no single-trace context).
+    function roleOf(node, opNames) {
         if (node.type === 'API') return 'api';
         if (node.type === 'BACKEND') return 'backend';
-        const name = node.label;
-        if (ctx.baseFallback && name === ctx.resolvedRoute) return 'base';
-        if (VER_PREFIX.test(name)) return 'versioned';
-        if (name === ctx.operationName) return 'base';
+        if (VER_PREFIX.test(node.label)) return 'versioned';
+        if (opNames.includes(node.label)) return 'base';
         return 'shared';
     }
 
-    function drawGraph(graph, ctx) {
-        // Pre-compute, per node, the branch labels that reach it.
+    function drawGraph(graph, opNames) {
+        // Entry routes = any route directly targeted by an API node.
+        const entry = new Set();
         const reachedBy = {};
         (graph.edges || []).forEach(e => {
+            if (String(e.from).startsWith('api:')) entry.add(e.to);
             if (e.label) (reachedBy[e.to] = reachedBy[e.to] || []).push(e.label);
         });
 
         const elements = [];
         (graph.nodes || []).forEach(n => {
-            const role = roleOf(n, ctx);
+            const role = roleOf(n, opNames);
             let display;
             if (n.type === 'ROUTE') display = routeShort(n.label);
             else if (n.type === 'BACKEND') display = backendShort(n.label);
-            else display = ctx.operationName || n.label;
+            else display = n.label.replace(/\s*\[.*\]$/, '');
             elements.push({
                 data: {
                     id: n.id, label: display, full: n.label, type: n.type, role: role,
-                    isEntry: (n.type === 'ROUTE' && n.label === ctx.resolvedRoute) ? 'yes' : 'no',
+                    isEntry: entry.has(n.id) ? 'yes' : 'no',
                     version: n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '',
                     source: (n.data && n.data.source) || '',
                     reached: (reachedBy[n.id] || []).join(', ')
@@ -241,30 +281,22 @@
             container: $('cy'),
             elements: elements,
             style: [
-                {
-                    selector: 'node',
-                    style: {
-                        'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff',
-                        'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
-                        'text-max-width': 130, 'width': 'label', 'height': 'label',
-                        'padding': '12px', 'shape': 'round-rectangle', 'background-color': '#64748b'
-                    }
-                },
+                { selector: 'node', style: {
+                    'label': 'data(label)', 'font-size': 12, 'font-weight': 600, 'color': '#fff',
+                    'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
+                    'text-max-width': 130, 'width': 'label', 'height': 'label',
+                    'padding': '12px', 'shape': 'round-rectangle', 'background-color': '#64748b' } },
                 { selector: 'node[role="api"]', style: { 'background-color': COLORS.api } },
                 { selector: 'node[role="versioned"]', style: { 'background-color': COLORS.versioned } },
                 { selector: 'node[role="base"]', style: { 'background-color': COLORS.base } },
                 { selector: 'node[role="shared"]', style: { 'background-color': COLORS.shared } },
                 { selector: 'node[role="backend"]', style: { 'background-color': COLORS.backend, 'shape': 'cut-rectangle' } },
                 { selector: 'node[isEntry="yes"]', style: { 'border-width': 4, 'border-color': '#f59e0b' } },
-                {
-                    selector: 'edge',
-                    style: {
-                        'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8',
-                        'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
-                        'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309',
-                        'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2
-                    }
-                },
+                { selector: 'edge', style: {
+                    'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8',
+                    'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
+                    'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309',
+                    'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
                 { selector: '.faded', style: { 'opacity': 0.2 } },
                 { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
                 { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } }
@@ -273,24 +305,28 @@
 
         const fitGraph = () => {
             cy.fit(undefined, 45);
-            // Only a tiny graph (1–2 nodes) needs a zoom cap; wide graphs must stay fitted.
             if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); }
         };
-        const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 28, rankSep: 100 });
+        const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 100 });
         layout.one('layoutstop', fitGraph);
         layout.run();
-        fitGraph();                 // dagre is synchronous — positions are ready now
-        setTimeout(fitGraph, 200);  // safety net if the container sized late
+        fitGraph();
+        setTimeout(fitGraph, 200);
 
         cy.on('tap', 'node', (evt) => selectNode(evt.target));
         cy.on('tap', (evt) => { if (evt.target === cy) clearSelection(); });
     }
 
+    function focusApi(nodeId) {
+        if (!cy) return;
+        const node = cy.getElementById(nodeId);
+        if (node && node.nonempty()) { selectNode(node); cy.animate({ center: { eles: node }, zoom: 1.0 }, { duration: 250 }); }
+    }
+
     function selectNode(node) {
         const d = node.data();
         cy.elements().addClass('faded');
-        const hood = node.closedNeighborhood();
-        hood.removeClass('faded');
+        node.closedNeighborhood().removeClass('faded');
         node.connectedEdges().removeClass('faded').addClass('hl');
         cy.nodes().removeClass('selected');
         node.addClass('selected');
@@ -300,7 +336,7 @@
         rows.push(`<div class="kv" style="margin-top:8px"><b>${d.type === 'BACKEND' ? 'Endpoint' : 'Name'}:</b><br><code>${d.full}</code></div>`);
         if (d.type === 'ROUTE') {
             rows.push(`<div class="kv"><b>Version:</b> ${d.version ? ('R' + d.version) : 'BASE / un-versioned'}</div>`);
-            rows.push(`<div class="kv"><b>Entry route:</b> ${d.isEntry === 'yes' ? 'yes (resolved target)' : 'no'}</div>`);
+            rows.push(`<div class="kv"><b>Entry route:</b> ${d.isEntry === 'yes' ? 'yes' : 'no'}</div>`);
             rows.push(`<div class="kv"><b>Loaded via:</b> ${sourceLabel(d.source)}</div>`);
         }
         if (d.reached) rows.push(`<div class="kv"><b>Reached via branch:</b> ${d.reached}</div>`);

@@ -41,15 +41,27 @@ none is provided the API returns a `400` explaining what to set.
 
 | param          | required | meaning                                                        |
 |----------------|----------|----------------------------------------------------------------|
-| `api`          | yes      | REST path, e.g. `/payment/v2/fund/submit` (or a raw operation) |
-| `version`      | no       | client release version, e.g. `9.4`; blank ⇒ BASE               |
+| `api`          | no       | REST path, e.g. `/payment/v2/fund/submit` (or a raw operation) |
+| `version`      | no       | client release version, e.g. `9.4`; blank ⇒ BASE / all         |
 | `transferType` | no       | choice-branch filter (`OWN`/`INTRA`/`INTER`); blank ⇒ all      |
 | `sourceDir`    | no       | override the configured source directory                       |
 
-Response (abridged):
+### Input modes
+
+The response carries a `mode` discriminator:
+
+* **`api` + `version`** → single trace of that exact resolution.
+* **`api` only** → single trace (blank version ⇒ BASE).
+* **no `api`** → **catalog** (`mode: "catalog"`): every discovered API, grouped by
+  the client release version its route resolves to (`9.4`, `9.3`, …, `BASE`, and
+  a `(no route found)` bucket for APIs with no route). With a `version`, every
+  API is resolved (with fallback) for that client release.
+
+Single-trace response (abridged):
 
 ```json
 {
+  "mode": "single",
   "operationName": "fundTransferSubmitV2Api",
   "command": "FundTransferSubmitV2ApiCommand",
   "resolvedRoute": "R9.4_fundTransferSubmitV2Api",
@@ -59,6 +71,20 @@ Response (abridged):
   "backendApis": ["{{baseUrl}}/bfs/ft/inter/submit", "..."],
   "warnings": [],
   "graph": { "nodes": [{ "id": "...", "type": "API|ROUTE|BACKEND" }], "edges": [{ "from": "...", "to": "..." }] }
+}
+```
+
+Catalog response (abridged):
+
+```json
+{
+  "mode": "catalog",
+  "operationCount": 2,
+  "versionsFound": ["9.4", "9.3", "BASE", "(no route found)"],
+  "groups": [
+    { "version": "9.4", "traces": [{ "operationName": "...", "resolvedRoute": "R9.4_...", "backendApis": ["..."] }] }
+  ],
+  "graph": { "nodes": ["..."], "edges": ["..."] }
 }
 ```
 

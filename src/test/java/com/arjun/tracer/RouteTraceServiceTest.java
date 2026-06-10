@@ -1,7 +1,9 @@
 package com.arjun.tracer;
 
+import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
+import com.arjun.tracer.api.VersionGroup;
 import com.arjun.tracer.service.RouteTraceService;
 import org.junit.jupiter.api.Test;
 
@@ -89,5 +91,58 @@ class RouteTraceServiceTest {
         TraceResponse r = trace("/payment/v2/fund/submit", "9.3", "INTER");
         assertThat(r.getFlow()).contains("R9.4_ftInterbankProcessSubmitDGEApi");
         assertThat(r.getBackendApis()).contains("{{baseUrl}}/bfs/ft/inter/submit");
+    }
+
+    // --- catalog mode (no api) ---
+
+    private CatalogResponse catalog(String version) {
+        Object res = service.analyze(new TraceRequest(null, version, null, null));
+        assertThat(res).isInstanceOf(CatalogResponse.class);
+        return (CatalogResponse) res;
+    }
+
+    private VersionGroup group(CatalogResponse cat, String version) {
+        return cat.getGroups().stream()
+                .filter(g -> g.version().equals(version)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void noApiProducesCatalogGroupedByVersion() {
+        CatalogResponse cat = catalog(null);
+        assertThat(cat.getMode()).isEqualTo("catalog");
+        // Two controller endpoints: v1 (no routes) and v2 (R9.4, R9.3, BASE).
+        assertThat(cat.getOperationCount()).isEqualTo(2);
+        assertThat(cat.getVersionsFound()).containsExactly("9.4", "9.3", "BASE", "(no route found)");
+        assertThat(cat.getGraph().getNodes()).isNotEmpty();
+    }
+
+    @Test
+    void catalogVersionGroupResolvesToCorrectRoute() {
+        CatalogResponse cat = catalog(null);
+        assertThat(group(cat, "9.4").traces()).anySatisfy(t -> {
+            assertThat(t.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
+            assertThat(t.getResolvedRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");
+            assertThat(t.getBackendApis()).isNotEmpty();
+        });
+        assertThat(group(cat, "9.3").traces()).anySatisfy(t ->
+                assertThat(t.getResolvedRoute()).isEqualTo("R9.3_fundTransferSubmitV2Api"));
+    }
+
+    @Test
+    void catalogSurfacesApisWithNoRoute() {
+        CatalogResponse cat = catalog(null);
+        assertThat(group(cat, "(no route found)").traces()).anySatisfy(t -> {
+            assertThat(t.getOperationName()).isEqualTo("fundTransferSubmitApi");
+            assertThat(t.getResolvedRoute()).isNull();
+        });
+    }
+
+    @Test
+    void catalogWithVersionResolvesEveryApiToThatClientVersion() {
+        CatalogResponse cat = catalog("9.5");          // 9.5 falls back to 9.4
+        assertThat(group(cat, "9.4").traces()).anySatisfy(t -> {
+            assertThat(t.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
+            assertThat(t.getResolvedRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");
+        });
     }
 }

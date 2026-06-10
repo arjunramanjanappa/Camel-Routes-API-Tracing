@@ -35,6 +35,9 @@ public class TraceResponse {
 
     // --- getters / setters ---
 
+    /** Discriminator for the UI: a single-API trace. */
+    public String getMode() { return "single"; }
+
     public String getApi() { return api; }
     public void setApi(String api) { this.api = api; }
 

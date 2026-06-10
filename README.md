@@ -45,6 +45,9 @@ none is provided the API returns a `400` explaining what to set.
 | `version`      | no       | client release version, e.g. `9.4`; blank ⇒ BASE / all         |
 | `transferType` | no       | choice-branch filter (`OWN`/`INTRA`/`INTER`); blank ⇒ all      |
 | `sourceDir`    | no       | override the configured source directory                       |
+| `country`      | no       | bootstrap scope, e.g. `SG`; blank ⇒ all countries              |
+
+`GET /internal/countries?sourceDir=…` lists the available country scopes.
 
 ### Input modes
 
@@ -144,6 +147,16 @@ walks the whole tree, so `mty-payment/.../resources/routes/*.xml`,
 `mty-manage/.../routes/*.xml`, etc. are all discovered. Test source roots
 (`src/test`, `src/main/test`) and build dirs (`target`, `build`, `.git`, …) are
 skipped.
+
+### Country scoping
+A common code base often has one bootstrap per country (`SG.xml`, `MY.xml`, …),
+each a `<camelContext>` that pulls in a specific set of route files via
+`<import>` and `<routeContextRef>`. Selecting a `country` restricts analysis to
+that bootstrap's **assembly closure**: starting from `<country>.xml`, the tracer
+follows its imports and context refs transitively and loads only those routes —
+so the output shows just that country. With no `country`, every route in the
+tree is considered. Imported files are resolved by path suffix within the source
+directory (`classpath:`/`file:` schemes and a trailing `*` wildcard are handled).
 
 ---
 

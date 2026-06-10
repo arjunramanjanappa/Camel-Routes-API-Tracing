@@ -19,7 +19,7 @@
         .main { flex: 1; position: relative; }
         #cy { width: 100%; height: 100%; background: #fff; }
         label { display: block; font-size: 12px; font-weight: 600; color: #52606d; margin: 12px 0 4px; }
-        input { width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 13px; }
+        input, select { width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 13px; background: #fff; }
         .sub { font-size: 11px; color: #9aa5b1; margin-top: 3px; }
         button#trace { margin-top: 16px; width: 100%; padding: 10px; background: #2563eb; color: #fff; border: 0;
                  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
@@ -67,6 +67,10 @@
 
         <label for="transferType">Transfer type (optional)</label>
         <input id="transferType" value="" placeholder="OWN / INTRA / INTER (blank = all)"/>
+
+        <label for="country">Country</label>
+        <select id="country"><option value="">(all countries)</option></select>
+        <div class="sub">Scope to one bootstrap (e.g. SG, MY) via its imports / routeContextRef.</div>
 
         <label for="sourceDir">Source directory (optional)</label>
         <input id="sourceDir" value="" placeholder="defaults to server config"/>
@@ -144,10 +148,12 @@
             if ($('version').value.trim()) params.set('version', $('version').value.trim());
             if ($('transferType').value.trim()) params.set('transferType', $('transferType').value.trim());
             if ($('sourceDir').value.trim()) params.set('sourceDir', $('sourceDir').value.trim());
+            if ($('country').value) params.set('country', $('country').value);
 
             const res = await fetch('/internal/route-graph?' + params.toString());
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            populateCountries(data.availableCountries, data.country);
             if (data.mode === 'catalog') renderCatalog(data); else renderSingle(data);
         } catch (e) {
             const err = $('error');
@@ -229,6 +235,19 @@
         listEl.innerHTML = '';
         (items || []).forEach(t => { const li = document.createElement('li'); li.innerHTML = '<code>' + t + '</code>'; listEl.appendChild(li); });
         show(panelEl, (items || []).length > 0);
+    }
+
+    // Populate the country dropdown from a response, preserving the chosen scope.
+    function populateCountries(countries, selected) {
+        const sel = $('country');
+        const current = selected || sel.value || '';
+        const list = countries || [];
+        const desired = '|' + list.join('|');
+        if (sel.dataset.list === desired) { sel.value = current; return; }
+        sel.dataset.list = desired;
+        sel.innerHTML = '<option value="">(all countries)</option>'
+            + list.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+        sel.value = current;
     }
 
     function fillWarnings(items) {

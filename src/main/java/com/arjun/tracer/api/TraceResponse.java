@@ -11,6 +11,10 @@ public class TraceResponse {
     private String api;
     private String requestedVersion;
     private String transferType;
+    /** Selected country scope, or null for all countries. */
+    private String country;
+    /** Bootstrap scopes available in the source tree (for the UI dropdown). */
+    private java.util.List<String> availableCountries = new java.util.ArrayList<>();
 
     /** Operation name resolved from the controller, e.g. {@code fundTransferSubmitV2Api}. */
     private String operationName;
@@ -46,6 +50,12 @@ public class TraceResponse {
 
     public String getTransferType() { return transferType; }
     public void setTransferType(String transferType) { this.transferType = transferType; }
+
+    public String getCountry() { return country; }
+    public void setCountry(String country) { this.country = country; }
+
+    public java.util.List<String> getAvailableCountries() { return availableCountries; }
+    public void setAvailableCountries(java.util.List<String> availableCountries) { this.availableCountries = availableCountries; }
 
     public String getOperationName() { return operationName; }
     public void setOperationName(String operationName) { this.operationName = operationName; }

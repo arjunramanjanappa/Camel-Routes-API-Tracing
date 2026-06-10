@@ -11,6 +11,8 @@ public class CatalogResponse {
 
     private String requestedVersion;
     private String transferType;
+    private String country;
+    private final List<String> availableCountries = new ArrayList<>();
     private int operationCount;
 
     /** Distinct version keys present, in display order (highest first, BASE last). */
@@ -28,6 +30,11 @@ public class CatalogResponse {
 
     public String getTransferType() { return transferType; }
     public void setTransferType(String transferType) { this.transferType = transferType; }
+
+    public String getCountry() { return country; }
+    public void setCountry(String country) { this.country = country; }
+
+    public List<String> getAvailableCountries() { return availableCountries; }
 
     public int getOperationCount() { return operationCount; }
     public void setOperationCount(int operationCount) { this.operationCount = operationCount; }

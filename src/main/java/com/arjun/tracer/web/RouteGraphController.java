@@ -37,13 +37,21 @@ public class RouteGraphController {
             @RequestParam(required = false) String api,
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String transferType,
-            @RequestParam(required = false) String sourceDir) {
-        return service.analyze(new TraceRequest(api, version, transferType, sourceDir));
+            @RequestParam(required = false) String sourceDir,
+            @RequestParam(required = false) String country) {
+        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country));
     }
 
     @PostMapping("/internal/route-graph")
     public Object tracePost(@RequestBody TraceRequest request) {
         return service.analyze(request);
+    }
+
+    /** Bootstrap scopes (countries) discovered in the source tree — for the UI dropdown. */
+    @GetMapping("/internal/countries")
+    public Map<String, Object> countries(@RequestParam(required = false) String sourceDir) {
+        return Map.of("countries", service.listCountries(
+                new TraceRequest(null, null, null, sourceDir, null)));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

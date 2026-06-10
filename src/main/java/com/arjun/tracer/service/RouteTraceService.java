@@ -6,72 +6,60 @@ import com.arjun.tracer.api.RouteGraph;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
 import com.arjun.tracer.api.VersionGroup;
-import com.arjun.tracer.loader.CamelRouteModelLoader;
-import com.arjun.tracer.loader.RouteModelLoader;
 import com.arjun.tracer.loader.RouteRegistry;
-import com.arjun.tracer.loader.XmlDomRouteModelLoader;
-import com.arjun.tracer.model.RouteModel;
 import com.arjun.tracer.resolve.OperationInfo;
 import com.arjun.tracer.resolve.OperationResolver;
 import com.arjun.tracer.resolve.VersionResolver;
 import com.arjun.tracer.resolve.VersionResolver.ResolvedRoute;
+import com.arjun.tracer.scan.SourceIndex;
+import com.arjun.tracer.scan.SourceScanner;
 import com.arjun.tracer.trace.RouteTraverser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Stream;
 
 /**
- * Orchestrates analysis. Three input modes:
+ * Orchestrates analysis. Input modes:
  *
  * <ul>
  *   <li><b>api + version</b> → single trace of that exact resolution;</li>
  *   <li><b>api only</b> → single trace (blank version resolves to BASE);</li>
- *   <li><b>no api</b> → catalog: every discovered API, grouped by the client
- *       release version its route resolves to.</li>
+ *   <li><b>no api</b> → catalog: every discovered API, grouped by client release version.</li>
  * </ul>
+ *
+ * <p>Any mode may be scoped to a <b>country</b> bootstrap (e.g. {@code SG}): only
+ * the routes that bootstrap pulls in (via {@code <import>}/{@code <routeContextRef>})
+ * are considered.
  */
 @Service
 public class RouteTraceService {
-
-    private static final Logger log = LoggerFactory.getLogger(RouteTraceService.class);
-
-    /** Directory names skipped while scanning the source tree. */
-    private static final Set<String> SKIP_DIRS =
-            Set.of("target", "build", ".git", ".idea", "node_modules", ".mvn");
 
     private static final String BASE_GROUP = "BASE";
     private static final String NO_ROUTE_GROUP = "(no route found)";
 
     private final String defaultSourceDir;
-    private final CamelRouteModelLoader camelLoader = new CamelRouteModelLoader();
-    private final XmlDomRouteModelLoader domLoader = new XmlDomRouteModelLoader();
+    private final SourceScanner scanner = new SourceScanner();
     private final VersionResolver versionResolver = new VersionResolver();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
         this.defaultSourceDir = defaultSourceDir;
     }
 
-    /** Holds the result of scanning the source tree once per request. */
-    private record Scanned(OperationResolver operations, RouteRegistry registry, List<String> warnings) {
+    /** Scan result plus the registry chosen for this request's country scope. */
+    private record Prepared(SourceIndex index, RouteRegistry registry, List<String> warnings, String country) {
     }
 
     /** Entry point used by the controller: returns a {@link TraceResponse} or {@link CatalogResponse}. */
     public Object analyze(TraceRequest request) {
-        Scanned scanned = prepare(request);
+        Prepared prepared = prepare(request);
         boolean hasApi = request.api() != null && !request.api().isBlank();
-        return hasApi ? single(request, scanned) : catalog(request, scanned);
+        return hasApi ? single(request, prepared) : catalog(request, prepared);
     }
 
     /** Single-API trace (kept for direct use / tests). */
@@ -79,9 +67,25 @@ public class RouteTraceService {
         return single(request, prepare(request));
     }
 
+    /** The bootstrap scopes (countries) available in the source tree. */
+    public List<String> listCountries(TraceRequest request) {
+        return scanner.scan(resolveRoot(request)).countries();
+    }
+
     // --- shared preparation ---
 
-    private Scanned prepare(TraceRequest request) {
+    private Prepared prepare(TraceRequest request) {
+        SourceIndex index = scanner.scan(resolveRoot(request));
+        List<String> warnings = new ArrayList<>(index.warnings());
+        String country = (request.country() != null && !request.country().isBlank())
+                ? request.country().trim() : null;
+        RouteRegistry registry = country != null
+                ? index.scopedRegistry(country, warnings)
+                : index.fullRegistry();
+        return new Prepared(index, registry, warnings, country);
+    }
+
+    private Path resolveRoot(TraceRequest request) {
         String sourceDir = (request.sourceDir() != null && !request.sourceDir().isBlank())
                 ? request.sourceDir().trim()
                 : defaultSourceDir;
@@ -93,55 +97,56 @@ public class RouteTraceService {
         if (!Files.isDirectory(root)) {
             throw new IllegalArgumentException("Source directory does not exist: " + sourceDir);
         }
-        OperationResolver operations = new OperationResolver();
-        RouteRegistry registry = new RouteRegistry();
-        List<String> warnings = new ArrayList<>();
-        scan(root, operations, registry, warnings);
-        return new Scanned(operations, registry, warnings);
+        return root;
     }
 
     // --- mode: single API ---
 
-    private TraceResponse single(TraceRequest request, Scanned scanned) {
+    private TraceResponse single(TraceRequest request, Prepared prepared) {
         TraceResponse response = new TraceResponse();
         response.setApi(request.api());
         response.setRequestedVersion(request.version());
         response.setTransferType(request.transferType());
-        response.getWarnings().addAll(scanned.warnings());
+        response.setCountry(prepared.country());
+        response.setAvailableCountries(prepared.index().countries());
+        response.getWarnings().addAll(prepared.warnings());
 
-        String operationName = resolveOperation(request.api(), scanned.operations(), response);
+        OperationResolver operations = prepared.index().operations();
+        String operationName = resolveOperation(request.api(), operations, response);
         if (operationName == null) {
             response.setGraph(new RouteGraph());
             return response;
         }
         response.setOperationName(operationName);
-        OperationInfo op = scanned.operations().resolve(request.api());
+        OperationInfo op = operations.resolve(request.api());
         if (op != null) {
             response.setCommand(op.command());
         }
 
         ResolvedRoute resolved =
-                versionResolver.resolve(scanned.registry(), operationName, request.version());
+                versionResolver.resolve(prepared.registry(), operationName, request.version());
         RouteGraph graph = new RouteGraph();
         traverseInto(response, request.api(), operationName, resolved,
-                request.transferType(), scanned.registry(), graph);
+                request.transferType(), prepared.registry(), graph);
         response.setGraph(graph);
         return response;
     }
 
     // --- mode: catalog (no api) ---
 
-    private CatalogResponse catalog(TraceRequest request, Scanned scanned) {
+    private CatalogResponse catalog(TraceRequest request, Prepared prepared) {
         CatalogResponse cat = new CatalogResponse();
         cat.setRequestedVersion(request.version());
         cat.setTransferType(request.transferType());
-        cat.getWarnings().addAll(scanned.warnings());
+        cat.setCountry(prepared.country());
+        cat.getAvailableCountries().addAll(prepared.index().countries());
+        cat.getWarnings().addAll(prepared.warnings());
 
-        RouteRegistry registry = scanned.registry();
+        RouteRegistry registry = prepared.registry();
         RouteGraph graph = new RouteGraph();
         boolean versionGiven = request.version() != null && !request.version().isBlank();
 
-        List<OperationInfo> operations = scanned.operations().all();
+        List<OperationInfo> operations = prepared.index().operations().all();
         cat.setOperationCount(operations.size());
         if (operations.isEmpty()) {
             cat.getWarnings().add("No controller endpoints discovered in the source directory.");
@@ -150,7 +155,7 @@ public class RouteTraceService {
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
         for (OperationInfo op : operations) {
             for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven)) {
-                if (target == null) {                       // operation with no route at all
+                if (target == null) {
                     TraceResponse entry = newEntry(op, request.transferType());
                     entry.getWarnings().add("No route found for operation '" + op.operationName() + "'.");
                     groups.computeIfAbsent(NO_ROUTE_GROUP, k -> new ArrayList<>()).add(entry);
@@ -180,11 +185,9 @@ public class RouteTraceService {
         String name = op.operationName();
         List<ResolvedRoute> targets = new ArrayList<>();
         if (versionGiven) {
-            // What this API resolves to for the requested client version (with fallback).
             targets.add(versionResolver.resolve(registry, name, request.version()));
             return targets;
         }
-        // No version: enumerate every available version, highest first, then BASE.
         List<String> versions = registry.availableVersionsFor(name);
         versions.sort((a, b) -> compareVersions(b, a));     // descending
         for (String v : versions) {
@@ -208,7 +211,7 @@ public class RouteTraceService {
         return entry;
     }
 
-    // --- shared traversal: add the API node and walk from the entry route ---
+    // --- shared traversal ---
 
     private void traverseInto(TraceResponse response, String api, String operationName,
                               ResolvedRoute resolved, String transferType,
@@ -242,7 +245,6 @@ public class RouteTraceService {
 
     // --- version ordering helpers ---
 
-    /** Numeric component-wise comparison of dotted versions ("9.10" > "9.9"). */
     private int compareVersions(String a, String b) {
         String[] pa = a.split("\\.");
         String[] pb = b.split("\\.");
@@ -265,7 +267,6 @@ public class RouteTraceService {
         }
     }
 
-    /** Order groups: real versions (highest first), then BASE, then the no-route bucket. */
     private int compareGroupKeys(String a, String b) {
         int ra = rank(a);
         int rb = rank(b);
@@ -280,77 +281,5 @@ public class RouteTraceService {
             return 2;
         }
         return key.equals(BASE_GROUP) ? 1 : 0;
-    }
-
-    // --- source scanning ---
-
-    /** Walk the source tree once, feeding .java to the resolver and .xml to the registry. */
-    private void scan(Path root, OperationResolver operations, RouteRegistry registry, List<String> warnings) {
-        try (Stream<Path> paths = Files.walk(root)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> !isUnderSkippedDir(root, p))
-                    .forEach(p -> {
-                        String name = p.getFileName().toString();
-                        if (name.endsWith(".java")) {
-                            readQuietly(p).ifPresent(operations::addSource);
-                        } else if (name.endsWith(".xml")) {
-                            readQuietly(p).ifPresent(xml -> loadRoutes(name, xml, registry, warnings));
-                        }
-                    });
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to scan source directory: " + root, e);
-        }
-    }
-
-    /** Hybrid load: prefer the Camel RouteDefinition loader, fall back to DOM. */
-    private void loadRoutes(String fileName, String xml, RouteRegistry registry, List<String> warnings) {
-        List<RouteModel> routes = tryLoad(camelLoader, fileName, xml);
-        if (routes == null || routes.isEmpty()) {
-            List<RouteModel> domRoutes = tryLoad(domLoader, fileName, xml);
-            if (domRoutes != null && !domRoutes.isEmpty()) {
-                if (routes == null) {
-                    warnings.add("Camel loader could not parse " + fileName + "; used DOM fallback.");
-                }
-                routes = domRoutes;
-            }
-        }
-        if (routes != null) {
-            routes.forEach(registry::add);
-        }
-    }
-
-    private List<RouteModel> tryLoad(RouteModelLoader loader, String fileName, String xml) {
-        try {
-            return loader.load(fileName, xml);
-        } catch (Exception e) {
-            log.debug("{} failed on {}: {}", loader.getClass().getSimpleName(), fileName, e.toString());
-            return null;
-        }
-    }
-
-    private boolean isUnderSkippedDir(Path root, Path file) {
-        Path rel = root.relativize(file);
-        String prev = "";
-        for (Path part : rel) {
-            String seg = part.toString();
-            if (SKIP_DIRS.contains(seg)) {
-                return true;
-            }
-            // Skip test source roots so test controllers/routes are not catalogued:
-            // .../src/test/... and the user's .../src/main/test/... layout.
-            if (seg.equals("test") && (prev.equals("src") || prev.equals("main"))) {
-                return true;
-            }
-            prev = seg;
-        }
-        return false;
-    }
-
-    private Optional<String> readQuietly(Path p) {
-        try {
-            return Optional.of(Files.readString(p));
-        } catch (Exception e) {
-            return Optional.empty();                          // unreadable / non-UTF8 — skip
-        }
     }
 }

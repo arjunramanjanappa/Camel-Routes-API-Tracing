@@ -55,6 +55,7 @@
                   border: 1px solid #e4e7eb; border-radius: 8px; padding: 8px 12px; font-size: 12px; }
         .legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
         .legend .ring { width: 11px; height: 11px; border-radius: 3px; border: 2px solid #f59e0b; background: #fff; }
+        .legend .vring { width: 11px; height: 11px; border-radius: 3px; border: 2px solid #db2777; background: #fff; }
         .err { color: #b91c1c; font-size: 13px; margin-top: 12px; }
         .toolbar { position: absolute; left: 14px; top: 12px; display: flex; gap: 6px; align-items: center; z-index: 5; }
         .toolbar input { width: 150px; padding: 6px 9px; font-size: 12px; }
@@ -152,6 +153,7 @@
             <div><span class="dot" style="background:#0891b2"></span>Shared / host route</div>
             <div><span class="dot" style="background:#ea580c"></span>Backend API</div>
             <div><span class="dot ring"></span>Entry route</div>
+            <div><span class="dot vring"></span>Matches client version</div>
         </div>
     </div>
 </div>
@@ -312,6 +314,8 @@
     function rebuildGraph() {
         const graph = (state.data && state.data.graph) || { nodes: [], edges: [] };
         const opNames = opNamesOf(state.data);
+        // Routes whose version equals the selected client version are "part of the change".
+        const clientVersion = (state.data && state.data.requestedVersion) ? String(state.data.requestedVersion).trim() : '';
         const entry = new Set(), reachedBy = {};
         (graph.edges || []).forEach(e => {
             if (String(e.from).startsWith('api:')) entry.add(e.to);
@@ -322,10 +326,12 @@
             const role = roleOf(n, opNames);
             // ROUTE: keep the full name incl. version (e.g. R9.14_getFxRate); BACKEND: trim placeholders.
             const display = n.type === 'ROUTE' ? n.label : n.type === 'BACKEND' ? backendShort(n.label) : n.label.replace(/\s*\[.*\]$/, '');
+            const ver = n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '';
             elements.push({ data: {
                 id: n.id, label: display, full: n.label, type: n.type, role: role,
                 isEntry: entry.has(n.id) ? 'yes' : 'no',
-                version: n.type === 'ROUTE' ? (routeVersion(n.label) || '') : '',
+                version: ver,
+                clientMatch: (clientVersion && ver === clientVersion) ? 'yes' : 'no',
                 source: (n.data && n.data.source) || '', reached: (reachedBy[n.id] || []).join(', ')
             } });
         });
@@ -342,6 +348,7 @@
                 { selector: 'node[role="shared"]', style: { 'background-color': COLORS.shared } },
                 { selector: 'node[role="backend"]', style: { 'background-color': COLORS.backend, 'shape': 'cut-rectangle' } },
                 { selector: 'node[isEntry="yes"]', style: { 'border-width': 4, 'border-color': '#f59e0b' } },
+                { selector: 'node[clientMatch="yes"]', style: { 'outline-width': 4, 'outline-color': '#db2777', 'outline-offset': 2 } },
                 { selector: 'edge', style: { 'width': 1.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': 10, 'font-weight': 700, 'color': '#b45309', 'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
                 { selector: '.faded', style: { 'opacity': 0.15 } },
                 { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
@@ -385,7 +392,8 @@
         rows.push(`<span class="role" style="background:${COLORS[d.role]}">${ROLE_LABEL[d.role]}</span>`);
         rows.push(`<div class="kv" style="margin-top:8px"><b>${d.type === 'BACKEND' ? 'Endpoint' : 'Name'}:</b><br><code>${d.full}</code></div>`);
         if (d.type === 'ROUTE') {
-            rows.push(`<div class="kv"><b>Version:</b> ${d.version ? ('R' + d.version) : 'BASE / un-versioned'}</div>`);
+            rows.push(`<div class="kv"><b>Version:</b> ${d.version ? ('R' + d.version) : 'BASE / un-versioned'}`
+                + (d.clientMatch === 'yes' ? ' <span class="pill" style="background:#fce7f3;color:#9d174d">client version</span>' : '') + `</div>`);
             rows.push(`<div class="kv"><b>Entry route:</b> ${d.isEntry === 'yes' ? 'yes' : 'no'}</div>`);
             rows.push(`<div class="kv"><b>Loaded via:</b> ${sourceLabel(d.source)}</div>`);
         }

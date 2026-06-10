@@ -85,44 +85,55 @@ public class RouteTraverser {
                 response.getWarnings().add("Route not found in source: " + endpoint);
             } else {
                 response.getFlow().add(identity);
-                walk(route.elements(), nodeId, null);
+                List<PendingApi> leftover = walk(route.elements(), nodeId, null);
+                // api set with no following host call anywhere: attach to this route.
+                for (PendingApi p : leftover) {
+                    addBackend(p.value(), nodeId, p.branch());
+                }
             }
         }
         return nodeId;
     }
 
-    private void walk(List<RouteElement> elements, String currentNodeId, String branch) {
-        // The backend endpoint is carried by setProperty name="api", then the route
-        // hands off to a host route (e.g. direct:callUFWDGE) that performs the call.
-        // So defer the api value and attach it to that host route, not to this one.
-        List<String> pendingApis = new ArrayList<>();
+    /**
+     * Walk a sequence of steps. The backend endpoint is carried by
+     * {@code setProperty name="api"}, then the route hands off to a host route
+     * (e.g. {@code direct:callUFWDGE}) that performs the call — so the api value
+     * is deferred and attached to that host. Crucially this also covers the case
+     * where each {@code <when>}/{@code <otherwise>} of a {@code <choice>} sets a
+     * different api and the host call sits <em>after</em> the choice: those api
+     * values (each tagged with its branch condition) bubble up here and attach to
+     * the host, so the graph shows the host fanning out to one backend per branch.
+     *
+     * @return api values set in this scope that were not yet consumed by a host
+     *         call (they bubble up to a host call in the enclosing scope).
+     */
+    private List<PendingApi> walk(List<RouteElement> elements, String currentNodeId, String branch) {
+        List<PendingApi> pending = new ArrayList<>();
         for (RouteElement el : elements) {
             if (el instanceof ToElement to) {
                 String targetNode = handleTo(to.uri(), currentNodeId, branch);
-                if (targetNode != null && !pendingApis.isEmpty()) {
-                    for (String api : pendingApis) {
-                        addBackend(api, targetNode, branch);   // host route → backend
+                if (targetNode != null && !pending.isEmpty()) {
+                    for (PendingApi p : pending) {
+                        addBackend(p.value(), targetNode, p.branch());   // host route → backend (per condition)
                     }
-                    pendingApis.clear();
+                    pending.clear();
                 }
             } else if (el instanceof RecipientListElement rl) {
                 handleRecipient(rl.expression(), currentNodeId, branch);
             } else if (el instanceof SetPropertyElement sp) {
                 if (sp.name() != null && sp.name().equalsIgnoreCase("api")
                         && sp.value() != null && !sp.value().isBlank()) {
-                    pendingApis.add(sp.value().trim());        // defer to the host call
+                    pending.add(new PendingApi(sp.value().trim(), branch));   // defer to the host call
                 }
             } else if (el instanceof ChoiceElement choice) {
-                handleChoice(choice, currentNodeId, branch);
+                pending.addAll(handleChoice(choice, currentNodeId, branch));
             } else if (el instanceof ContainerElement container) {
-                walk(container.children(), currentNodeId, branch);
+                pending.addAll(walk(container.children(), currentNodeId, branch));
             }
             // WhenElement never appears at this level (only inside ChoiceElement)
         }
-        // api set without a following host-route call: attach to this route directly.
-        for (String api : pendingApis) {
-            addBackend(api, currentNodeId, branch);
-        }
+        return pending;
     }
 
     /**
@@ -173,34 +184,40 @@ public class RouteTraverser {
         }
     }
 
-    private void handleChoice(ChoiceElement choice, String currentNodeId, String branch) {
+    /**
+     * Walk the selected choice branches, returning any api values they set that a
+     * host call after the choice should consume (each tagged with its branch).
+     */
+    private List<PendingApi> handleChoice(ChoiceElement choice, String currentNodeId, String branch) {
+        List<PendingApi> bubbled = new ArrayList<>();
         List<WhenElement> whens = choice.whens();
         if (transferType == null) {
             // No filter: explore every branch.
             for (WhenElement when : whens) {
-                walk(when.children(), currentNodeId, branchLabel(when.predicate()));
+                bubbled.addAll(walk(when.children(), currentNodeId, branchLabel(when.predicate())));
             }
             if (!choice.otherwise().isEmpty()) {
-                walk(choice.otherwise(), currentNodeId, "OTHERWISE");
+                bubbled.addAll(walk(choice.otherwise(), currentNodeId, "OTHERWISE"));
             }
-            return;
+            return bubbled;
         }
         // Filtered: only the branch(es) whose predicate matches the transferType.
         boolean matched = false;
         for (WhenElement when : whens) {
             if (predicateMatches(when.predicate(), transferType)) {
                 matched = true;
-                walk(when.children(), currentNodeId, branchLabel(when.predicate()));
+                bubbled.addAll(walk(when.children(), currentNodeId, branchLabel(when.predicate())));
             }
         }
         if (!matched) {
             if (!choice.otherwise().isEmpty()) {
-                walk(choice.otherwise(), currentNodeId, "OTHERWISE");
+                bubbled.addAll(walk(choice.otherwise(), currentNodeId, "OTHERWISE"));
             } else {
                 response.getWarnings().add(
                         "transferType '" + transferType + "' matched no branch and there is no otherwise");
             }
         }
+        return bubbled;
     }
 
     private void addBackend(String value, String currentNodeId, String branch) {
@@ -265,5 +282,9 @@ public class RouteTraverser {
             last = m.group(1); // the compared constant, e.g. INTER
         }
         return last;
+    }
+
+    /** A deferred backend api value, tagged with the branch condition that set it. */
+    private record PendingApi(String value, String branch) {
     }
 }

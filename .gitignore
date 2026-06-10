@@ -3,3 +3,8 @@ target/
 .idea/
 *.iml
 .DS_Store
+
+# frontend (React + Vite) — built output & deps are not committed
+src/main/frontend/node_modules/
+src/main/frontend/dist/
+src/main/frontend/*.tsbuildinfo

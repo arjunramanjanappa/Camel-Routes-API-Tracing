@@ -8,13 +8,15 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end checks of the tracer against the bundled {@code samples/}
- * framework. Exercises the Camel RouteDefinition loader, version fallback,
- * choice branching and backend extraction.
+ * End-to-end checks of the tracer against a synthetic framework fixture under
+ * {@code src/test/resources/sample-framework} (test-only; not shipped).
+ * Exercises the Camel RouteDefinition loader, version fallback, choice branching
+ * and backend extraction.
  */
 class RouteTraceServiceTest {
 
-    private final RouteTraceService service = new RouteTraceService("samples");
+    private final RouteTraceService service =
+            new RouteTraceService("src/test/resources/sample-framework");
 
     private TraceResponse trace(String api, String version, String transferType) {
         return service.trace(new TraceRequest(api, version, transferType, null));

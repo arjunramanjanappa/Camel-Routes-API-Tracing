@@ -5,11 +5,11 @@ spring:
   application:
     name: camel-route-tracer
 
-# Default framework source directory to analyse. Override per-request via the
-# 'sourceDir' field, or globally via the TRACER_SOURCE_DIR environment variable.
-# Defaults to the bundled sample framework so the app is runnable out of the box.
+# Framework source directory to analyse. No default — set it to your framework
+# checkout via the TRACER_SOURCE_DIR environment variable, or supply it per
+# request via the 'sourceDir' field/param. A blank value yields a clear 400.
 tracer:
-  source-dir: ${TRACER_SOURCE_DIR:samples}
+  source-dir: ${TRACER_SOURCE_DIR:}
 
 logging:
   level:

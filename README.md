@@ -18,23 +18,20 @@ running.
 
 ## Run
 
+Point it at your framework checkout (there is no bundled default):
+
 ```bash
-# uses the bundled samples/ as the source directory by default
-mvn spring-boot:run
+TRACER_SOURCE_DIR=/path/to/mty-framework mvn spring-boot:run
 ```
 
 Then open the UI:
 
 * **UI:**  http://localhost:8080/route-tracer
-* **API:** http://localhost:8080/internal/route-graph?api=/payment/v2/fund/submit&version=9.4
+* **API:** http://localhost:8080/internal/route-graph?api=/payment/v2/fund/submit&version=9.4&sourceDir=/path/to/mty-framework
 
-Point it at a real framework checkout with either:
-
-```bash
-TRACER_SOURCE_DIR=/path/to/mty-framework mvn spring-boot:run   # global default
-```
-
-or per request via the `sourceDir` field / query param.
+The source directory can be set globally via `TRACER_SOURCE_DIR` /
+`tracer.source-dir`, or per request via the `sourceDir` field / query param. If
+none is provided the API returns a `400` explaining what to set.
 
 ---
 
@@ -123,7 +120,7 @@ src/main/java/com/arjun/tracer/
   service/    RouteTraceService (orchestration + source scan)
   web/        RouteGraphController, WebConfig
 src/main/resources/static/route-tracer.html   UI (Cytoscape via CDN)
-samples/      a runnable example framework (controller + versioned routes)
+src/test/resources/sample-framework/          synthetic fixture (test-only)
 ```
 
 ## Test
@@ -132,6 +129,7 @@ samples/      a runnable example framework (controller + versioned routes)
 mvn test
 ```
 
-`RouteTraceServiceTest` runs the full pipeline against `samples/` — exact
-version, fallback to a lower version, BASE fallback, `transferType` filtering,
-`<otherwise>` branches and cross-version delegation.
+`RouteTraceServiceTest` runs the full pipeline against a synthetic framework
+fixture under `src/test/resources/sample-framework` (test-only — not part of the
+app or jar) — exact version, fallback to a lower version, BASE fallback,
+`transferType` filtering, `<otherwise>` branches and cross-version delegation.

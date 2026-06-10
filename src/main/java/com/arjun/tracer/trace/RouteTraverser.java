@@ -83,13 +83,26 @@ public class RouteTraverser {
     }
 
     private void walk(List<RouteElement> elements, String currentNodeId, String branch) {
+        // The backend endpoint is carried by setProperty name="api", then the route
+        // hands off to a host route (e.g. direct:callUFWDGE) that performs the call.
+        // So defer the api value and attach it to that host route, not to this one.
+        List<String> pendingApis = new ArrayList<>();
         for (RouteElement el : elements) {
             if (el instanceof ToElement to) {
-                handleTo(to.uri(), currentNodeId, branch);
+                String targetNode = handleTo(to.uri(), currentNodeId, branch);
+                if (targetNode != null && !pendingApis.isEmpty()) {
+                    for (String api : pendingApis) {
+                        addBackend(api, targetNode, branch);   // host route → backend
+                    }
+                    pendingApis.clear();
+                }
             } else if (el instanceof RecipientListElement rl) {
                 handleRecipient(rl.expression(), currentNodeId, branch);
             } else if (el instanceof SetPropertyElement sp) {
-                handleSetProperty(sp, currentNodeId, branch);
+                if (sp.name() != null && sp.name().equalsIgnoreCase("api")
+                        && sp.value() != null && !sp.value().isBlank()) {
+                    pendingApis.add(sp.value().trim());        // defer to the host call
+                }
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch);
             } else if (el instanceof ContainerElement container) {
@@ -97,11 +110,20 @@ public class RouteTraverser {
             }
             // WhenElement never appears at this level (only inside ChoiceElement)
         }
+        // api set without a following host-route call: attach to this route directly.
+        for (String api : pendingApis) {
+            addBackend(api, currentNodeId, branch);
+        }
     }
 
-    private void handleTo(String uri, String currentNodeId, String branch) {
+    /**
+     * @return the graph node id of the route this {@code to} hands off to (so a
+     *         pending backend api can be attached to it), or null for external /
+     *         unresolved / non-routing endpoints.
+     */
+    private String handleTo(String uri, String currentNodeId, String branch) {
         if (uri == null || uri.isBlank()) {
-            return;
+            return null;
         }
         int colon = uri.indexOf(':');
         String scheme = colon > 0 ? uri.substring(0, colon) : uri;
@@ -112,13 +134,15 @@ public class RouteTraverser {
             String target = resolveDynamicName(remainder);
             if (target != null) {
                 visitRoute(target, currentNodeId, branch);
-            } else {
-                response.getWarnings().add("Unresolved dynamic target: " + uri);
+                return "route:" + target;
             }
+            response.getWarnings().add("Unresolved dynamic target: " + uri);
+            return null;
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
             addBackend(uri, currentNodeId, branch); // external call, not a setProperty api
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
+        return null;
     }
 
     private void handleRecipient(String expression, String currentNodeId, String branch) {
@@ -138,17 +162,6 @@ public class RouteTraverser {
         }
         if (!any) {
             response.getWarnings().add("Dynamic recipientList not resolved: " + expression);
-        }
-    }
-
-    private void handleSetProperty(SetPropertyElement sp, String currentNodeId, String branch) {
-        String name = sp.name();
-        if (name == null) {
-            return;
-        }
-        // The backend API a route invokes is carried by setProperty name="api".
-        if (name.equalsIgnoreCase("api") && sp.value() != null && !sp.value().isBlank()) {
-            addBackend(sp.value().trim(), currentNodeId, branch);
         }
     }
 

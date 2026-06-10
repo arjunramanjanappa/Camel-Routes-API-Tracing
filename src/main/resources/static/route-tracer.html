@@ -320,7 +320,8 @@
         const elements = [];
         (graph.nodes || []).forEach(n => {
             const role = roleOf(n, opNames);
-            const display = n.type === 'ROUTE' ? routeShort(n.label) : n.type === 'BACKEND' ? backendShort(n.label) : n.label.replace(/\s*\[.*\]$/, '');
+            // ROUTE: keep the full name incl. version (e.g. R9.14_getFxRate); BACKEND: trim placeholders.
+            const display = n.type === 'ROUTE' ? n.label : n.type === 'BACKEND' ? backendShort(n.label) : n.label.replace(/\s*\[.*\]$/, '');
             elements.push({ data: {
                 id: n.id, label: display, full: n.label, type: n.type, role: role,
                 isEntry: entry.has(n.id) ? 'yes' : 'no',

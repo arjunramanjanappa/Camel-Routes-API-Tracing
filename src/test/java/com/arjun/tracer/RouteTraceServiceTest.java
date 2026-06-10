@@ -47,6 +47,19 @@ class RouteTraceServiceTest {
     }
 
     @Test
+    void backendIsAttachedToTheHostRouteThatPerformsTheCall() {
+        // setProperty name="api" then to direct:callUFWDGE → backend hangs off callUFWDGE,
+        // not the business route that merely set the property.
+        TraceResponse r = trace("/payment/v2/fund/submit", "9.4", "OWN");
+        assertThat(r.getGraph().getEdges()).anyMatch(e ->
+                e.from().equals("route:callUFWDGE")
+                        && e.to().equals("backend:{{baseUrl}}/bfs/ft/own/submit"));
+        assertThat(r.getGraph().getEdges()).noneMatch(e ->
+                e.from().equals("route:R9.4_ftOwnAccountProcessSubmitDGEApi")
+                        && e.to().startsWith("backend:"));
+    }
+
+    @Test
     void transferTypeFiltersToSingleBranch() {
         TraceResponse r = trace("/payment/v2/fund/submit", "9.4", "INTER");
         assertThat(r.getBackendApis())

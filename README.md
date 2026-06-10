@@ -124,13 +124,26 @@ Each route XML is loaded the **Camel 4 way** — via `RoutesLoader` into a
 `CamelContext`, then walked over the real
 `RouteDefinition`/`ProcessorDefinition` model (`ToDefinition`,
 `RecipientListDefinition`, `ChoiceDefinition`, `SetPropertyDefinition`, …). The
-context is never started. If a file cannot be loaded that way (custom
-components, Spring beans, placeholder validation), it **falls back** to a DOM
-parser that produces the same neutral model. Both feed one traverser.
+context is never started.
+
+Camel's `xml-io-dsl` only recognises a top-level `<routes>`/`<route>`. Real
+frameworks often wrap routes in Spring `<beans>` → `<camelContext>` /
+`<routeContext>`. The loader therefore tries the file as-is and, failing that,
+**unwraps** the `<route>` elements into a synthetic Camel-namespaced `<routes>`
+document and retries — so the RouteDefinition path still applies. Only if that
+still fails does it **fall back** to a DOM parser producing the same neutral
+model. Both feed one traverser.
 
 > Note: the in-memory resource is named `inline-route.xml` because Camel derives
 > a loader from the extension after the *first* dot — a real name like
 > `R9.4_x.xml` would otherwise be misread as extension `4_x.xml`.
+
+### Source layout
+Point the tracer at a single module **or** a multi-module root — the scanner
+walks the whole tree, so `mty-payment/.../resources/routes/*.xml`,
+`mty-manage/.../routes/*.xml`, etc. are all discovered. Test source roots
+(`src/test`, `src/main/test`) and build dirs (`target`, `build`, `.git`, …) are
+skipped.
 
 ---
 

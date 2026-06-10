@@ -330,10 +330,18 @@ public class RouteTraceService {
 
     private boolean isUnderSkippedDir(Path root, Path file) {
         Path rel = root.relativize(file);
+        String prev = "";
         for (Path part : rel) {
-            if (SKIP_DIRS.contains(part.toString())) {
+            String seg = part.toString();
+            if (SKIP_DIRS.contains(seg)) {
                 return true;
             }
+            // Skip test source roots so test controllers/routes are not catalogued:
+            // .../src/test/... and the user's .../src/main/test/... layout.
+            if (seg.equals("test") && (prev.equals("src") || prev.equals("main"))) {
+                return true;
+            }
+            prev = seg;
         }
         return false;
     }

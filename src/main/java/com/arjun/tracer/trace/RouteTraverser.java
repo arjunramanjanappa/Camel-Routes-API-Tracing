@@ -59,7 +59,7 @@ public class RouteTraverser {
 
     /** Trace from the entry route, attaching it under the given API node. */
     public void trace(String entryRouteName, String apiNodeId) {
-        visitRoute(entryRouteName, apiNodeId, null);
+        visitRoute(entryRouteName, apiNodeId, null, new ArrayList<>());
     }
 
     /**
@@ -69,81 +69,95 @@ public class RouteTraverser {
      * is often un-versioned. Returns the graph node id so a pending backend can
      * be attached to a host route.
      */
-    private String visitRoute(String endpoint, String parentNodeId, String branch) {
+    private String visitRoute(String endpoint, String parentNodeId, String branch, List<PendingApi> inherited) {
         RouteModel route = registry.lookup(endpoint);
         // Prefer the route id (carries the version); fall back to the endpoint name.
         String identity = (route != null && route.routeId() != null) ? route.routeId() : endpoint;
         String nodeId = "route:" + identity;
         String source = route != null ? route.source() : "not-found";
+        boolean host = route != null && route.host();
         graph.addNode(new GraphNode(nodeId, identity, GraphNode.TYPE_ROUTE,
-                java.util.Map.of("source", source)));
+                java.util.Map.of("source", source, "host", host)));
         if (parentNodeId != null) {
             graph.addEdge(parentNodeId, nodeId, branch);
         }
-        if (expandedRoutes.add(identity)) {        // expand once (loop guard)
-            if (route == null) {
+
+        boolean firstVisit = expandedRoutes.add(identity);   // expand body once (loop guard)
+        if (route == null) {
+            if (firstVisit) {
                 response.getWarnings().add("Route not found in source: " + endpoint);
-            } else {
-                response.getFlow().add(identity);
-                List<PendingApi> leftover = walk(route.elements(), nodeId, null);
-                // api set with no following host call anywhere: attach to this route.
-                for (PendingApi p : leftover) {
-                    addBackend(p.value(), nodeId, p.branch());
-                }
             }
+            attach(inherited, nodeId);                       // still record the inherited backend(s)
+            return nodeId;
+        }
+        if (host) {
+            // The host performs the backend call: it consumes the api (set here or
+            // upstream) and does NOT forward it onward. Collect any api it sets
+            // itself (once), then attach inherited + collected to this host.
+            List<PendingApi> collected = new ArrayList<>(inherited);
+            if (firstVisit) {
+                response.getFlow().add(identity);
+                collected.addAll(walk(route.elements(), nodeId, null, new ArrayList<>(), false));
+            }
+            attach(collected, nodeId);
+            return nodeId;
+        }
+        if (firstVisit) {
+            response.getFlow().add(identity);
+            List<PendingApi> active = new ArrayList<>(inherited);
+            // Leftover = api set in/inherited by this route that no downstream route
+            // consumed → this route is itself the consumer.
+            attach(walk(route.elements(), nodeId, null, active, true), nodeId);
+        } else {
+            attach(inherited, nodeId);                       // revisit: record inherited here (deduped)
         }
         return nodeId;
     }
 
+    private void attach(List<PendingApi> apis, String nodeId) {
+        for (PendingApi p : apis) {
+            addBackend(p.value(), nodeId, p.branch());
+        }
+    }
+
     /**
-     * Walk a sequence of steps. The backend endpoint is carried by
-     * {@code setProperty name="api"}, then the route hands off to a host route
-     * (e.g. {@code direct:callUFWDGE}) that performs the call — so the api value
-     * is deferred and attached to that host. Crucially this also covers the case
-     * where each {@code <when>}/{@code <otherwise>} of a {@code <choice>} sets a
-     * different api and the host call sits <em>after</em> the choice: those api
-     * values (each tagged with its branch condition) bubble up here and attach to
-     * the host, so the graph shows the host fanning out to one backend per branch.
+     * Walk a sequence of steps, carrying the active {@code api} values down the
+     * call chain. {@code setProperty name="api"} adds to {@code active}; a
+     * {@code direct:} hand-off propagates {@code active} into the target route
+     * (when {@code forward}) so the backend lands on the route that actually makes
+     * the call — even if the api was set in an ancestor. Each {@code <choice>}
+     * branch contributes its api tagged with the branch condition.
      *
-     * @return api values set in this scope that were not yet consumed by a host
-     *         call (they bubble up to a host call in the enclosing scope).
+     * @param forward true to propagate api values to {@code direct:} targets;
+     *                false when the current route is a host that must keep them
+     * @return the api values still un-consumed at the end of this scope
      */
-    private List<PendingApi> walk(List<RouteElement> elements, String currentNodeId, String branch) {
-        List<PendingApi> pending = new ArrayList<>();
+    private List<PendingApi> walk(List<RouteElement> elements, String currentNodeId,
+                                  String branch, List<PendingApi> active, boolean forward) {
         for (RouteElement el : elements) {
             if (el instanceof ToElement to) {
-                String targetNode = handleTo(to.uri(), currentNodeId, branch);
-                if (targetNode != null && !pending.isEmpty()) {
-                    for (PendingApi p : pending) {
-                        addBackend(p.value(), targetNode, p.branch());   // host route → backend (per condition)
-                    }
-                    pending.clear();
-                }
+                handleTo(to.uri(), currentNodeId, branch, active, forward);
             } else if (el instanceof RecipientListElement rl) {
                 handleRecipient(rl.expression(), currentNodeId, branch);
             } else if (el instanceof SetPropertyElement sp) {
                 if (sp.name() != null && sp.name().equalsIgnoreCase("api")
                         && sp.value() != null && !sp.value().isBlank()) {
-                    pending.add(new PendingApi(sp.value().trim(), branch));   // defer to the host call
+                    active.add(new PendingApi(sp.value().trim(), branch));
                 }
             } else if (el instanceof ChoiceElement choice) {
-                pending.addAll(handleChoice(choice, currentNodeId, branch));
+                handleChoice(choice, currentNodeId, branch, active, forward);
             } else if (el instanceof ContainerElement container) {
-                pending.addAll(walk(container.children(), currentNodeId, branch));
+                walk(container.children(), currentNodeId, branch, active, forward);
             }
             // WhenElement never appears at this level (only inside ChoiceElement)
         }
-        return pending;
+        return active;
     }
 
-    /**
-     * @return the graph node id of the route this {@code to} hands off to (so a
-     *         pending backend api can be attached to it), or null for external /
-     *         unresolved / non-routing endpoints.
-     */
-    private String handleTo(String uri, String currentNodeId, String branch) {
+    private void handleTo(String uri, String currentNodeId, String branch,
+                          List<PendingApi> active, boolean forward) {
         if (uri == null || uri.isBlank()) {
-            return null;
+            return;
         }
         int colon = uri.indexOf(':');
         String scheme = colon > 0 ? uri.substring(0, colon) : uri;
@@ -152,16 +166,20 @@ public class RouteTraverser {
         if (scheme.equals("direct") || scheme.equals("direct-vm") || scheme.equals("seda")
                 || scheme.equals("vm")) {
             String target = resolveDynamicName(remainder);
-            if (target != null) {
-                return visitRoute(target, currentNodeId, branch);
+            if (target == null) {
+                response.getWarnings().add("Unresolved dynamic target: " + uri);
+                return;
             }
-            response.getWarnings().add("Unresolved dynamic target: " + uri);
-            return null;
+            if (forward) {
+                visitRoute(target, currentNodeId, branch, new ArrayList<>(active));
+                active.clear();                              // handed off downstream
+            } else {
+                visitRoute(target, currentNodeId, branch, new ArrayList<>());
+            }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch); // external call, not a setProperty api
+            addBackend(uri, currentNodeId, branch); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
-        return null;
     }
 
     private void handleRecipient(String expression, String currentNodeId, String branch) {
@@ -170,14 +188,14 @@ public class RouteTraverser {
         }
         // The framework's redirect uses direct:${exchangeProperty[operationName]}.
         if (expression.contains("operationName") && operationRouteName != null) {
-            visitRoute(operationRouteName, currentNodeId, branch);
+            visitRoute(operationRouteName, currentNodeId, branch, new ArrayList<>());
             return;
         }
         Matcher m = DIRECT_REF.matcher(expression);
         boolean any = false;
         while (m.find()) {
             any = true;
-            visitRoute(m.group(1), currentNodeId, branch);
+            visitRoute(m.group(1), currentNodeId, branch, new ArrayList<>());
         }
         if (!any) {
             response.getWarnings().add("Dynamic recipientList not resolved: " + expression);
@@ -185,39 +203,45 @@ public class RouteTraverser {
     }
 
     /**
-     * Walk the selected choice branches, returning any api values they set that a
-     * host call after the choice should consume (each tagged with its branch).
+     * Walk the selected choice branches. Each branch's un-consumed api (set in the
+     * branch, no in-branch host call) is added to {@code active} tagged with the
+     * branch condition, so a host call after the choice fans out to one backend
+     * per branch.
      */
-    private List<PendingApi> handleChoice(ChoiceElement choice, String currentNodeId, String branch) {
-        List<PendingApi> bubbled = new ArrayList<>();
+    private void handleChoice(ChoiceElement choice, String currentNodeId, String branch,
+                              List<PendingApi> active, boolean forward) {
         List<WhenElement> whens = choice.whens();
         if (transferType == null) {
-            // No filter: explore every branch.
             for (WhenElement when : whens) {
-                bubbled.addAll(walk(when.children(), currentNodeId, branchLabel(when.predicate())));
+                active.addAll(walkBranch(when.children(), currentNodeId, branchLabel(when.predicate()), forward));
             }
             if (!choice.otherwise().isEmpty()) {
-                bubbled.addAll(walk(choice.otherwise(), currentNodeId, "OTHERWISE"));
+                active.addAll(walkBranch(choice.otherwise(), currentNodeId, "OTHERWISE", forward));
             }
-            return bubbled;
+            return;
         }
         // Filtered: only the branch(es) whose predicate matches the transferType.
         boolean matched = false;
         for (WhenElement when : whens) {
             if (predicateMatches(when.predicate(), transferType)) {
                 matched = true;
-                bubbled.addAll(walk(when.children(), currentNodeId, branchLabel(when.predicate())));
+                active.addAll(walkBranch(when.children(), currentNodeId, branchLabel(when.predicate()), forward));
             }
         }
         if (!matched) {
             if (!choice.otherwise().isEmpty()) {
-                bubbled.addAll(walk(choice.otherwise(), currentNodeId, "OTHERWISE"));
+                active.addAll(walkBranch(choice.otherwise(), currentNodeId, "OTHERWISE", forward));
             } else {
                 response.getWarnings().add(
                         "transferType '" + transferType + "' matched no branch and there is no otherwise");
             }
         }
-        return bubbled;
+    }
+
+    /** Walk one choice branch with its own fresh api scope; return what it leaves un-consumed. */
+    private List<PendingApi> walkBranch(List<RouteElement> elements, String currentNodeId,
+                                        String branch, boolean forward) {
+        return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
     }
 
     private void addBackend(String value, String currentNodeId, String branch) {

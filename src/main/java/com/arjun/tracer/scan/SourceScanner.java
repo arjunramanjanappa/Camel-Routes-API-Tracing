@@ -60,6 +60,13 @@ public class SourceScanner {
         String relPath = root.relativize(file).toString().replace('\\', '/');
         List<RouteModel> routes = loadRoutes(file.getFileName().toString(), xml, warnings);
         RouteXmlMetadata metadata = RouteXmlMetadata.parse(xml);
+        // Flag routes that perform the backend HTTP call (they reference CamelHttpUri).
+        Set<String> hostIds = metadata.hostRouteIds();
+        if (!hostIds.isEmpty()) {
+            routes = routes.stream()
+                    .map(r -> hostIds.contains(r.routeId()) ? r.asHost() : r)
+                    .toList();
+        }
         return new FileInfo(relPath, routes, metadata);
     }
 

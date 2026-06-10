@@ -24,9 +24,14 @@ import java.util.Set;
  * @param contextRefs    values of {@code <routeContextRef ref="...">}
  * @param definedContexts ids of {@code <routeContext id="...">} declared here
  * @param hasCamelContext true if a {@code <camelContext>} is present
+ * @param hostRouteIds   ids of {@code <route>}s that reference {@code CamelHttpUri}
+ *                       (they perform the backend HTTP call)
  */
 public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
-                               Set<String> definedContexts, boolean hasCamelContext) {
+                               Set<String> definedContexts, boolean hasCamelContext,
+                               Set<String> hostRouteIds) {
+
+    private static final String HTTP_URI_MARKER = "CamelHttpUri";
 
     public static RouteXmlMetadata parse(String xml) {
         try {
@@ -35,10 +40,46 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
             List<String> refs = attrs(doc, "routeContextRef", "ref");
             Set<String> contexts = new LinkedHashSet<>(attrs(doc, "routeContext", "id"));
             boolean camelContext = doc.getElementsByTagNameNS("*", "camelContext").getLength() > 0;
-            return new RouteXmlMetadata(imports, refs, contexts, camelContext);
+            return new RouteXmlMetadata(imports, refs, contexts, camelContext, hostRouteIds(doc));
         } catch (Exception e) {
-            return new RouteXmlMetadata(List.of(), List.of(), Set.of(), false);
+            return new RouteXmlMetadata(List.of(), List.of(), Set.of(), false, Set.of());
         }
+    }
+
+    /** Route ids whose subtree mentions {@code CamelHttpUri} (attribute or text). */
+    private static Set<String> hostRouteIds(Document doc) {
+        Set<String> ids = new LinkedHashSet<>();
+        NodeList routes = doc.getElementsByTagNameNS("*", "route");
+        for (int i = 0; i < routes.getLength(); i++) {
+            Element route = (Element) routes.item(i);
+            String id = route.getAttribute("id");
+            if (id != null && !id.isBlank() && mentionsHttpUri(route)) {
+                ids.add(id.trim());
+            }
+        }
+        return ids;
+    }
+
+    private static boolean mentionsHttpUri(Element el) {
+        var attributes = el.getAttributes();
+        for (int i = 0; i < attributes.getLength(); i++) {
+            if (attributes.item(i).getNodeValue() != null
+                    && attributes.item(i).getNodeValue().contains(HTTP_URI_MARKER)) {
+                return true;
+            }
+        }
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            org.w3c.dom.Node n = children.item(i);
+            if (n.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && mentionsHttpUri((Element) n)) {
+                return true;
+            }
+            if (n.getNodeType() == org.w3c.dom.Node.TEXT_NODE && n.getNodeValue() != null
+                    && n.getNodeValue().contains(HTTP_URI_MARKER)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<String> attrs(Document doc, String localName, String attr) {

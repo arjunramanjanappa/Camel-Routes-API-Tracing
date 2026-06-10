@@ -278,10 +278,16 @@
                 const back = (t.backendApis && t.backendApis.length) ? (' · ' + t.backendApis.length + ' backend' + (t.backendApis.length > 1 ? 's' : '')) : '';
                 const body = document.createElement('div'); body.className = 'body';
                 body.innerHTML = '<div class="op">' + t.operationName + '</div><div class="meta">' + (t.api || '') + '</div><div class="kv">' + target + back + '</div>';
-                body.onclick = () => setState({ selectedId: 'api:' + (t.api || t.operationName), search: '' });
-                const btn = document.createElement('button'); btn.className = 'minibtn'; btn.textContent = 'Trace ▶';
-                btn.title = 'Open this API as a single trace';
-                btn.onclick = () => drillInto(t.api || t.operationName, t.resolvedVersion);
+                // Selecting an API opens ITS OWN flow as a separate single trace
+                // (not a highlight inside the combined catalog graph). Reproduce the
+                // catalog entry: trace at the client version if one was selected,
+                // else at this entry's specific version.
+                const open = () => drillInto(t.api || t.operationName,
+                        (d.requestedVersion && d.requestedVersion.trim()) ? d.requestedVersion : t.resolvedVersion);
+                body.onclick = open;
+                const btn = document.createElement('button'); btn.className = 'minibtn'; btn.textContent = 'Open ▶';
+                btn.title = 'Open this API as its own trace';
+                btn.onclick = open;
                 div.appendChild(body); div.appendChild(btn); panel.appendChild(div);
             });
             cat.appendChild(panel);

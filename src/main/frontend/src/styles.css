@@ -97,6 +97,27 @@ table.grid tr:hover td { background: #f7f9fb; }
 .spl-block { margin-top: 10px; }
 .spl-block pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
 
+/* ---- log / Splunk analysis ---- */
+.seg { display: inline-flex; border: 1px solid #cbd2d9; border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: #fff; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; color: #52606d; }
+.seg button + button { border-left: 1px solid #cbd2d9; }
+.seg button.on { background: #2563eb; color: #fff; }
+.uploader { border: 1.5px dashed #cbd2d9; border-radius: 8px; padding: 16px; text-align: center; margin-top: 10px; cursor: pointer; font-size: 13px; color: #52606d; }
+.uploader:hover { border-color: #2563eb; background: #f5f8ff; }
+.uploader.has { border-style: solid; border-color: #86efac; background: #f0fdf4; color: #166534; }
+.lstat { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.lstat.success { background: #dcfce7; color: #166534; }
+.lstat.failed { background: #ffe2d1; color: #9a3412; }
+.lstat.timeout { background: #ede9fe; color: #5b21b6; }
+.lstat.partial { background: #fef3c7; color: #92400e; }
+.lstat.indeterminate { background: #dbeafe; color: #1e40af; }
+.lstat.not_tested { background: #fee2e2; color: #991b1b; }
+tr.lrow.not_tested td { background: #fef4f4; }
+tr.lrow.failed td { background: #fff6f1; }
+tr.lrow.timeout td { background: #f8f6ff; }
+tr.lsub td { background: #f9fafb; font-size: 11px; }
+tr.lsub code { background: transparent; }
+
 .graph-controls { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 6px 8px; z-index: 6; }
 .graph-controls select { width: auto; padding: 5px 8px; font-size: 12px; }
 .graph-controls .minibtn { padding: 5px 10px; font-weight: 700; }
@@ -159,3 +180,14 @@ table.grid tr:hover td { background: #f7f9fb; }
 [data-theme="dark"] .rf-node .rf-title { color: #e2e8f0; }
 [data-theme="dark"] .rf-node.backend { background: #2a1d12; border-color: #7c2d12; }
 [data-theme="dark"] .rf-node.api { background: linear-gradient(135deg,#2563eb,#1e40af); }
+[data-theme="dark"] .seg { border-color: #334155; }
+[data-theme="dark"] .seg button { background: #1e293b; color: #cbd5e1; }
+[data-theme="dark"] .seg button + button { border-color: #334155; }
+[data-theme="dark"] .seg button.on { background: #2563eb; color: #fff; }
+[data-theme="dark"] .uploader { border-color: #334155; color: #94a3b8; }
+[data-theme="dark"] .uploader:hover { background: #0b1220; }
+[data-theme="dark"] .uploader.has { background: #052e16; border-color: #166534; color: #86efac; }
+[data-theme="dark"] tr.lrow.not_tested td { background: #2a1416; }
+[data-theme="dark"] tr.lrow.failed td { background: #2a1a12; }
+[data-theme="dark"] tr.lrow.timeout td { background: #1c172e; }
+[data-theme="dark"] tr.lsub td { background: #0f172a; }

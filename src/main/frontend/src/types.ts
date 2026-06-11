@@ -91,3 +91,48 @@ export interface TraceParams {
   country?: string;
   sourceDir?: string;
 }
+
+// --- log / Splunk correlation ---
+
+export type LogStatus =
+  | 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'PARTIAL' | 'INDETERMINATE' | 'NOT_TESTED';
+
+export interface BackendCallResult {
+  backend: string;
+  observedPath?: string | null;
+  status: LogStatus;
+  latencyMs?: number | null;
+  responseCode?: string | null;
+  responseDescription?: string | null;
+}
+
+export interface ApiLogResult {
+  api: string;
+  operation: string;
+  resolvedRoute?: string | null;
+  clientVersion?: string | null;
+  status: LogStatus;
+  tested: boolean;
+  feLatencyMs?: number | null;
+  responseCode?: string | null;
+  responseDescription?: string | null;
+  attempts: number;
+  successCount: number;
+  failureCount: number;
+  latestAt?: string | null;
+  correlationId?: string | null;
+  note?: string | null;
+  backends: BackendCallResult[];
+}
+
+export interface LogAnalysisReport {
+  uploadType: string;
+  clientVersion?: string | null;
+  country?: string | null;
+  linesScanned: number;
+  matchedLines: number;
+  transactions: number;
+  unparsedLines: number;
+  apis: ApiLogResult[];
+  warnings: string[];
+}

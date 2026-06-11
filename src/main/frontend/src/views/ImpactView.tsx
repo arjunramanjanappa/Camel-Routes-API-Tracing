@@ -4,6 +4,7 @@ import type { ApiImpact, ImpactIndex } from '../types';
 import { backendPath, downloadText } from '../spl';
 import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
+import LogAnalysisPanel from '../components/LogAnalysisPanel';
 
 function get(k: string, d = '') { return localStorage.getItem('tracer.' + k) ?? d; }
 function put(k: string, v: string) { localStorage.setItem('tracer.' + k, v); }
@@ -94,6 +95,7 @@ export default function ImpactView() {
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
       {idx && (
+        <>
         <div className="impact-body">
           <div className="impact-left">
             <div className="panel">
@@ -147,6 +149,11 @@ export default function ImpactView() {
             )}
           </div>
         </div>
+
+        <div style={{ padding: '0 18px 18px' }}>
+          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} impactedApis={feApis} />
+        </div>
+        </>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import type { AnalyzeResponse, TraceResponse } from '../types';
+import SplunkPanel from './SplunkPanel';
 
 interface Props {
   data: AnalyzeResponse;
@@ -38,6 +39,14 @@ function Single({ d }: { d: TraceResponse }) {
       {d.backendApis.length > 0 && (
         <div className="panel"><h2>Backend APIs</h2><ul>{d.backendApis.map((b, i) => <li key={i}><code>{b}</code></li>)}</ul></div>
       )}
+      {d.operationName && (
+        <SplunkPanel
+          title="Splunk export — this API"
+          frontendApis={[d.api || d.operationName || '']}
+          backendApis={d.backendApis}
+          hint="Run in Splunk, export the report, then upload it under Impact analysis for correlation."
+        />
+      )}
     </>
   );
 }
@@ -57,6 +66,8 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
   }
 
   const cat = data;
+  const allFe = [...new Set(cat.groups.flatMap((g) => g.traces.map((t) => t.api || t.operationName || '')).filter(Boolean))];
+  const allBe = [...new Set(cat.groups.flatMap((g) => g.traces.flatMap((t) => t.backendApis || [])))];
   return (
     <>
       <div className="panel">
@@ -88,6 +99,14 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
           </div>
         );
       })}
+      {allFe.length > 0 && (
+        <SplunkPanel
+          title="Splunk export — all APIs"
+          frontendApis={allFe}
+          backendApis={allBe}
+          hint="Run in Splunk, export the report, then upload it under Impact analysis for correlation."
+        />
+      )}
       <Warnings items={cat.warnings} />
     </>
   );

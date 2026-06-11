@@ -96,3 +96,7 @@ table.grid tr:hover td { background: #f7f9fb; }
 .spl-config label { margin-top: 0; }
 .spl-block { margin-top: 10px; }
 .spl-block pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
+
+.graph-controls { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 6px 8px; z-index: 6; }
+.graph-controls select { width: auto; padding: 5px 8px; font-size: 12px; }
+.graph-controls .minibtn { padding: 5px 10px; font-weight: 700; }

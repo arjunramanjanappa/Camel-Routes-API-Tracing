@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import type { Derived } from '../graphModel';
@@ -20,6 +20,14 @@ interface Props {
 
 const MIN_ZOOM = 0.7;
 
+const LAYOUTS: Record<string, () => cytoscape.LayoutOptions> = {
+  'Hierarchical →': () => ({ name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 100 } as cytoscape.LayoutOptions),
+  'Hierarchical ↓': () => ({ name: 'dagre', rankDir: 'TB', nodeSep: 26, rankSep: 90 } as cytoscape.LayoutOptions),
+  'Tree': () => ({ name: 'breadthfirst', directed: true, spacingFactor: 1.3, padding: 30 } as cytoscape.LayoutOptions),
+  'Radial': () => ({ name: 'concentric', minNodeSpacing: 40, padding: 30 } as cytoscape.LayoutOptions),
+  'Force': () => ({ name: 'cose', animate: false, idealEdgeLength: 90, nodeRepulsion: 9000, padding: 30 } as cytoscape.LayoutOptions),
+};
+
 const RouteGraph = forwardRef<GraphHandle, Props>(function RouteGraph(
   { derived, selectedId, search, onSelect },
   ref
@@ -29,6 +37,32 @@ const RouteGraph = forwardRef<GraphHandle, Props>(function RouteGraph(
   const cyRef = useRef<cytoscape.Core | null>(null);
   const appliedSearch = useRef<string | null>(null);
   const appliedSelection = useRef<string | null>(null);
+  const [layoutName, setLayoutName] = useState<string>('Hierarchical →');
+
+  const applyFit = (cy: cytoscape.Core) => {
+    cy.fit(undefined, 45);
+    if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); return; }
+    if (cy.zoom() < MIN_ZOOM) {
+      cy.zoom(MIN_ZOOM);
+      const bb = cy.elements().boundingBox({});
+      cy.pan({ x: -bb.x1 * MIN_ZOOM + 50, y: -bb.y1 * MIN_ZOOM + 40 });
+    }
+  };
+
+  const runLayout = (cy: cytoscape.Core, name: string) => {
+    const layout = cy.layout((LAYOUTS[name] || LAYOUTS['Hierarchical →'])());
+    layout.one('layoutstop', () => applyFit(cy));
+    layout.run();
+    applyFit(cy);
+    setTimeout(() => applyFit(cy), 200);
+  };
+
+  const zoomBy = (factor: number) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const c = { x: cy.width() / 2, y: cy.height() / 2 };
+    cy.animate({ zoom: { level: cy.zoom() * factor, renderedPosition: c } }, { duration: 150 });
+  };
 
   useImperativeHandle(ref, () => ({
     fit: () => cyRef.current?.fit(undefined, 45),
@@ -64,8 +98,9 @@ const RouteGraph = forwardRef<GraphHandle, Props>(function RouteGraph(
     const cy = cytoscape({
       container: containerRef.current,
       elements,
+      wheelSensitivity: 0.2,
       style: ([
-        { selector: 'node', style: { 'label': 'data(label)', 'font-size': 13, 'font-weight': 600, 'color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 150, 'width': 'label', 'height': 'label', 'padding': '13px', 'shape': 'round-rectangle', 'background-color': '#64748b' } },
+        { selector: 'node', style: { 'label': 'data(label)', 'font-size': 13, 'font-weight': 600, 'color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 150, 'width': 'label', 'height': 'label', 'padding': '13px', 'shape': 'round-rectangle', 'background-color': '#64748b', 'border-width': 1, 'border-color': 'rgba(15,23,42,0.15)' } },
         { selector: 'node[role="api"]', style: { 'background-color': COLORS.api } },
         { selector: 'node[role="versioned"]', style: { 'background-color': COLORS.versioned } },
         { selector: 'node[role="base"]', style: { 'background-color': COLORS.base } },
@@ -79,25 +114,11 @@ const RouteGraph = forwardRef<GraphHandle, Props>(function RouteGraph(
         { selector: '.faded', style: { 'opacity': 0.15 } },
         { selector: 'node.selected', style: { 'border-width': 4, 'border-color': '#1d4ed8' } },
         { selector: 'node.match', style: { 'border-width': 4, 'border-color': '#7c3aed' } },
+        { selector: 'node.hover', style: { 'border-width': 3, 'border-color': '#1d4ed8' } },
         { selector: 'edge.hl', style: { 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8', 'width': 3, 'opacity': 1 } },
       ] as any[]),
     });
     cyRef.current = cy;
-
-    const fit = () => {
-      cy.fit(undefined, 45);
-      if (cy.nodes().length <= 2 && cy.zoom() > 1.2) { cy.zoom(1.2); cy.center(); return; }
-      if (cy.zoom() < MIN_ZOOM) {
-        cy.zoom(MIN_ZOOM);
-        const bb = cy.elements().boundingBox({});
-        cy.pan({ x: -bb.x1 * MIN_ZOOM + 50, y: -bb.y1 * MIN_ZOOM + 40 });
-      }
-    };
-    const layout = cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 100 } as cytoscape.LayoutOptions);
-    layout.one('layoutstop', fit);
-    layout.run();
-    fit();
-    const t = setTimeout(fit, 200);
 
     const tip = tooltipRef.current!;
     cy.on('tap', 'node', (e) => onSelect(e.target.id()));
@@ -108,15 +129,22 @@ const RouteGraph = forwardRef<GraphHandle, Props>(function RouteGraph(
       tip.style.left = p.x + 'px';
       tip.style.top = p.y + 'px';
       tip.style.display = 'block';
+      e.target.addClass('hover');
     });
-    cy.on('mouseout', 'node', () => (tip.style.display = 'none'));
+    cy.on('mouseout', 'node', (e) => { tip.style.display = 'none'; e.target.removeClass('hover'); });
     cy.on('pan zoom drag', () => (tip.style.display = 'none'));
 
     appliedSearch.current = null;
     appliedSelection.current = null;
-    return () => { clearTimeout(t); cy.destroy(); };
+    return () => { cy.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derived]);
+
+  // Run / re-run layout on data or layout change.
+  useEffect(() => {
+    if (cyRef.current) runLayout(cyRef.current, layoutName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derived, layoutName]);
 
   // Apply selection / search highlight without rebuilding.
   useEffect(() => {
@@ -148,6 +176,14 @@ const RouteGraph = forwardRef<GraphHandle, Props>(function RouteGraph(
     <div className="graph-wrap">
       <div ref={containerRef} className="cy" />
       <div ref={tooltipRef} className="tooltip" />
+      <div className="graph-controls">
+        <select value={layoutName} onChange={(e) => setLayoutName(e.target.value)} title="Layout">
+          {Object.keys(LAYOUTS).map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <button className="minibtn" onClick={() => zoomBy(1 / 1.25)} title="Zoom out">−</button>
+        <button className="minibtn" onClick={() => zoomBy(1.25)} title="Zoom in">+</button>
+        <button className="minibtn" onClick={() => cyRef.current && applyFit(cyRef.current)} title="Reset view">Reset</button>
+      </div>
     </div>
   );
 });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { backendPath, buildSpl, downloadText } from '../spl';
+import { backendPath, buildSpl, downloadText, TIME_PRESETS } from '../spl';
 import CopyBtn from './CopyBtn';
 
 interface Props {
@@ -16,13 +16,15 @@ export default function SplunkPanel({ title = 'Splunk export', frontendApis, bac
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
   const [feField, setFeField] = useState(pref('splFeField', 'uri'));
   const [beField, setBeField] = useState(pref('splBeField', 'uri'));
+  const [earliest, setEarliest] = useState(pref('splEarliest', '-24h'));
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
 
   const fe = [...new Set(frontendApis.filter(Boolean))];
   const be = [...new Set(backendApis.map(backendPath).filter(Boolean))];
-  const feSpl = buildSpl(index, feField, fe);
-  const beSpl = buildSpl(index, beField, be);
+  const feSpl = buildSpl(index, feField, fe, earliest);
+  const beSpl = buildSpl(index, beField, be, earliest);
+  const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
 
   return (
     <div className="panel">
@@ -32,6 +34,16 @@ export default function SplunkPanel({ title = 'Splunk export', frontendApis, bac
         <div><label>Front-end API field</label><input value={feField} onChange={(e) => set('splFeField', e.target.value, setFeField)} /></div>
         <div><label>Backend API field</label><input value={beField} onChange={(e) => set('splBeField', e.target.value, setBeField)} /></div>
       </div>
+
+      <label>Time range <span className="muted">(query window — max 30 days)</span></label>
+      <div className="timerange">
+        {TIME_PRESETS.map((p) => (
+          <button key={p.earliest} className={'tpill' + (earliest === p.earliest ? ' on' : '')}
+                  onClick={() => set('splEarliest', p.earliest, setEarliest)}>{p.label}</button>
+        ))}
+      </div>
+
+      <div className="sub" style={{ marginTop: 8 }}>Both queries search the last <b>{rangeLabel}</b> (<code>earliest={earliest} latest=now</code>).</div>
 
       <div className="spl-block">
         <div className="row between"><b>Front-end APIs ({fe.length})</b>

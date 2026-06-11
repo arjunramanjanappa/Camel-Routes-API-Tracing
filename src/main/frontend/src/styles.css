@@ -98,6 +98,10 @@ table.grid tr:hover td { background: #f7f9fb; }
 .spl-block pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
 
 /* ---- log / Splunk analysis ---- */
+.timerange { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 2px; }
+.tpill { border: 1px solid #cbd2d9; background: #fff; border-radius: 999px; padding: 4px 12px; font-size: 11px; font-weight: 600; color: #52606d; cursor: pointer; }
+.tpill:hover { background: #eef2f7; }
+.tpill.on { background: #2563eb; border-color: #2563eb; color: #fff; }
 .seg { display: inline-flex; border: 1px solid #cbd2d9; border-radius: 7px; overflow: hidden; }
 .seg button { border: 0; background: #fff; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; color: #52606d; }
 .seg button + button { border-left: 1px solid #cbd2d9; }
@@ -180,6 +184,9 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .rf-node .rf-title { color: #e2e8f0; }
 [data-theme="dark"] .rf-node.backend { background: #2a1d12; border-color: #7c2d12; }
 [data-theme="dark"] .rf-node.api { background: linear-gradient(135deg,#2563eb,#1e40af); }
+[data-theme="dark"] .tpill { background: #1e293b; border-color: #334155; color: #cbd5e1; }
+[data-theme="dark"] .tpill:hover { background: #334155; }
+[data-theme="dark"] .tpill.on { background: #2563eb; border-color: #2563eb; color: #fff; }
 [data-theme="dark"] .seg { border-color: #334155; }
 [data-theme="dark"] .seg button { background: #1e293b; color: #cbd5e1; }
 [data-theme="dark"] .seg button + button { border-color: #334155; }

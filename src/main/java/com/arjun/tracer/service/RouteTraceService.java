@@ -121,12 +121,22 @@ public class RouteTraceService {
                     request.transferType(), prepared.registry(), graph);
             List<String> apiHosts = extractHosts(graph);
 
+            // Shared call routes (CamelHttpUri hosts AND per-call terminal routes such
+            // as callUFWDGE, drawn as route:<id>#N instances) are reused by every
+            // version and every API, so marking one "changed" would falsely impact
+            // everything. Drop them from the route footprint — the backend APIs they
+            // call still carry the real, per-API impact signal.
+            Set<String> shared = sharedCallRoutes(graph);
+            List<String> businessRoutes = r.getFlow().stream()
+                    .filter(routeName -> !shared.contains(routeName))
+                    .toList();
+
             out.getApis().add(new ApiImpact(
                     op.path(), op.operationName(), op.command(),
                     resolved.routeName(), resolved.version(), resolved.baseFallback(),
-                    List.copyOf(r.getFlow()), List.copyOf(r.getBackendApis()), apiHosts));
+                    businessRoutes, List.copyOf(r.getBackendApis()), apiHosts));
 
-            routes.addAll(r.getFlow());
+            routes.addAll(businessRoutes);
             backends.addAll(r.getBackendApis());
             hosts.addAll(apiHosts);
         }
@@ -145,6 +155,24 @@ public class RouteTraceService {
             }
         }
         return hosts;
+    }
+
+    /**
+     * Labels of routes that are shared infrastructure rather than version-specific
+     * business logic: CamelHttpUri hosts ({@code host=true}) and per-call terminal
+     * routes drawn as {@code route:<id>#N} instances (e.g. callUFWDGE). These are
+     * reused across all APIs/versions, so they are excluded from the impact route
+     * change-picker to avoid false "everything is impacted" results.
+     */
+    private Set<String> sharedCallRoutes(RouteGraph graph) {
+        Set<String> shared = new TreeSet<>();
+        for (GraphNode n : graph.getNodes()) {
+            if (!GraphNode.TYPE_ROUTE.equals(n.type())) continue;
+            boolean host = n.data() != null && Boolean.TRUE.equals(n.data().get("host"));
+            boolean perCallInstance = n.id() != null && n.id().contains("#");
+            if (host || perCallInstance) shared.add(n.label());
+        }
+        return shared;
     }
 
     // --- shared preparation ---

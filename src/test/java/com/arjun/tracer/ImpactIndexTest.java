@@ -33,4 +33,22 @@ class ImpactIndexTest {
         assertThat(idx.getAllBackends()).contains("{{baseUrl}}/bfs/ft/inter/fraud-check");
         assertThat(idx.getAllRoutes()).contains("R9.4_ftInterbankProcessSubmitDGEApi");
     }
+
+    @Test
+    void sharedHostCallRoutesAreExcludedFromRouteFootprint() {
+        ImpactIndex idx = service.impactIndex(new TraceRequest(null, "9.4", null, null));
+
+        // callUFWDGE is a per-call terminal route (route:callUFWDGE#N) reused by every
+        // branch/version — it must NOT appear in the route change-picker (else marking
+        // it changed would falsely impact every API).
+        assertThat(idx.getAllRoutes()).noneMatch(r -> r.contains("callUFWDGE"));
+        assertThat(idx.getApis()).allSatisfy(a ->
+                assertThat(a.routes()).noneMatch(r -> r.contains("callUFWDGE")));
+
+        // But real business routes are still listed, and the backend it calls still
+        // carries the per-API impact signal — so we excluded the shared route without
+        // losing coverage.
+        assertThat(idx.getAllRoutes()).contains("R9.4_masterFundTransferSubmitApi");
+        assertThat(idx.getAllBackends()).contains("{{baseUrl}}/bfs/ft/own/submit");
+    }
 }

@@ -8,3 +8,6 @@ target/
 src/main/frontend/node_modules/
 src/main/frontend/dist/
 src/main/frontend/*.tsbuildinfo
+# .npmrc holds a private-registry auth token — never commit it
+src/main/frontend/.npmrc
+.npmrc

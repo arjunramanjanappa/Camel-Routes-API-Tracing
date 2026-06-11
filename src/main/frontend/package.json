@@ -9,14 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "cytoscape": "^3.30.2",
-    "cytoscape-dagre": "^2.5.0",
+    "@xyflow/react": "^12.3.5",
     "dagre": "^0.8.5",
+    "html-to-image": "^1.11.11",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/cytoscape": "^3.21.8",
+    "@types/dagre": "^0.7.52",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

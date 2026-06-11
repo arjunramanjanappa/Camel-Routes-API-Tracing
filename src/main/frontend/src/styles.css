@@ -100,3 +100,30 @@ table.grid tr:hover td { background: #f7f9fb; }
 .graph-controls { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 6px 8px; z-index: 6; }
 .graph-controls select { width: auto; padding: 5px 8px; font-size: 12px; }
 .graph-controls .minibtn { padding: 5px 10px; font-weight: 700; }
+
+/* ---- React Flow graph ---- */
+.react-flow { background: #fafbfc; }
+.rf-node { background: #fff; border: 1px solid #e4e7eb; border-radius: 10px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(15,23,42,.10); font-size: 12px; line-height: 1.25; }
+.rf-node .rf-title { font-weight: 600; color: #1f2933; word-break: break-all; }
+.rf-kind { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; opacity: .75; margin-bottom: 1px; }
+.rf-node.api { background: linear-gradient(135deg,#2563eb,#1d4ed8); border: 0; color: #fff; }
+.rf-node.api .rf-title { color: #fff; }
+.rf-node.backend { background: #fff7ed; border-color: #fed7aa; }
+.rf-node.backend .rf-kind { color: #9a3412; }
+.rf-node.route { border-left: 4px solid #64748b; }
+.rf-node.route.versioned { border-left-color: #059669; }
+.rf-node.route.base { border-left-color: #d97706; }
+.rf-node.route.shared { border-left-color: #0891b2; }
+.rf-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+.rf-chip { font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+.rf-chip.ver { background: #dcfce7; color: #166534; }
+.rf-chip.host { background: #cffafe; color: #155e75; }
+.rf-chip.entry { background: #fef3c7; color: #92400e; }
+.rf-chip.client { background: #fce7f3; color: #9d174d; }
+.rf-node.dim { opacity: .22; }
+.rf-node.sel { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+.rf-node.match { outline: 2px solid #7c3aed; outline-offset: 2px; }
+.rf-handle { width: 7px; height: 7px; background: #cbd5e1; border: 2px solid #fff; }
+.rf-layout-select { padding: 5px 9px; font-size: 12px; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+.react-flow__minimap { border: 1px solid #e4e7eb; border-radius: 8px; }
+.react-flow__controls { box-shadow: 0 1px 4px rgba(15,23,42,.12); border-radius: 8px; overflow: hidden; }

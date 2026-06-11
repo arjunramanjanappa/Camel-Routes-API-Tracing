@@ -227,6 +227,13 @@ public class RouteTraceService {
             cat.getWarnings().add("No controller endpoints discovered in the source directory.");
         }
 
+        // With a specific client version, the catalog shows only the APIs actually
+        // IMPACTED by that release — i.e. whose entry route is exactly that version.
+        // APIs that fall back to a lower version / BASE are not part of the release
+        // and are excluded (blank version = the whole code, every version).
+        String wantedVersion = versionGiven ? request.version().trim() : null;
+        int excluded = 0;
+
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
         for (OperationInfo op : operations) {
             for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven)) {
@@ -236,12 +243,20 @@ public class RouteTraceService {
                     groups.computeIfAbsent(NO_ROUTE_GROUP, k -> new ArrayList<>()).add(entry);
                     continue;
                 }
+                if (wantedVersion != null && !wantedVersion.equals(target.version())) {
+                    excluded++;     // not impacted by the requested release
+                    continue;
+                }
                 TraceResponse entry = newEntry(op, request.transferType());
                 traverseInto(entry, op.path(), op.operationName(), target,
                         request.transferType(), registry, graph);
                 String key = target.version() != null ? target.version() : BASE_GROUP;
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
+        }
+        if (excluded > 0) {
+            cat.getWarnings().add(excluded + " API(s) are not impacted by version " + wantedVersion
+                    + " (they resolve to a lower version or BASE) and were excluded.");
         }
 
         List<String> keys = new ArrayList<>(groups.keySet());

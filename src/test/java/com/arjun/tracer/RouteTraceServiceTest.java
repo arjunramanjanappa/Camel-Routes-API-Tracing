@@ -161,11 +161,24 @@ class RouteTraceServiceTest {
     }
 
     @Test
-    void catalogWithVersionResolvesEveryApiToThatClientVersion() {
-        CatalogResponse cat = catalog("9.5");          // 9.5 falls back to 9.4
-        assertThat(group(cat, "9.4").traces()).anySatisfy(t -> {
+    void catalogWithVersionShowsOnlyThatReleasesImpactedApis() {
+        // 9.4 catalog → only APIs whose entry route IS 9.4 (the impacted ones).
+        CatalogResponse c94 = catalog("9.4");
+        assertThat(c94.getVersionsFound()).containsExactly("9.4");
+        assertThat(group(c94, "9.4").traces()).anySatisfy(t -> {
             assertThat(t.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
             assertThat(t.getResolvedRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");
         });
+        // fundTransferSubmitApi (no route) is NOT in the 9.4 release.
+        assertThat(c94.getGroups()).noneSatisfy(g ->
+                assertThat(g.version()).isEqualTo("(no route found)"));
+    }
+
+    @Test
+    void catalogWithVersionThatNothingImplementsIsEmptyWithNotice() {
+        // 9.5: no API has an R9.5 route, so nothing is impacted by that release.
+        CatalogResponse c95 = catalog("9.5");
+        assertThat(c95.getGroups()).isEmpty();
+        assertThat(c95.getWarnings()).anyMatch(w -> w.contains("not impacted by version 9.5"));
     }
 }

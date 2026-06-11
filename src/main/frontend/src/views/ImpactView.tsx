@@ -20,7 +20,7 @@ export default function ImpactView() {
   const [changedBackends, setChangedBackends] = useState<Set<string>>(new Set());
 
   const load = async () => {
-    put('sourceDir', sourceDir); put('country', country); put('version', version);
+    put('sourceDir', sourceDir); put('country', country);   // version is not persisted (shared with Trace)
     setLoading(true); setError(null);
     try {
       const data = await fetchImpactIndex(sourceDir, country, version);

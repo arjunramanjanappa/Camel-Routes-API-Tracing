@@ -8,12 +8,13 @@ import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 
-const FIELDS: (keyof TraceParams)[] = ['api', 'version', 'transferType', 'country', 'sourceDir'];
+// Only the "where" context is remembered. The "what" inputs (api/version/
+// transferType) start empty each load → catalog of the whole code by default.
+const PERSIST: (keyof TraceParams)[] = ['country', 'sourceDir'];
 
 function loadParams(): TraceParams {
-  // No hardcoded sample values: empty api + empty version → catalog of the whole code.
   const p: TraceParams = {};
-  FIELDS.forEach((f) => {
+  PERSIST.forEach((f) => {
     const v = localStorage.getItem('tracer.' + f);
     if (v !== null) p[f] = v;
   });
@@ -32,7 +33,7 @@ export default function TraceView({ colorMode }: { colorMode: 'light' | 'dark' }
   const [search, setSearch] = useState('');
   const graphRef = useRef<GraphHandle>(null);
 
-  const persist = (p: TraceParams) => FIELDS.forEach((f) => localStorage.setItem('tracer.' + f, p[f] || ''));
+  const persist = (p: TraceParams) => PERSIST.forEach((f) => localStorage.setItem('tracer.' + f, p[f] || ''));
   const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country));
 
   const runTrace = async (p: TraceParams) => {

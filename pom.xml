@@ -113,6 +113,34 @@
                 </executions>
             </plugin>
 
+            <!-- Wipe the previously-copied frontend bundle BEFORE re-copying, so stale
+                 content-hashed assets (index-<hash>.js/.css) from earlier builds don't
+                 accumulate in the served static dir. Runs in process-classes ahead of the
+                 copy below (same phase → POM order). excludeDefaultDirectories=true is
+                 essential: it limits cleaning to the explicit fileset and never touches
+                 target/ (the freshly compiled classes). Skipped with -Dskip.frontend=true
+                 so Java-only iterations keep the existing UI. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>clean-stale-frontend</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>clean</goal></goals>
+                        <configuration>
+                            <skip>${skip.frontend}</skip>
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${project.build.outputDirectory}/static</directory>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Copy the Vite build output into the served static resources. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

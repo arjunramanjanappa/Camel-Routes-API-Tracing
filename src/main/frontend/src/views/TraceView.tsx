@@ -8,9 +8,11 @@ import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 
-// Only the "where" context is remembered. The "what" inputs (api/version/
-// transferType) start empty each load → catalog of the whole code by default.
-const PERSIST: (keyof TraceParams)[] = ['country', 'sourceDir'];
+// Nothing trace-specific is hardcoded or pre-filled. api/version/transferType
+// and sourceDir all start empty each load: a blank sourceDir falls back to the
+// server's configured tracer.source-dir, and the page opens on a whole-code
+// catalog. Only `country` is remembered across loads.
+const PERSIST: (keyof TraceParams)[] = ['country'];
 
 function loadParams(): TraceParams {
   const p: TraceParams = {};

@@ -9,7 +9,7 @@ function get(k: string, d = '') { return localStorage.getItem('tracer.' + k) ?? 
 function put(k: string, v: string) { localStorage.setItem('tracer.' + k, v); }
 
 export default function ImpactView() {
-  const [sourceDir, setSourceDir] = useState(get('sourceDir'));
+  const [sourceDir, setSourceDir] = useState('');   // not pre-filled; blank => server's tracer.source-dir
   const [country, setCountry] = useState(get('country'));
   const [version, setVersion] = useState(get('version'));
   const [idx, setIdx] = useState<ImpactIndex | null>(null);
@@ -20,7 +20,7 @@ export default function ImpactView() {
   const [changedBackends, setChangedBackends] = useState<Set<string>>(new Set());
 
   const load = async () => {
-    put('sourceDir', sourceDir); put('country', country);   // version is not persisted (shared with Trace)
+    put('country', country);   // sourceDir & version are not persisted — they start empty each load
     setLoading(true); setError(null);
     try {
       const data = await fetchImpactIndex(sourceDir, country, version);

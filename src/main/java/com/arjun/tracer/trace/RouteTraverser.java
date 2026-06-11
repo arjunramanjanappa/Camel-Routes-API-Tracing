@@ -47,6 +47,7 @@ public class RouteTraverser {
 
     private final Set<String> expandedRoutes = new HashSet<>();
     private final List<String> backendsSeen = new ArrayList<>();
+    private int consumerSeq = 0;   // gives each host/terminal call its own instance node
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName) {
@@ -120,6 +121,56 @@ public class RouteTraverser {
         for (PendingApi p : apis) {
             addBackend(p.value(), nodeId, p.branch(), into);
         }
+    }
+
+    /**
+     * Emit a per-call instance of a host / terminal route: {@code caller → host#N
+     * → backend(s)}. Duplicating the host per call keeps backends segregated by the
+     * route that triggered them instead of aggregating onto one shared host node.
+     */
+    private void emitConsumerInstance(RouteModel route, String endpoint, String callerNodeId,
+                                      String edgeLabel, List<PendingApi> inherited) {
+        String identity = route.routeId() != null ? route.routeId() : endpoint;
+        String instanceId = "route:" + identity + "#" + (++consumerSeq);
+        graph.addNode(new GraphNode(instanceId, identity, GraphNode.TYPE_ROUTE,
+                java.util.Map.of("source", route.source(), "host", route.host())));
+        graph.addEdge(callerNodeId, instanceId, edgeLabel);
+        if (expandedRoutes.add(identity)) {       // list the route once in the textual flow
+            response.getFlow().add(identity);
+        }
+        List<PendingApi> all = new ArrayList<>(inherited);
+        all.addAll(collectApis(route.elements(), null));   // the host's own api, if it sets one
+        for (PendingApi p : all) {
+            addBackend(p.value(), instanceId, p.branch(), false);   // host instance → backend
+        }
+    }
+
+    /** True if a route hands off to another route via direct:/seda:/vm: (i.e. it is not terminal). */
+    private boolean forwardsFurther(List<RouteElement> elements) {
+        for (RouteElement el : elements) {
+            if (el instanceof ToElement to && to.uri() != null) {
+                int c = to.uri().indexOf(':');
+                String scheme = c > 0 ? to.uri().substring(0, c) : to.uri();
+                if (scheme.equals("direct") || scheme.equals("direct-vm")
+                        || scheme.equals("seda") || scheme.equals("vm")) {
+                    return true;
+                }
+            } else if (el instanceof ChoiceElement choice) {
+                for (WhenElement when : choice.whens()) {
+                    if (forwardsFurther(when.children())) {
+                        return true;
+                    }
+                }
+                if (forwardsFurther(choice.otherwise())) {
+                    return true;
+                }
+            } else if (el instanceof ContainerElement container) {
+                if (forwardsFurther(container.children())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -206,7 +257,16 @@ public class RouteTraverser {
             String edgeLabel = async
                     ? (branch != null && !branch.isBlank() ? branch + " · async" : "async")
                     : branch;
-            if (forward) {
+            RouteModel targetRoute = registry.lookup(target);
+            boolean terminalConsumer = targetRoute != null
+                    && (targetRoute.host() || !forwardsFurther(targetRoute.elements()));
+            if (forward && !active.isEmpty() && terminalConsumer) {
+                // This call hands a backend to a host / terminal route. Give it its OWN
+                // instance node so the route→host→backend chain is per-call, not an
+                // aggregated shared node where you cannot tell which route used which backend.
+                emitConsumerInstance(targetRoute, target, currentNodeId, edgeLabel, active);
+                active.clear();
+            } else if (forward) {
                 visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>(active));
                 active.clear();                              // handed off downstream
             } else {

@@ -56,8 +56,14 @@ class SedaAsyncHostTest {
                         && (label == null ? e.label() == null : label.equals(e.label())));
     }
 
+    /** Edge from a per-call host instance (route:hostBase#N) to a backend. */
+    private boolean hostEdge(TraceResponse r, String hostBase, String to) {
+        return r.getGraph().getEdges().stream().anyMatch(e ->
+                e.from().startsWith("route:" + hostBase + "#") && e.to().equals(to));
+    }
+
     @Test
-    void sedaAsyncIsFollowedAndBothApisLandOnTheHost(@TempDir Path dir) throws Exception {
+    void sedaAsyncIsFollowedAndEachCallerGetsItsOwnHostInstance(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("r.xml"), ROUTES);
         TraceResponse r = new RouteTraceService(dir.toString())
                 .trace(new TraceRequest("R9.14_getFxRate", "", null, null));
@@ -66,16 +72,18 @@ class SedaAsyncHostTest {
         assertThat(r.getFlow()).contains("R9.14_getFxRateRoute", "callUFWDGERoute", "accTXnRoute");
         assertThat(edge(r, "route:R9.14_getFxRateRoute", "route:accTXnRoute", "async")).isTrue();
 
-        // Both callers' api values land on the host; the host's internal
-        // camelHttpUri literal (/asv/fixed) is NOT shown.
+        // Each caller gets its OWN callUFWDGE instance → its backend; the host's
+        // internal camelHttpUri literal (/asv/fixed) is NOT shown.
         assertThat(r.getBackendApis())
                 .containsExactlyInAnyOrder("/bfs/fx/rates", "/asv/doactivityLogging");
-        // Backends converge INTO the host barrel.
-        assertThat(edge(r, "backend:/bfs/fx/rates", "route:callUFWDGERoute", null)).isTrue();
-        assertThat(edge(r, "backend:/asv/doactivityLogging", "route:callUFWDGERoute", null)).isTrue();
+        assertThat(hostEdge(r, "callUFWDGERoute", "backend:/bfs/fx/rates")).isTrue();
+        assertThat(hostEdge(r, "callUFWDGERoute", "backend:/asv/doactivityLogging")).isTrue();
+        // Two distinct host instances (one per caller).
+        assertThat(r.getGraph().getNodes().stream().filter(n -> n.id().startsWith("route:callUFWDGERoute#")).count())
+                .isEqualTo(2);
 
         GraphNode host = r.getGraph().getNodes().stream()
-                .filter(n -> n.id().equals("route:callUFWDGERoute")).findFirst().orElseThrow();
+                .filter(n -> n.id().startsWith("route:callUFWDGERoute#")).findFirst().orElseThrow();
         assertThat(host.data().get("host")).isEqualTo(true);
     }
 }

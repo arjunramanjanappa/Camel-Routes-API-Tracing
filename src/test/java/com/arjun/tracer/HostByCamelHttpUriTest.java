@@ -41,8 +41,9 @@ class HostByCamelHttpUriTest {
             </beans:beans>
             """;
 
-    private boolean edge(TraceResponse r, String from, String to) {
-        return r.getGraph().getEdges().stream().anyMatch(e -> e.from().equals(from) && e.to().equals(to));
+    private boolean hostEdge(TraceResponse r, String hostBase, String to) {
+        return r.getGraph().getEdges().stream().anyMatch(e ->
+                e.from().startsWith("route:" + hostBase + "#") && e.to().equals(to));
     }
 
     @Test
@@ -54,16 +55,16 @@ class HostByCamelHttpUriTest {
         assertThat(r.getFlow()).containsExactly("R9.5_getRate", "enrichRoute", "callHost");
         assertThat(r.getBackendApis()).containsExactly("/bfs/rate");
 
-        // Backend converges INTO the host barrel (CamelHttpUri), not the intermediate/setter.
-        assertThat(edge(r, "backend:/bfs/rate", "route:callHost")).isTrue();
+        // Backend hangs off the CamelHttpUri host instance, not the intermediate/setter.
+        assertThat(hostEdge(r, "callHost", "backend:/bfs/rate")).isTrue();
         assertThat(r.getGraph().getEdges()).noneMatch(e ->
                 (e.from().startsWith("backend:") || e.to().startsWith("backend:"))
                         && (e.from().equals("route:enrichRoute") || e.to().equals("route:enrichRoute")
                         || e.from().equals("route:R9.5_getRate") || e.to().equals("route:R9.5_getRate")));
 
-        // The host route is flagged.
+        // The host instance is flagged.
         GraphNode host = r.getGraph().getNodes().stream()
-                .filter(n -> n.id().equals("route:callHost")).findFirst().orElseThrow();
+                .filter(n -> n.id().startsWith("route:callHost#")).findFirst().orElseThrow();
         assertThat(host.data().get("host")).isEqualTo(true);
     }
 }

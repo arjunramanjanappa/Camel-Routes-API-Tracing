@@ -64,10 +64,10 @@ class CrossVersionFlowTest {
                 "R9.18_redirectRoute", "R9.14_getFxRateRoute", "callUFWDGE");
         // No hop was skipped.
         assertThat(r.getWarnings()).noneMatch(w -> w.contains("Route not found"));
-        // Backend is tied to the host route that performs the call.
+        // Backend is tied to the per-call host instance that performs the call.
         assertThat(r.getBackendApis()).containsExactly("/bfs/fx/rates");
         assertThat(r.getGraph().getEdges()).anyMatch(e ->
-                e.from().equals("route:callUFWDGE") && e.to().equals("backend:/bfs/fx/rates"));
+                e.from().startsWith("route:callUFWDGE#") && e.to().equals("backend:/bfs/fx/rates"));
         // The 9.14 operation route is present even though we entered via a 9.18 redirect.
         assertThat(r.getFlow()).contains("R9.14_getFxRateRoute");
     }

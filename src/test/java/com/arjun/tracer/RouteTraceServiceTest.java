@@ -47,16 +47,26 @@ class RouteTraceServiceTest {
     }
 
     @Test
-    void backendIsAttachedToTheHostRouteThatPerformsTheCall() {
-        // setProperty name="api" then to direct:callUFWDGE → backend hangs off callUFWDGE,
-        // not the business route that merely set the property.
+    void backendHangsOffAPerCallHostInstanceNotTheBusinessRoute() {
+        // setProperty name="api" then to direct:callUFWDGE → backend hangs off a
+        // per-call callUFWDGE instance (route:callUFWDGE#N), not the business route.
         TraceResponse r = trace("/payment/v2/fund/submit", "9.4", "OWN");
         assertThat(r.getGraph().getEdges()).anyMatch(e ->
-                e.from().equals("route:callUFWDGE")
+                e.from().startsWith("route:callUFWDGE#")
                         && e.to().equals("backend:{{baseUrl}}/bfs/ft/own/submit"));
         assertThat(r.getGraph().getEdges()).noneMatch(e ->
                 e.from().equals("route:R9.4_ftOwnAccountProcessSubmitDGEApi")
                         && e.to().startsWith("backend:"));
+    }
+
+    @Test
+    void eachBranchGetsItsOwnHostInstanceAndBackend() {
+        // OWN / INTRA / INTER are separate routes that each call callUFWDGE — they must
+        // get separate host instances so each backend is tied to its route.
+        TraceResponse r = trace("/payment/v2/fund/submit", "9.4", null);
+        long hostInstances = r.getGraph().getNodes().stream()
+                .filter(n -> n.id().startsWith("route:callUFWDGE#")).count();
+        assertThat(hostInstances).isGreaterThanOrEqualTo(3);
     }
 
     @Test

@@ -47,9 +47,9 @@ class ChoiceToHostTest {
             </beans:beans>
             """;
 
-    private boolean edge(TraceResponse r, String from, String to, String label) {
+    private boolean hostEdge(TraceResponse r, String hostBase, String to, String label) {
         return r.getGraph().getEdges().stream().anyMatch(e ->
-                e.from().equals(from) && e.to().equals(to) && label.equals(e.label()));
+                e.from().startsWith("route:" + hostBase + "#") && e.to().equals(to) && label.equals(e.label()));
     }
 
     @Test
@@ -62,10 +62,10 @@ class ChoiceToHostTest {
         assertThat(r.getBackendApis())
                 .containsExactlyInAnyOrder("/bfs/fx/rates", "/bfs/fx/date", "/bfs/fx/default");
 
-        // They fan out from the HOST route, each labelled with its branch condition.
-        assertThat(edge(r, "route:postHttpsRequestRIM", "backend:/bfs/fx/rates", "Y")).isTrue();
-        assertThat(edge(r, "route:postHttpsRequestRIM", "backend:/bfs/fx/date", "N")).isTrue();
-        assertThat(edge(r, "route:postHttpsRequestRIM", "backend:/bfs/fx/default", "OTHERWISE")).isTrue();
+        // They fan out from the HOST instance, each labelled with its branch condition.
+        assertThat(hostEdge(r, "postHttpsRequestRIM", "backend:/bfs/fx/rates", "Y")).isTrue();
+        assertThat(hostEdge(r, "postHttpsRequestRIM", "backend:/bfs/fx/date", "N")).isTrue();
+        assertThat(hostEdge(r, "postHttpsRequestRIM", "backend:/bfs/fx/default", "OTHERWISE")).isTrue();
 
         // The business route itself has no backend edge — it only delegates.
         assertThat(r.getGraph().getEdges()).noneMatch(e ->

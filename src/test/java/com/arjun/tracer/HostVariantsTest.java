@@ -62,15 +62,15 @@ class HostVariantsTest {
     }
 
     private void assertHostHandled(TraceResponse r) {
-        // host detected
+        // host detected (as a per-call instance)
         GraphNode host = r.getGraph().getNodes().stream()
-                .filter(n -> n.id().equals("route:callUFWDGERoute")).findFirst().orElseThrow();
+                .filter(n -> n.id().startsWith("route:callUFWDGERoute#")).findFirst().orElseThrow();
         assertThat(host.data().get("host")).isEqualTo(true);
         assertThat(r.getFlow()).contains("R9.5_getRate", "callUFWDGERoute");
         // only the caller's api; the host's internal camelHttpUri logic is not shown
         assertThat(r.getBackendApis()).containsExactly("/bfs/x");
         assertThat(r.getGraph().getEdges()).anyMatch(e ->
-                e.from().equals("backend:/bfs/x") && e.to().equals("route:callUFWDGERoute"));
+                e.from().startsWith("route:callUFWDGERoute#") && e.to().equals("backend:/bfs/x"));
     }
 
     @Test

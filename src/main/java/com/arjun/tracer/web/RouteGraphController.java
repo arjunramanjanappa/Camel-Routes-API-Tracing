@@ -62,6 +62,16 @@ public class RouteGraphController {
         return service.meta(new TraceRequest(null, null, null, sourceDir, country));
     }
 
+    /** Impact catalog: every API's routes/backends/hosts at a client version, for impact analysis. */
+    @GetMapping("/internal/impact-index")
+    public com.arjun.tracer.api.ImpactIndex impactIndex(
+            @RequestParam(required = false) String sourceDir,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String version,
+            @RequestParam(required = false) String transferType) {
+        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> badRequest(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)

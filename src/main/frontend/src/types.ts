@@ -62,6 +62,28 @@ export interface Meta {
   transferTypes: string[];
 }
 
+export interface ApiImpact {
+  api: string;
+  operation: string;
+  command?: string;
+  resolvedRoute?: string;
+  resolvedVersion?: string;
+  baseFallback: boolean;
+  routes: string[];
+  backends: string[];
+  hosts: string[];
+}
+
+export interface ImpactIndex {
+  version?: string;
+  country?: string;
+  apis: ApiImpact[];
+  allRoutes: string[];
+  allBackends: string[];
+  allHosts: string[];
+  warnings: string[];
+}
+
 export interface TraceParams {
   api?: string;
   version?: string;

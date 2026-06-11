@@ -24,6 +24,8 @@
         <frontend.plugin.version>1.15.1</frontend.plugin.version>
         <node.version>v20.18.0</node.version>
         <frontend.dir>${project.basedir}/src/main/frontend</frontend.dir>
+        <!-- -Dskip.frontend=true skips the React build (fast Java-only iterations). -->
+        <skip.frontend>false</skip.frontend>
     </properties>
 
     <dependencyManagement>
@@ -84,6 +86,7 @@
                 <configuration>
                     <workingDirectory>${frontend.dir}</workingDirectory>
                     <installDirectory>${project.build.directory}</installDirectory>
+                    <skip>${skip.frontend}</skip>
                 </configuration>
                 <executions>
                     <execution>

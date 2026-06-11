@@ -1,4 +1,4 @@
-import type { AnalyzeResponse, Meta, TraceParams } from './types';
+import type { AnalyzeResponse, ImpactIndex, Meta, TraceParams } from './types';
 
 function qs(params: Record<string, string | undefined>): string {
   const p = new URLSearchParams();
@@ -19,4 +19,11 @@ export async function fetchMeta(sourceDir?: string, country?: string): Promise<M
   const res = await fetch('/internal/meta?' + qs({ sourceDir, country }));
   if (!res.ok) return { countries: [], versions: [], transferTypes: [] };
   return (await res.json()) as Meta;
+}
+
+export async function fetchImpactIndex(sourceDir?: string, country?: string, version?: string): Promise<ImpactIndex> {
+  const res = await fetch('/internal/impact-index?' + qs({ sourceDir, country, version }));
+  const data = await res.json();
+  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  return data as ImpactIndex;
 }

@@ -1,7 +1,9 @@
 package com.arjun.tracer.service;
 
+import com.arjun.tracer.api.ApiImpact;
 import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.GraphNode;
+import com.arjun.tracer.api.ImpactIndex;
 import com.arjun.tracer.api.RouteGraph;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
@@ -23,6 +25,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Orchestrates analysis. Input modes:
@@ -90,6 +94,57 @@ public class RouteTraceService {
                 "countries", index.countries(),
                 "versions", versions,
                 "transferTypes", registry.allBranchValues());
+    }
+
+    /**
+     * Impact catalog: every API's footprint (routes/backends/hosts) at the given
+     * client version + country, scanned once. The UI intersects a selected change
+     * (changed routes/backends) against each footprint to find impacted APIs.
+     */
+    public ImpactIndex impactIndex(TraceRequest request) {
+        Prepared prepared = prepare(request);
+        ImpactIndex out = new ImpactIndex();
+        out.setVersion(request.version());
+        out.setCountry(prepared.country());
+        out.getWarnings().addAll(prepared.warnings());
+
+        Set<String> routes = new TreeSet<>();
+        Set<String> backends = new TreeSet<>();
+        Set<String> hosts = new TreeSet<>();
+
+        for (OperationInfo op : prepared.index().operations().all()) {
+            ResolvedRoute resolved =
+                    versionResolver.resolve(prepared.registry(), op.operationName(), request.version());
+            TraceResponse r = new TraceResponse();
+            RouteGraph graph = new RouteGraph();
+            traverseInto(r, op.path(), op.operationName(), resolved,
+                    request.transferType(), prepared.registry(), graph);
+            List<String> apiHosts = extractHosts(graph);
+
+            out.getApis().add(new ApiImpact(
+                    op.path(), op.operationName(), op.command(),
+                    resolved.routeName(), resolved.version(), resolved.baseFallback(),
+                    List.copyOf(r.getFlow()), List.copyOf(r.getBackendApis()), apiHosts));
+
+            routes.addAll(r.getFlow());
+            backends.addAll(r.getBackendApis());
+            hosts.addAll(apiHosts);
+        }
+        out.getAllRoutes().addAll(routes);
+        out.getAllBackends().addAll(backends);
+        out.getAllHosts().addAll(hosts);
+        return out;
+    }
+
+    private List<String> extractHosts(RouteGraph graph) {
+        List<String> hosts = new ArrayList<>();
+        for (GraphNode n : graph.getNodes()) {
+            if (GraphNode.TYPE_ROUTE.equals(n.type())
+                    && n.data() != null && Boolean.TRUE.equals(n.data().get("host"))) {
+                hosts.add(n.label());
+            }
+        }
+        return hosts;
     }
 
     // --- shared preparation ---

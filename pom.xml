@@ -23,8 +23,11 @@
         <javaparser.version>3.26.2</javaparser.version>
         <exec.plugin.version>3.5.0</exec.plugin.version>
         <frontend.dir>${project.basedir}/src/main/frontend</frontend.dir>
-        <!-- The React build uses the system npm on PATH. Override on Windows below. -->
+        <!-- The React build uses the system npm on PATH (node is a prerequisite).
+             Defaults are for *nix; the 'windows' profile below runs via cmd /c. -->
         <npm.executable>npm</npm.executable>
+        <npm.install.args>install</npm.install.args>
+        <npm.build.args>run build</npm.build.args>
         <!-- -Dskip.frontend=true skips the React build (fast Java-only iterations). -->
         <skip.frontend>false</skip.frontend>
     </properties>
@@ -92,7 +95,7 @@
                         <configuration>
                             <executable>${npm.executable}</executable>
                             <workingDirectory>${frontend.dir}</workingDirectory>
-                            <arguments><argument>install</argument></arguments>
+                            <commandlineArgs>${npm.install.args}</commandlineArgs>
                             <skip>${skip.frontend}</skip>
                         </configuration>
                     </execution>
@@ -103,7 +106,7 @@
                         <configuration>
                             <executable>${npm.executable}</executable>
                             <workingDirectory>${frontend.dir}</workingDirectory>
-                            <arguments><argument>run</argument><argument>build</argument></arguments>
+                            <commandlineArgs>${npm.build.args}</commandlineArgs>
                             <skip>${skip.frontend}</skip>
                         </configuration>
                     </execution>
@@ -134,14 +137,17 @@
     </build>
 
     <profiles>
-        <!-- On Windows the npm launcher is npm.cmd. -->
+        <!-- On Windows, run npm through cmd /c so the npm.cmd launcher resolves
+             reliably from PATH (direct exec of npm.cmd is flaky under spring-boot:run). -->
         <profile>
             <id>windows</id>
             <activation>
                 <os><family>windows</family></os>
             </activation>
             <properties>
-                <npm.executable>npm.cmd</npm.executable>
+                <npm.executable>cmd</npm.executable>
+                <npm.install.args>/c npm install</npm.install.args>
+                <npm.build.args>/c npm run build</npm.build.args>
             </properties>
         </profile>
     </profiles>

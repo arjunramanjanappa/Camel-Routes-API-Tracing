@@ -11,7 +11,8 @@ import Legend from '../components/Legend';
 const FIELDS: (keyof TraceParams)[] = ['api', 'version', 'transferType', 'country', 'sourceDir'];
 
 function loadParams(): TraceParams {
-  const p: TraceParams = { api: '/payment/v2/fund/submit', version: '9.4' };
+  // No hardcoded sample values: empty api + empty version → catalog of the whole code.
+  const p: TraceParams = {};
   FIELDS.forEach((f) => {
     const v = localStorage.getItem('tracer.' + f);
     if (v !== null) p[f] = v;

@@ -11,7 +11,7 @@ function put(k: string, v: string) { localStorage.setItem('tracer.' + k, v); }
 export default function ImpactView() {
   const [sourceDir, setSourceDir] = useState(get('sourceDir'));
   const [country, setCountry] = useState(get('country'));
-  const [version, setVersion] = useState(get('version', '9.4'));
+  const [version, setVersion] = useState(get('version'));
   const [idx, setIdx] = useState<ImpactIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

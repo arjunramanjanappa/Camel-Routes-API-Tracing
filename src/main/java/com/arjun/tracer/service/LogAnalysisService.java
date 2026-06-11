@@ -7,6 +7,8 @@ import com.arjun.tracer.api.ImpactIndex;
 import com.arjun.tracer.api.LogAnalysisReport;
 import com.arjun.tracer.api.LogStatus;
 import com.arjun.tracer.api.TraceRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -74,33 +76,59 @@ public class LogAnalysisService {
         InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
                 ? new GZIPInputStream(raw) : raw;
 
-        int[] counters = new int[2];   // [0] = lines scanned, [1] = marked-but-unparsed
+        int[] counters = new int[2];   // [0] = records scanned, [1] = marked-but-unparsed
         List<LogLine> lines = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        String detected = "RAW_LOG";
+
+        // The upload is one of three shapes — a raw output log, or a Splunk export
+        // (CSV or JSON) of the generated query. A Splunk export carries the original
+        // log line in its _raw field, so every shape ultimately yields the same
+        // MightyMessage/MightyHostMessage strings, which feed the one line parser.
         try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String firstNonBlank = null;
             String line;
             while ((line = r.readLine()) != null) {
+                if (!line.isBlank()) { firstNonBlank = line; break; }
                 counters[0]++;
-                if (line.indexOf("[MightyMessage]") < 0 && line.indexOf("[MightyHostMessage]") < 0) {
-                    continue;   // cheap pre-filter: skip the noise without touching the regex
-                }
-                LogLine parsed = null;
-                try {
-                    parsed = parseLine(line);
-                } catch (RuntimeException ignore) {
-                    // a single malformed line must never abort the scan
-                }
-                if (parsed != null && parsed.correlationId() != null && !parsed.correlationId().isBlank()) {
-                    lines.add(parsed);
-                } else {
-                    counters[1]++;
+            }
+            if (firstNonBlank == null) {
+                detected = "EMPTY";
+            } else {
+                detected = detectFormat(firstNonBlank);
+                switch (detected) {
+                    case "SPLUNK_CSV" -> {
+                        int rawIdx = csvRawIndex(firstNonBlank);   // header row consumed
+                        while ((line = r.readLine()) != null) {
+                            counters[0]++;
+                            ingest(csvCell(line, rawIdx), lines, counters);
+                        }
+                    }
+                    case "SPLUNK_JSON" -> {
+                        StringBuilder sb = new StringBuilder(firstNonBlank);
+                        while ((line = r.readLine()) != null) {
+                            sb.append('\n').append(line);
+                        }
+                        for (String event : extractJsonRaw(sb.toString(), warnings)) {
+                            counters[0]++;
+                            ingest(event, lines, counters);
+                        }
+                    }
+                    default -> {
+                        counters[0]++;
+                        ingest(firstNonBlank, lines, counters);
+                        while ((line = r.readLine()) != null) {
+                            counters[0]++;
+                            ingest(line, lines, counters);
+                        }
+                    }
                 }
             }
         }
 
-        List<String> warnings = new ArrayList<>();
         if (lines.isEmpty()) {
-            warnings.add("No MightyMessage/MightyHostMessage lines found. If this is a Splunk export, "
-                    + "Splunk-format parsing is not enabled yet.");
+            warnings.add("No MightyMessage/MightyHostMessage lines found in the upload (detected "
+                    + detected + "). Check the file is the raw output log or a Splunk export of the query.");
         }
 
         // Group into transactions by correlation id (FE + BE share the id).
@@ -123,8 +151,152 @@ public class LogAnalysisService {
             results.add(correlate(api, txns, version));
         }
 
-        return new LogAnalysisReport("RAW_LOG", version, idx.getCountry(),
+        return new LogAnalysisReport(detected, version, idx.getCountry(),
                 counters[0], lines.size(), txns.size(), counters[1], results, warnings);
+    }
+
+    // --- input shape detection + extraction ---
+
+    /** A single candidate log line (raw, or a Splunk _raw value) → parse + collect. */
+    private void ingest(String s, List<LogLine> lines, int[] counters) {
+        if (s == null) {
+            return;
+        }
+        if (s.indexOf("[MightyMessage]") < 0 && s.indexOf("[MightyHostMessage]") < 0) {
+            return;   // cheap pre-filter: skip the noise without touching the regex
+        }
+        LogLine parsed = null;
+        try {
+            parsed = parseLine(s);
+        } catch (RuntimeException ignore) {
+            // a single malformed line must never abort the scan
+        }
+        if (parsed != null && parsed.correlationId() != null && !parsed.correlationId().isBlank()) {
+            lines.add(parsed);
+        } else {
+            counters[1]++;
+        }
+    }
+
+    private String detectFormat(String firstNonBlank) {
+        String t = firstNonBlank.trim();
+        if (t.startsWith("[") || t.startsWith("{")) {
+            return "SPLUNK_JSON";
+        }
+        boolean marker = t.contains("[MightyMessage]") || t.contains("[MightyHostMessage]");
+        if (marker) {
+            return "RAW_LOG";   // the very first line is already an event
+        }
+        String low = t.toLowerCase();
+        if (low.contains("_raw") || low.contains("_time")) {
+            return "SPLUNK_CSV";   // a Splunk CSV header row
+        }
+        if (t.contains(",") && !t.matches("^\\d{4}-\\d{2}-\\d{2}.*")) {
+            return "SPLUNK_CSV";   // comma-separated header that isn't an event timestamp
+        }
+        return "RAW_LOG";
+    }
+
+    private int csvRawIndex(String header) {
+        List<String> cols = parseCsvLine(header);
+        for (int i = 0; i < cols.size(); i++) {
+            if (cols.get(i).trim().equalsIgnoreCase("_raw")) {
+                return i;
+            }
+        }
+        return -1;   // no _raw column — fall back to "any cell with a marker"
+    }
+
+    private String csvCell(String line, int rawIdx) {
+        List<String> cells = parseCsvLine(line);
+        if (rawIdx >= 0 && rawIdx < cells.size()) {
+            return cells.get(rawIdx);
+        }
+        for (String c : cells) {
+            if (c.contains("[MightyMessage]") || c.contains("[MightyHostMessage]")) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /** RFC-4180 CSV field split for one record: handles quoted fields and "" escapes. */
+    private static List<String> parseCsvLine(String line) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                        cur.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    cur.append(c);
+                }
+            } else if (c == '"') {
+                inQuotes = true;
+            } else if (c == ',') {
+                out.add(cur.toString());
+                cur.setLength(0);
+            } else {
+                cur.append(c);
+            }
+        }
+        out.add(cur.toString());
+        return out;
+    }
+
+    /** Pull the _raw event string out of a Splunk JSON export (array, {results:[]}, or NDJSON). */
+    private List<String> extractJsonRaw(String content, List<String> warnings) {
+        List<String> out = new ArrayList<>();
+        ObjectMapper om = new ObjectMapper();
+        try {
+            collectRaw(om.readTree(content), out);
+        } catch (Exception e) {
+            for (String l : content.split("\n")) {   // fall back to NDJSON (one object per line)
+                String t = l.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                try {
+                    collectRaw(om.readTree(t), out);
+                } catch (Exception ignore) {
+                    // skip an unparseable line
+                }
+            }
+            if (out.isEmpty()) {
+                warnings.add("Could not parse the JSON export: " + e.getMessage());
+            }
+        }
+        return out;
+    }
+
+    private void collectRaw(JsonNode node, List<String> out) {
+        if (node == null) {
+            return;
+        }
+        if (node.isArray()) {
+            node.forEach(n -> collectRaw(n, out));
+            return;
+        }
+        if (node.isObject()) {
+            if (node.get("results") != null && node.get("results").isArray()) {
+                collectRaw(node.get("results"), out);
+                return;
+            }
+            JsonNode raw = node.get("_raw");
+            if (raw == null && node.get("result") != null) {
+                raw = node.get("result").get("_raw");
+            }
+            if (raw != null && raw.isTextual()) {
+                out.add(raw.asText());
+            }
+        }
     }
 
     // --- parsing ---

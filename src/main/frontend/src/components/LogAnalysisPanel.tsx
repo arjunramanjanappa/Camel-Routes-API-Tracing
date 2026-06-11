@@ -132,18 +132,21 @@ export default function LogAnalysisPanel({ version, country, sourceDir, impacted
       </div>
 
       {inputType === 'SPLUNK' && (
-        <div className="warn" style={{ marginTop: 8 }}>
-          Splunk-report parsing is coming soon — the format is nearly identical and will be added next. For now
-          switch to <b>Output log</b>.
+        <div className="sub" style={{ marginTop: 8 }}>
+          Upload the CSV or JSON report you exported from Splunk for the generated query. The original event is
+          read from its <code>_raw</code> field, so the format is detected automatically.
         </div>
       )}
 
       <div className={'uploader' + (file ? ' has' : '')} onClick={() => fileRef.current?.click()}>
-        <input ref={fileRef} type="file" accept=".log,.txt,.gz,.csv,.json" style={{ display: 'none' }}
+        <input ref={fileRef} type="file"
+               accept={inputType === 'SPLUNK' ? '.csv,.json,.gz' : '.log,.txt,.gz'} style={{ display: 'none' }}
                onChange={(e) => setFile(e.target.files?.[0] || null)} />
         {file
           ? <span><b>{file.name}</b> · {(file.size / 1024).toFixed(0)} KB — click to change</span>
-          : <span>Click to choose a {inputType === 'SPLUNK' ? 'Splunk export' : 'output log'} file (.log / .txt / .gz)</span>}
+          : inputType === 'SPLUNK'
+            ? <span>Click to choose a Splunk export (.csv / .json / .gz)</span>
+            : <span>Click to choose an output log file (.log / .txt / .gz)</span>}
       </div>
 
       {impactedApis.length > 0 && (
@@ -153,7 +156,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, impacted
         </label>
       )}
 
-      <button className="trace" disabled={!file || loading || inputType === 'SPLUNK'} onClick={run}>
+      <button className="trace" disabled={!file || loading} onClick={run}>
         {loading ? 'Analysing…' : 'Analyse'}
       </button>
 

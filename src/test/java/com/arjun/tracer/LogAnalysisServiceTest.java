@@ -93,4 +93,29 @@ class LogAnalysisServiceTest {
         assertThat(own.status()).isEqualTo(LogStatus.FAILED);
         assertThat(own.responseCode()).isEqualTo("00911");
     }
+
+    @Test
+    void splunkCsvExportYieldsTheSameVerdictAsTheRawLog() throws IOException {
+        LogAnalysisReport r = analyze("analysis-splunk.csv", "9.4");
+
+        assertThat(r.uploadType()).isEqualTo("SPLUNK_CSV");   // auto-detected from the header
+        assertThat(r.transactions()).isEqualTo(1);            // _raw extracted from every CSV row
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.feLatencyMs()).isEqualTo(500);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+        assertThat(api(r, V1).status()).isEqualTo(LogStatus.NOT_TESTED);
+    }
+
+    @Test
+    void splunkJsonExportYieldsTheSameVerdictAsTheRawLog() throws IOException {
+        LogAnalysisReport r = analyze("analysis-splunk.json", "9.4");
+
+        assertThat(r.uploadType()).isEqualTo("SPLUNK_JSON");
+        assertThat(r.transactions()).isEqualTo(1);
+        assertThat(api(r, V2).status()).isEqualTo(LogStatus.SUCCESS);
+    }
 }

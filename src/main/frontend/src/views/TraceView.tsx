@@ -21,7 +21,7 @@ function loadParams(): TraceParams {
 
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
-export default function TraceView() {
+export default function TraceView({ colorMode }: { colorMode: 'light' | 'dark' }) {
   const [params, setParams] = useState<TraceParams>(loadParams);
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
   const [data, setData] = useState<AnalyzeResponse | null>(null);
@@ -90,7 +90,7 @@ export default function TraceView() {
         {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}
       </aside>
       <div className="main">
-        {derived && <RouteGraph ref={graphRef} derived={derived} selectedId={selectedId} search={search} onSelect={setSelectedId} />}
+        {derived && <RouteGraph ref={graphRef} derived={derived} selectedId={selectedId} search={search} colorMode={colorMode} onSelect={setSelectedId} />}
         <div className="toolbar">
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph">Fit</button>

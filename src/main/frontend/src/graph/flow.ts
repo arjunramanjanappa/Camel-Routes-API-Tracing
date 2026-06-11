@@ -20,6 +20,7 @@ export function toFlow(derived: Derived, dir: 'LR' | 'TB'): { nodes: Node[]; edg
     target: e.target,
     label: e.label || undefined,
     animated: e.async,
+    data: { async: e.async },
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#94a3b8' },
     style: { stroke: '#94a3b8', strokeWidth: 1.5 },
     labelStyle: { fontSize: 10, fontWeight: 700, fill: '#b45309' },

@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useState, type Ref } from '
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, MiniMap, Controls, Panel,
   useNodesState, useEdgesState, useReactFlow, getNodesBounds, getViewportForBounds,
-  type Node, type Edge,
+  MarkerType, type Node, type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toPng } from 'html-to-image';
@@ -21,34 +21,50 @@ interface Props {
   derived: Derived;
   selectedId: string | null;
   search: string;
+  colorMode: 'light' | 'dark';
   onSelect: (id: string | null) => void;
 }
 
-interface Active { nodes: Set<string>; edges: Set<string>; matches: Set<string>; }
+interface Active { nodes: Set<string>; edges: Set<string>; matches: Set<string>; path: Set<string>; }
 
 function computeActive(derived: Derived, selectedId: string | null, search: string): Active | null {
   const q = search.trim().toLowerCase();
   if (q) {
     const matches = new Set(derived.nodes.filter((n) => (n.full + ' ' + n.label).toLowerCase().includes(q)).map((n) => n.id));
     const edges = new Set(derived.edges.filter((e) => matches.has(e.source) || matches.has(e.target)).map((e) => e.id));
-    return { nodes: matches, edges, matches };
+    return { nodes: matches, edges, matches, path: new Set() };
   }
   if (selectedId) {
-    const nodes = new Set<string>([selectedId]);
-    const edges = new Set<string>();
+    // Highlight the whole flow through the node: trace upstream (back to the API)
+    // and downstream (to its backends) and animate those edges.
+    const fwd = new Map<string, { to: string; id: string }[]>();
+    const rev = new Map<string, { to: string; id: string }[]>();
     derived.edges.forEach((e) => {
-      if (e.source === selectedId || e.target === selectedId) {
-        edges.add(e.id);
-        nodes.add(e.source);
-        nodes.add(e.target);
-      }
+      (fwd.get(e.source) ?? fwd.set(e.source, []).get(e.source)!).push({ to: e.target, id: e.id });
+      (rev.get(e.target) ?? rev.set(e.target, []).get(e.target)!).push({ to: e.source, id: e.id });
     });
-    return { nodes, edges, matches: new Set() };
+    const nodes = new Set<string>([selectedId]);
+    const path = new Set<string>();
+    const walk = (adj: Map<string, { to: string; id: string }[]>) => {
+      const stack = [selectedId];
+      const seen = new Set([selectedId]);
+      while (stack.length) {
+        const cur = stack.pop()!;
+        (adj.get(cur) || []).forEach(({ to, id }) => {
+          path.add(id);
+          nodes.add(to);
+          if (!seen.has(to)) { seen.add(to); stack.push(to); }
+        });
+      }
+    };
+    walk(fwd);
+    walk(rev);
+    return { nodes, edges: path, matches: new Set(), path };
   }
   return null;
 }
 
-function Flow({ derived, selectedId, search, onSelect, fref }: Props & { fref: Ref<GraphHandle> }) {
+function Flow({ derived, selectedId, search, colorMode, onSelect, fref }: Props & { fref: Ref<GraphHandle> }) {
   const [dir, setDir] = useState<'LR' | 'TB'>('LR');
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -72,7 +88,18 @@ function Flow({ derived, selectedId, search, onSelect, fref }: Props & { fref: R
       ...n,
       data: { ...n.data, dimmed: !!active && !active.nodes.has(n.id), sel: n.id === selectedId, match: !!active && active.matches.has(n.id) },
     })));
-    setEdges((es) => es.map((e) => ({ ...e, style: { ...e.style, opacity: active && !active.edges.has(e.id) ? 0.1 : 1 } })));
+    setEdges((es) => es.map((e) => {
+      const onPath = !!active && active.path.has(e.id);
+      const dim = !!active && !active.edges.has(e.id);
+      const isAsync = !!(e.data && (e.data as { async?: boolean }).async);
+      const color = onPath ? '#2563eb' : '#94a3b8';
+      return {
+        ...e,
+        animated: isAsync || onPath,
+        style: { ...e.style, opacity: dim ? 0.1 : 1, stroke: color, strokeWidth: onPath ? 2.5 : 1.5 },
+        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color },
+      } as Edge;
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, search, derived]);
 
@@ -104,6 +131,7 @@ function Flow({ derived, selectedId, search, onSelect, fref }: Props & { fref: R
       onNodeClick={(_, n) => onSelect(n.id)}
       onPaneClick={() => onSelect(null)}
       minZoom={0.1}
+      colorMode={colorMode}
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#e2e8f0" />

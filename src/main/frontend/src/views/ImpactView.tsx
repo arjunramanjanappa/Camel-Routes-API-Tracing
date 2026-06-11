@@ -19,6 +19,7 @@ export default function ImpactView() {
 
   const [changedRoutes, setChangedRoutes] = useState<Set<string>>(new Set());
   const [changedBackends, setChangedBackends] = useState<Set<string>>(new Set());
+  const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
 
   const load = async () => {
     put('country', country);   // sourceDir & version are not persisted — they start empty each load
@@ -28,6 +29,7 @@ export default function ImpactView() {
       setIdx(data);
       setChangedRoutes(new Set());
       setChangedBackends(new Set());
+      setSelectedApis(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -61,7 +63,16 @@ export default function ImpactView() {
 
   const hasChange = changedRoutes.size > 0 || changedBackends.size > 0;
   const feApis = useMemo(() => impacted.map((i) => i.api.api).filter(Boolean), [impacted]);
-  const beApis = useMemo(() => impacted.flatMap((i) => i.api.backends), [impacted]);
+
+  // Direct API selection drives the Splunk query and scopes the log analysis.
+  const allApiPaths = useMemo(() => (idx ? [...new Set(idx.apis.map((a) => a.api).filter(Boolean))] : []), [idx]);
+  const selectedApiList = useMemo(() => [...selectedApis], [selectedApis]);
+  const selectedBackends = useMemo(() => {
+    if (!idx) return [];
+    const set = new Set<string>();
+    idx.apis.forEach((a) => { if (selectedApis.has(a.api)) a.backends.forEach((b) => set.add(b)); });
+    return [...set];
+  }, [idx, selectedApis]);
 
   const exportCsv = () => {
     const rows = [['api', 'operation', 'resolvedRoute', 'impactedViaRoutes', 'impactedViaBackends', 'backends']];
@@ -99,9 +110,17 @@ export default function ImpactView() {
         <div className="impact-body">
           <div className="impact-left">
             <div className="panel">
-              <h2>What changed?</h2>
-              <div className="sub">Select the routes and/or backend APIs that changed. APIs touching them are impacted.</div>
-              <div className="kv"><b>{idx.apis.length}</b> APIs · <b>{idx.allRoutes.length}</b> routes · <b>{idx.allBackends.length}</b> backends (version {idx.version || 'BASE'}{idx.country ? ', ' + idx.country : ''})</div>
+              <h2>APIs to analyse</h2>
+              <div className="sub">Pick the APIs (single, several, or all) to build a Splunk query for and to scope the log analysis. The query covers each API plus the backends it calls.</div>
+              <div className="kv"><b>{selectedApis.size}</b> of {allApiPaths.length} selected · version {idx.version || 'BASE'}{idx.country ? ', ' + idx.country : ''}</div>
+            </div>
+            <Checklist title="APIs" items={allApiPaths} selected={selectedApis}
+                       onToggle={(i) => toggle(selectedApis, setSelectedApis, i)}
+                       onSetMany={(items, on) => setMany(selectedApis, setSelectedApis, items, on)} />
+
+            <div className="panel">
+              <h2>What changed? <span className="muted">optional</span></h2>
+              <div className="sub">Or select routes/backends that changed to find — and select — the impacted APIs.</div>
             </div>
             <Checklist title="Changed routes" items={idx.allRoutes} selected={changedRoutes}
                        onToggle={(i) => toggle(changedRoutes, setChangedRoutes, i)}
@@ -115,7 +134,12 @@ export default function ImpactView() {
             <div className="panel">
               <div className="row between">
                 <h2 style={{ margin: 0 }}>Impacted APIs <span className="muted">{impacted.length} of {idx.apis.length}</span></h2>
-                {impacted.length > 0 && <button className="minibtn" onClick={exportCsv}>Export CSV</button>}
+                {impacted.length > 0 && (
+                  <span className="row" style={{ gap: 6 }}>
+                    <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}>+ select for analysis</button>
+                    <button className="minibtn" onClick={exportCsv}>Export CSV</button>
+                  </span>
+                )}
               </div>
               {!hasChange && <div className="sub">Select what changed on the left to see impacted APIs.</div>}
               {hasChange && impacted.length === 0 && <div className="sub">No APIs are impacted by the selected change.</div>}
@@ -139,19 +163,17 @@ export default function ImpactView() {
               )}
             </div>
 
-            {impacted.length > 0 && (
-              <SplunkPanel
-                title="Splunk queries — impacted APIs"
-                frontendApis={feApis}
-                backendApis={beApis}
-                hint="Run these in Splunk and export the report — the upload + correlation step will tell you which impacted APIs were actually called."
-              />
-            )}
+            <SplunkPanel
+              title="Splunk query — selected APIs"
+              frontendApis={selectedApiList}
+              backendApis={selectedBackends}
+              hint="Run this in Splunk, export the result (CSV/JSON), then upload it under “Verify with logs” below."
+            />
           </div>
         </div>
 
         <div style={{ padding: '0 18px 18px' }}>
-          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} impactedApis={feApis} />
+          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} selectedApis={selectedApiList} />
         </div>
         </>
       )}

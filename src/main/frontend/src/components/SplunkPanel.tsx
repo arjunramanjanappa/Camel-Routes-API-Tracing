@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { backendPath, buildSpl, downloadText, TIME_PRESETS } from '../spl';
+import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS } from '../spl';
 import CopyBtn from './CopyBtn';
 
 interface Props {
@@ -11,8 +11,12 @@ interface Props {
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
 
-/** Configurable Splunk SPL generator for a set of front-end + back-end APIs. */
-export default function SplunkPanel({ title = 'Splunk export', frontendApis, backendApis, hint }: Props) {
+/**
+ * Builds one Splunk search for the selected APIs (front-end paths + their
+ * backends) that returns raw events as _time, _raw — the exact shape the log
+ * analyser reads back, so the exported report drives the correlation.
+ */
+export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, hint }: Props) {
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
   const [feField, setFeField] = useState(pref('splFeField', 'uri'));
   const [beField, setBeField] = useState(pref('splBeField', 'uri'));
@@ -22,8 +26,7 @@ export default function SplunkPanel({ title = 'Splunk export', frontendApis, bac
 
   const fe = [...new Set(frontendApis.filter(Boolean))];
   const be = [...new Set(backendApis.map(backendPath).filter(Boolean))];
-  const feSpl = buildSpl(index, feField, fe, earliest);
-  const beSpl = buildSpl(index, beField, be, earliest);
+  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
 
   return (
@@ -43,20 +46,22 @@ export default function SplunkPanel({ title = 'Splunk export', frontendApis, bac
         ))}
       </div>
 
-      <div className="sub" style={{ marginTop: 8 }}>Both queries search the last <b>{rangeLabel}</b> (<code>earliest={earliest} latest=now</code>).</div>
+      <div className="sub" style={{ marginTop: 8 }}>
+        Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_time, _raw</code>) for <b>{fe.length}</b> front-end
+        + <b>{be.length}</b> backend path(s). Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
+      </div>
 
       <div className="spl-block">
-        <div className="row between"><b>Front-end APIs ({fe.length})</b>
-          <span className="row" style={{ gap: 6 }}><CopyBtn text={feSpl} /><button className="minibtn" onClick={() => downloadText('frontend.spl', feSpl)}>.spl</button></span>
+        <div className="row between">
+          <b>Splunk search → export → upload</b>
+          <span className="row" style={{ gap: 6 }}>
+            <CopyBtn text={spl} />
+            <button className="minibtn" disabled={!spl} onClick={() => downloadText('analysis.spl', spl)}>.spl</button>
+          </span>
         </div>
-        <pre>{feSpl || '—'}</pre>
+        <pre>{spl || '— select one or more APIs to build the query —'}</pre>
       </div>
-      <div className="spl-block">
-        <div className="row between"><b>Backend APIs ({be.length})</b>
-          <span className="row" style={{ gap: 6 }}><CopyBtn text={beSpl} /><button className="minibtn" onClick={() => downloadText('backend.spl', beSpl)}>.spl</button></span>
-        </div>
-        <pre>{beSpl || '—'}</pre>
-      </div>
+
       {hint && <div className="sub">{hint}</div>}
     </div>
   );

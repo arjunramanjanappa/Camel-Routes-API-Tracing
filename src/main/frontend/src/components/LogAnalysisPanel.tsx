@@ -59,7 +59,7 @@ interface Props {
   version?: string;
   country?: string;
   sourceDir?: string;
-  impactedApis?: string[];
+  selectedApis?: string[];
 }
 
 /**
@@ -67,10 +67,10 @@ interface Props {
  * traced APIs for the current client release — which APIs were exercised and
  * whether they passed end-to-end.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, impactedApis = [] }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, selectedApis = [] }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
-  const [onlyImpacted, setOnlyImpacted] = useState(false);
+  const [onlySelected, setOnlySelected] = useState(false);
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, impacted
     setLoading(true);
     setError(null);
     try {
-      const apis = onlyImpacted && impactedApis.length ? impactedApis : undefined;
+      const apis = onlySelected && selectedApis.length ? selectedApis : undefined;
       const rep = await analyzeLog(file, { version, country, sourceDir, apis });
       setReport(rep);
       setOpen(new Set());
@@ -149,10 +149,10 @@ export default function LogAnalysisPanel({ version, country, sourceDir, impacted
             : <span>Click to choose an output log file (.log / .txt / .gz)</span>}
       </div>
 
-      {impactedApis.length > 0 && (
+      {selectedApis.length > 0 && (
         <label className="check" style={{ marginTop: 8 }}>
-          <input type="checkbox" checked={onlyImpacted} onChange={(e) => setOnlyImpacted(e.target.checked)} />
-          Limit to the {impactedApis.length} impacted API(s)
+          <input type="checkbox" checked={onlySelected} onChange={(e) => setOnlySelected(e.target.checked)} />
+          Limit to the {selectedApis.length} selected API(s)
         </label>
       )}
 

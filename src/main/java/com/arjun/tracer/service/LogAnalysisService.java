@@ -1,0 +1,375 @@
+package com.arjun.tracer.service;
+
+import com.arjun.tracer.api.ApiImpact;
+import com.arjun.tracer.api.ApiLogResult;
+import com.arjun.tracer.api.BackendCallResult;
+import com.arjun.tracer.api.ImpactIndex;
+import com.arjun.tracer.api.LogAnalysisReport;
+import com.arjun.tracer.api.LogStatus;
+import com.arjun.tracer.api.TraceRequest;
+import org.springframework.stereotype.Service;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
+
+/**
+ * Correlates an uploaded application log (or Splunk export) against the traced
+ * API footprint to tell, per client release, which APIs were actually exercised
+ * and whether they passed end-to-end.
+ *
+ * <p>Reads the file as a single streaming pass: a cheap substring pre-filter
+ * skips the (vast majority) of non-matching lines before any regex runs, and
+ * only matched lines are retained — so memory stays proportional to the number
+ * of MightyMessage/MightyHostMessage lines, not the file size.
+ *
+ * <p>Log shape (see {@code sample-logs/}):
+ * <pre>
+ * 2026-06-11 18.43.45.102 [thread] INFO [MightyMessage][app][sess][user][9.14][corrId][platform][500ms]-/.../services/sg/&lt;api&gt; -Response - {json}
+ * </pre>
+ * {@code [MightyMessage]} = front-end (controller), {@code [MightyHostMessage]}
+ * = backend. A transaction is all lines sharing one correlation id, printed as
+ * FE-Request → BE-Request → BE-Response → FE-Response. Success = responseCode is
+ * all zeros (any length).
+ */
+@Service
+public class LogAnalysisService {
+
+    private final RouteTraceService traceService;
+
+    public LogAnalysisService(RouteTraceService traceService) {
+        this.traceService = traceService;
+    }
+
+    // timestamp [thread] LEVEL [marker][f0..f6]-/path -Dir - json
+    // fields after the marker, in order: app, session, user, version, correlationId, platform, tookMs
+    private static final Pattern LINE = Pattern.compile(
+            "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
+                    + "\\[[^\\]]*\\]\\s+\\S+\\s+"
+                    + "\\[(MightyMessage|MightyHostMessage)\\]"
+                    + "((?:\\[[^\\]]*\\])+?)-(\\S+)\\s+-\\s*\\[?(Request|Response)\\]?\\s*-\\s*(.*)$");
+    private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
+    private static final Pattern CODE = Pattern.compile("\"responseCode\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern DESC = Pattern.compile("\"responseDescription\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern TOOK = Pattern.compile("(\\d+)\\s*ms");
+    private static final Pattern ALL_ZEROS = Pattern.compile("0+");
+
+    /** Analyse a raw output log. Caller owns the stream. */
+    public LogAnalysisReport analyze(InputStream raw, String filename, String version,
+                                     String country, String sourceDir, List<String> selectedApis)
+            throws IOException {
+        InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
+                ? new GZIPInputStream(raw) : raw;
+
+        int[] counters = new int[2];   // [0] = lines scanned, [1] = marked-but-unparsed
+        List<LogLine> lines = new ArrayList<>();
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                counters[0]++;
+                if (line.indexOf("[MightyMessage]") < 0 && line.indexOf("[MightyHostMessage]") < 0) {
+                    continue;   // cheap pre-filter: skip the noise without touching the regex
+                }
+                LogLine parsed = null;
+                try {
+                    parsed = parseLine(line);
+                } catch (RuntimeException ignore) {
+                    // a single malformed line must never abort the scan
+                }
+                if (parsed != null && parsed.correlationId() != null && !parsed.correlationId().isBlank()) {
+                    lines.add(parsed);
+                } else {
+                    counters[1]++;
+                }
+            }
+        }
+
+        List<String> warnings = new ArrayList<>();
+        if (lines.isEmpty()) {
+            warnings.add("No MightyMessage/MightyHostMessage lines found. If this is a Splunk export, "
+                    + "Splunk-format parsing is not enabled yet.");
+        }
+
+        // Group into transactions by correlation id (FE + BE share the id).
+        Map<String, List<LogLine>> byCorr = new LinkedHashMap<>();
+        for (LogLine l : lines) {
+            byCorr.computeIfAbsent(l.correlationId(), k -> new ArrayList<>()).add(l);
+        }
+        List<Txn> txns = new ArrayList<>(byCorr.size());
+        for (List<LogLine> group : byCorr.values()) {
+            txns.add(buildTxn(group));
+        }
+
+        // Footprint (controller path + traced backends per API) for this release.
+        ImpactIndex idx = traceService.impactIndex(new TraceRequest(null, version, null, sourceDir, country));
+        List<ApiLogResult> results = new ArrayList<>();
+        for (ApiImpact api : idx.getApis()) {
+            if (selectedApis != null && !selectedApis.isEmpty() && !selectedApis.contains(api.api())) {
+                continue;
+            }
+            results.add(correlate(api, txns, version));
+        }
+
+        return new LogAnalysisReport("RAW_LOG", version, idx.getCountry(),
+                counters[0], lines.size(), txns.size(), counters[1], results, warnings);
+    }
+
+    // --- parsing ---
+
+    private LogLine parseLine(String line) {
+        Matcher m = LINE.matcher(line);
+        if (!m.find()) {
+            return null;
+        }
+        String ts = m.group(1);
+        boolean fe = "MightyMessage".equals(m.group(2));
+        List<String> fields = new ArrayList<>();
+        Matcher b = BRACKET.matcher(m.group(3));
+        while (b.find()) {
+            fields.add(b.group(1));
+        }
+        String version = at(fields, 3);
+        String corr = at(fields, 4);
+        String platform = at(fields, 5);
+        Integer took = parseTook(at(fields, 6));
+        boolean request = "Request".equalsIgnoreCase(m.group(5));
+        String path = m.group(4);
+        String json = m.group(6);
+        String code = request ? null : firstGroup(CODE, json);
+        String desc = request ? null : firstGroup(DESC, json);
+        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc);
+    }
+
+    private static String at(List<String> list, int i) {
+        return i >= 0 && i < list.size() ? blankToNull(list.get(i)) : null;
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    private static Integer parseTook(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        Matcher m = TOOK.matcher(raw);
+        return m.find() ? Integer.valueOf(m.group(1)) : null;
+    }
+
+    private static String firstGroup(Pattern p, String s) {
+        if (s == null) {
+            return null;
+        }
+        Matcher m = p.matcher(s);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static boolean isSuccessCode(String code) {
+        return code != null && ALL_ZEROS.matcher(code).matches();
+    }
+
+    // --- transaction assembly ---
+
+    private Txn buildTxn(List<LogLine> group) {
+        LogLine feReq = null;
+        LogLine feResp = null;
+        List<LogLine> beReq = new ArrayList<>();
+        List<LogLine> beResp = new ArrayList<>();
+        for (LogLine l : group) {
+            if (l.fe()) {
+                if (l.request()) {
+                    feReq = l;
+                } else {
+                    feResp = l;
+                }
+            } else if (l.request()) {
+                beReq.add(l);
+            } else {
+                beResp.add(l);
+            }
+        }
+        // Pair each backend request with the next response on the same path; a
+        // request with no response is a backend timeout, an orphan response still
+        // contributes its outcome.
+        Map<String, Deque<LogLine>> respByPath = new HashMap<>();
+        for (LogLine rp : beResp) {
+            respByPath.computeIfAbsent(rp.path(), k -> new ArrayDeque<>()).add(rp);
+        }
+        List<BackendCall> calls = new ArrayList<>();
+        for (LogLine req : beReq) {
+            Deque<LogLine> dq = respByPath.get(req.path());
+            LogLine rp = dq != null ? dq.poll() : null;
+            calls.add(rp != null
+                    ? new BackendCall(req.path(), rp.tookMs(), rp.code(), rp.desc(), true)
+                    : new BackendCall(req.path(), null, null, null, false));
+        }
+        for (Deque<LogLine> leftover : respByPath.values()) {
+            for (LogLine rp : leftover) {
+                calls.add(new BackendCall(rp.path(), rp.tookMs(), rp.code(), rp.desc(), true));
+            }
+        }
+
+        LogLine anchor = feReq != null ? feReq : (feResp != null ? feResp
+                : (!beReq.isEmpty() ? beReq.get(0) : (!beResp.isEmpty() ? beResp.get(0) : null)));
+        String corr = anchor != null ? anchor.correlationId() : null;
+        String ts = group.stream().map(LogLine::ts).min(Comparator.naturalOrder()).orElse(null);
+        String version = anchor != null ? anchor.version() : null;
+        String platform = anchor != null ? anchor.platform() : null;
+        String fePath = feReq != null ? feReq.path() : (feResp != null ? feResp.path() : null);
+        return new Txn(corr, ts, version, platform, fePath, feReq, feResp, calls);
+    }
+
+    // --- per-API correlation ---
+
+    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version) {
+        List<Txn> matched = new ArrayList<>();
+        for (Txn t : txns) {
+            if (t.fePath() != null && feMatches(t.fePath(), api.api())) {
+                matched.add(t);
+            }
+        }
+        boolean versionScoped = version != null && !version.isBlank();
+        List<Txn> forVersion = new ArrayList<>();
+        for (Txn t : matched) {
+            if (!versionScoped || version.trim().equals(t.version())) {
+                forVersion.add(t);
+            }
+        }
+
+        if (forVersion.isEmpty()) {
+            String note = "No log entry for this API at client release "
+                    + (versionScoped ? version.trim() : "(any)") + " — never tested.";
+            return new ApiLogResult(api.api(), api.operation(), api.resolvedRoute(), version,
+                    LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note, List.of());
+        }
+
+        Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
+        int success = 0;
+        for (Txn t : forVersion) {
+            if (evaluate(t, api.backends()).status() == LogStatus.SUCCESS) {
+                success++;
+            }
+        }
+        Eval eval = evaluate(latest, api.backends());
+        String feCode = latest.feResp() != null ? latest.feResp().code() : null;
+        String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
+        Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
+
+        return new ApiLogResult(api.api(), api.operation(), api.resolvedRoute(), version,
+                eval.status(), true, feTook, feCode, feDesc,
+                forVersion.size(), success, forVersion.size() - success,
+                latest.ts(), latest.correlationId(), eval.note(), eval.backends());
+    }
+
+    /** Front-end path match: the log path ends with (or contains) the traced controller path. */
+    private boolean feMatches(String logPath, String apiPath) {
+        if (apiPath == null || apiPath.isBlank()) {
+            return false;
+        }
+        String a = apiPath.trim();
+        return logPath.endsWith(a) || logPath.contains(a);
+    }
+
+    /** Backend match: the traced backend (which may carry a {{baseUrl}} prefix) ends with the log path. */
+    private boolean backendMatches(String tracedBackend, String observedPath) {
+        String tb = tracedBackend.trim();
+        String op = observedPath.trim();
+        return tb.endsWith(op) || tb.endsWith(op.startsWith("/") ? op.substring(1) : "/" + op);
+    }
+
+    private Eval evaluate(Txn t, List<String> tracedBackends) {
+        // Front end is the source of truth for the end-to-end verdict.
+        if (t.feResp() == null) {
+            return new Eval(LogStatus.TIMEOUT,
+                    "Front-end request logged but no response — timeout or server down.",
+                    backendResults(t, tracedBackends));
+        }
+        String code = t.feResp().code();
+        if (code == null) {
+            return new Eval(LogStatus.INDETERMINATE,
+                    "Front-end response logged but no responseCode could be read"
+                            + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")." : "."),
+                    backendResults(t, tracedBackends));
+        }
+        if (!isSuccessCode(code)) {
+            return new Eval(LogStatus.FAILED,
+                    "Front-end responseCode " + code
+                            + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."),
+                    backendResults(t, tracedBackends));
+        }
+        // Front end OK — check the backends it was traced to call. Only a backend
+        // that was actually observed and failed downgrades the verdict: a traced
+        // backend that never appears is usually a choice branch that wasn't taken,
+        // not a failure, so it is reported for info but does not flag PARTIAL.
+        List<BackendCallResult> backends = backendResults(t, tracedBackends);
+        List<String> issues = new ArrayList<>();
+        for (BackendCallResult b : backends) {
+            if (b.status() != LogStatus.SUCCESS && b.status() != LogStatus.NOT_TESTED) {
+                issues.add(b.status().name().toLowerCase() + " backend: " + b.backend());
+            }
+        }
+        if (!issues.isEmpty()) {
+            return new Eval(LogStatus.PARTIAL,
+                    "Front-end succeeded but " + String.join("; ", issues) + ".", backends);
+        }
+        return new Eval(LogStatus.SUCCESS, null, backends);
+    }
+
+    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends) {
+        List<BackendCallResult> out = new ArrayList<>();
+        for (String tb : tracedBackends) {
+            BackendCall hit = null;
+            for (BackendCall c : t.calls()) {
+                if (backendMatches(tb, c.path())) {
+                    hit = c;
+                    break;
+                }
+            }
+            if (hit == null) {
+                out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null));
+            } else if (!hit.hasResponse()) {
+                out.add(new BackendCallResult(tb, hit.path(), LogStatus.TIMEOUT, null, null, null));
+            } else if (hit.code() == null) {
+                out.add(new BackendCallResult(tb, hit.path(), LogStatus.INDETERMINATE,
+                        hit.tookMs(), hit.code(), hit.desc()));
+            } else if (isSuccessCode(hit.code())) {
+                out.add(new BackendCallResult(tb, hit.path(), LogStatus.SUCCESS,
+                        hit.tookMs(), hit.code(), hit.desc()));
+            } else {
+                out.add(new BackendCallResult(tb, hit.path(), LogStatus.FAILED,
+                        hit.tookMs(), hit.code(), hit.desc()));
+            }
+        }
+        return out;
+    }
+
+    // --- internal records ---
+
+    private record LogLine(String ts, boolean fe, boolean request, String version,
+                           String correlationId, String platform, Integer tookMs,
+                           String path, String code, String desc) {
+    }
+
+    private record BackendCall(String path, Integer tookMs, String code, String desc, boolean hasResponse) {
+    }
+
+    private record Txn(String correlationId, String ts, String version, String platform,
+                       String fePath, LogLine feReq, LogLine feResp, List<BackendCall> calls) {
+    }
+
+    private record Eval(LogStatus status, String note, List<BackendCallResult> backends) {
+    }
+}

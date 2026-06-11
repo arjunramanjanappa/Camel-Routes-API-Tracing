@@ -1,6 +1,8 @@
 package com.arjun.tracer.web;
 
+import com.arjun.tracer.api.LogAnalysisReport;
 import com.arjun.tracer.api.TraceRequest;
+import com.arjun.tracer.service.LogAnalysisService;
 import com.arjun.tracer.service.RouteTraceService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,7 +12,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,9 +27,11 @@ import java.util.Map;
 public class RouteGraphController {
 
     private final RouteTraceService service;
+    private final LogAnalysisService logService;
 
-    public RouteGraphController(RouteTraceService service) {
+    public RouteGraphController(RouteTraceService service, LogAnalysisService logService) {
         this.service = service;
+        this.logService = logService;
     }
 
     /**
@@ -70,6 +78,24 @@ public class RouteGraphController {
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String transferType) {
         return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country));
+    }
+
+    /**
+     * Correlate an uploaded output log against the traced APIs for a client
+     * release: which APIs were exercised and whether they passed end-to-end.
+     * Multipart upload ({@code file}); {@code apis} optionally narrows to a
+     * selected subset (else every API in the impact index is reported).
+     */
+    @PostMapping("/internal/log-analysis")
+    public LogAnalysisReport logAnalysis(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String version,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String sourceDir,
+            @RequestParam(required = false) List<String> apis) throws IOException {
+        try (InputStream in = file.getInputStream()) {
+            return logService.analyze(in, file.getOriginalFilename(), version, country, sourceDir, apis);
+        }
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

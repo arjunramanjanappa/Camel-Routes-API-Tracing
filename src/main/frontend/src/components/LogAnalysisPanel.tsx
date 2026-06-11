@@ -16,8 +16,47 @@ const STATUS_LABEL: Record<LogStatus, string> = {
 
 const STATUS_ORDER: LogStatus[] = ['SUCCESS', 'PARTIAL', 'FAILED', 'TIMEOUT', 'INDETERMINATE', 'NOT_TESTED'];
 
+const STATUS_COLOR: Record<LogStatus, string> = {
+  SUCCESS: '#16a34a',
+  PARTIAL: '#d97706',
+  FAILED: '#ea580c',
+  TIMEOUT: '#7c3aed',
+  INDETERMINATE: '#2563eb',
+  NOT_TESTED: '#dc2626',
+};
+
+// Worst-first ordering so the rows that need investigation float to the top.
+const SEVERITY: Record<LogStatus, number> = {
+  FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5,
+};
+
 function Badge({ s }: { s: LogStatus }) {
   return <span className={'lstat ' + s.toLowerCase()}>{STATUS_LABEL[s]}</span>;
+}
+
+/** A donut summarising the per-status API counts. */
+function Donut({ counts }: { counts: Record<LogStatus, number> }) {
+  const segs = STATUS_ORDER.filter((s) => counts[s]);
+  const total = segs.reduce((n, s) => n + counts[s], 0);
+  const r = 34;
+  const c = 2 * Math.PI * r;
+  let acc = 0;
+  return (
+    <svg width="86" height="86" viewBox="0 0 86 86" className="donut">
+      <circle className="dtrack" cx="43" cy="43" r={r} fill="none" strokeWidth="12" />
+      {total > 0 && segs.map((s) => {
+        const len = (counts[s] / total) * c;
+        const seg = (
+          <circle key={s} cx="43" cy="43" r={r} fill="none" stroke={STATUS_COLOR[s]} strokeWidth="12"
+                  strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-acc} transform="rotate(-90 43 43)" />
+        );
+        acc += len;
+        return seg;
+      })}
+      <text x="43" y="40" textAnchor="middle" className="donut-num">{total}</text>
+      <text x="43" y="54" textAnchor="middle" className="donut-lbl">APIs</text>
+    </svg>
+  );
 }
 
 function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onToggle: () => void }) {
@@ -75,6 +114,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<LogStatus | 'ALL' | 'ISSUES'>('ALL');
+  const [sort, setSort] = useState<'severity' | 'api'>('severity');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const run = async () => {
@@ -86,6 +127,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
       const rep = await analyzeLog(file, { version, country, sourceDir, apis });
       setReport(rep);
       setOpen(new Set());
+      setFilter('ALL');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -98,18 +140,31 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
     report?.apis.forEach((a) => { c[a.status] = (c[a.status] || 0) + 1; });
     return c;
   }, [report]);
+  const issuesCount = useMemo(() => report?.apis.filter((a) => a.status !== 'SUCCESS').length ?? 0, [report]);
+
+  // Apply the status filter + sort to get the rows actually shown.
+  const shown = useMemo(() => {
+    if (!report) return [];
+    let list = report.apis;
+    if (filter === 'ISSUES') list = list.filter((a) => a.status !== 'SUCCESS');
+    else if (filter !== 'ALL') list = list.filter((a) => a.status === filter);
+    return [...list].sort((a, b) => (sort === 'api'
+      ? a.api.localeCompare(b.api)
+      : SEVERITY[a.status] - SEVERITY[b.status] || a.api.localeCompare(b.api)));
+  }, [report, filter, sort]);
 
   const toggle = (k: string) => {
     const n = new Set(open);
     if (n.has(k)) n.delete(k); else n.add(k);
     setOpen(n);
   };
+  const pick = (f: LogStatus | 'ALL' | 'ISSUES') => setFilter((cur) => (cur === f ? 'ALL' : f));
 
   const exportCsv = () => {
     if (!report) return;
     const rows = [['api', 'operation', 'status', 'tested', 'responseCode', 'responseDescription',
       'feLatencyMs', 'attempts', 'success', 'failure', 'latestAt', 'correlationId', 'note']];
-    report.apis.forEach((a) => rows.push([
+    shown.forEach((a) => rows.push([
       a.api, a.operation, a.status, String(a.tested), a.responseCode || '', a.responseDescription || '',
       a.feLatencyMs == null ? '' : String(a.feLatencyMs), String(a.attempts), String(a.successCount),
       String(a.failureCount), a.latestAt || '', a.correlationId || '', a.note || '',
@@ -168,16 +223,36 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
             <b>{report.transactions}</b> transactions · <b>{report.matchedLines}</b> matched / {report.linesScanned} lines
             {report.unparsedLines > 0 ? ` · ${report.unparsedLines} unparsed` : ''} · {report.uploadType}
           </div>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
-            {STATUS_ORDER.filter((s) => counts[s]).map((s) => (
-              <span key={s} className={'lstat ' + s.toLowerCase()}>{counts[s]} {STATUS_LABEL[s]}</span>
-            ))}
+
+          <div className="report-summary">
+            <Donut counts={counts} />
+            <div className="report-side">
+              <div className="fchips">
+                <button className={'fchip all' + (filter === 'ALL' ? ' active' : '')} onClick={() => pick('ALL')}>All {report.apis.length}</button>
+                {issuesCount > 0 && (
+                  <button className={'fchip issues' + (filter === 'ISSUES' ? ' active' : '')} onClick={() => pick('ISSUES')}>Issues {issuesCount}</button>
+                )}
+                {STATUS_ORDER.filter((s) => counts[s]).map((s) => (
+                  <button key={s} className={'lstat fchip ' + s.toLowerCase() + (filter === s ? ' active' : '')} onClick={() => pick(s)}>
+                    {STATUS_LABEL[s]} {counts[s]}
+                  </button>
+                ))}
+              </div>
+              <div className="sub" style={{ marginTop: 2 }}>Click a status to filter the table below.</div>
+            </div>
           </div>
+
           {report.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}
 
-          <div className="row between" style={{ marginTop: 6 }}>
-            <span className="muted">{report.apis.length} APIs</span>
-            <button className="minibtn" onClick={exportCsv}>Export CSV</button>
+          <div className="row between" style={{ marginTop: 8 }}>
+            <span className="muted">Showing {shown.length} of {report.apis.length}</span>
+            <span className="row" style={{ gap: 8 }}>
+              <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value as 'severity' | 'api')}>
+                <option value="severity">Sort: worst first</option>
+                <option value="api">Sort: API name</option>
+              </select>
+              <button className="minibtn" onClick={exportCsv}>Export CSV</button>
+            </span>
           </div>
 
           <table className="grid">
@@ -185,10 +260,13 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
               <tr><th>Status</th><th>API</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
             </thead>
             <tbody>
-              {report.apis.map((a) => {
+              {shown.map((a) => {
                 const k = a.api + a.operation;
                 return <Row key={k} a={a} isOpen={open.has(k)} onToggle={() => toggle(k)} />;
               })}
+              {shown.length === 0 && (
+                <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No APIs match this filter.</td></tr>
+              )}
             </tbody>
           </table>
         </div>

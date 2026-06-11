@@ -18,6 +18,45 @@ into it.
 
 ---
 
+## Prerequisites
+
+| Tool | Version | Notes |
+|---|---|---|
+| **JDK** | 21 | |
+| **Maven** | 3.9+ | or IntelliJ's bundled Maven |
+| **Node.js + npm** | 18+ (built/tested with **Node 24**) | the Maven build shells out to your **system** `npm` to build the frontend |
+
+Install Node from [nodejs.org](https://nodejs.org) (or via `nvm`) and make sure
+`node -v` / `npm -v` work on your `PATH`. The build does **not** download a Node —
+it uses the one on your machine.
+
+## Frontend setup — `.npmrc`
+
+If the frontend's npm dependencies come from a **private registry**, create:
+
+```
+src/main/frontend/.npmrc
+```
+
+**before** building. This file is **deliberately gitignored** because it holds a
+registry **auth token** — so it is *not* committed, *not* in a cloned repo, and
+*not* in a GitHub ZIP. **Each developer must create it locally.** Example
+(replace with your registry and token, ideally via an env var):
+
+```ini
+registry=https://<your-registry>/repository/npm/
+//<your-registry>/repository/npm/:_authToken=${NPM_TOKEN}
+always-auth=true
+```
+
+> ⚠️ Never commit `.npmrc` or paste a real token into the repo. If your project
+> uses the **public** npm registry, you can skip this step entirely.
+
+Once Node is on your `PATH` (and `.npmrc` is in place if you need it), the
+standard `mvn` build handles everything else.
+
+---
+
 ## Run
 
 Point it at your framework checkout (there is no bundled default):

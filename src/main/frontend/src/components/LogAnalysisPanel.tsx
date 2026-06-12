@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { analyzeLog } from '../api';
-import type { ApiLogResult, LogAnalysisReport, LogStatus } from '../types';
-import { downloadText } from '../spl';
+import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
+import { backendPath, downloadText } from '../spl';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
 
@@ -54,8 +54,27 @@ function Donut({ counts }: { counts: Record<LogStatus, number> }) {
         return seg;
       })}
       <text x="43" y="40" textAnchor="middle" className="donut-num">{total}</text>
-      <text x="43" y="54" textAnchor="middle" className="donut-lbl">APIs</text>
+      <text x="43" y="54" textAnchor="middle" className="donut-lbl">checked</text>
     </svg>
+  );
+}
+
+/** One row of the backend-only (host-message) report. */
+function BackendRow({ b }: { b: BackendLogResult }) {
+  const resultText = b.status === 'NOT_TESTED' || b.status === 'TIMEOUT'
+    ? b.note || '—'
+    : `${b.responseCode || '—'}${b.responseDescription ? ' · ' + b.responseDescription : ''}`;
+  return (
+    <tr className={'lrow ' + b.status.toLowerCase()}>
+      <td><Badge s={b.status} /></td>
+      <td><code>{backendPath(b.backend)}</code></td>
+      <td title={b.correlationId ? 'correlation ' + b.correlationId + (b.latestAt ? ' @ ' + b.latestAt : '') : undefined}>
+        {resultText}
+      </td>
+      <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
+      <td>{b.attempts > 0 ? `${b.attempts} (${b.successCount}✓/${b.failureCount}✗)` : '—'}</td>
+      <td />
+    </tr>
   );
 }
 
@@ -99,17 +118,19 @@ interface Props {
   country?: string;
   sourceDir?: string;
   selectedApis?: string[];
+  selectedBackends?: string[];
 }
 
 /**
- * Upload an output log (or, soon, a Splunk export) and correlate it against the
- * traced APIs for the current client release — which APIs were exercised and
- * whether they passed end-to-end.
+ * Upload an output log or Splunk export and correlate it against the traced APIs
+ * for the current client release. The report is log-type aware: selected
+ * front-end APIs are read from MightyMessage lines, selected backends from
+ * MightyHostMessage lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, selectedApis = [] }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, selectedApis = [], selectedBackends = [] }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
-  const [onlySelected, setOnlySelected] = useState(false);
+  const [limitToSelection, setLimitToSelection] = useState(true);
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,13 +139,20 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
   const [sort, setSort] = useState<'severity' | 'api'>('severity');
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const hasSelection = selectedApis.length > 0 || selectedBackends.length > 0;
+
   const run = async () => {
     if (!file) return;
     setLoading(true);
     setError(null);
     try {
-      const apis = onlySelected && selectedApis.length ? selectedApis : undefined;
-      const rep = await analyzeLog(file, { version, country, sourceDir, apis });
+      // Unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
+      const all = !hasSelection || !limitToSelection;
+      const rep = await analyzeLog(file, {
+        version, country, sourceDir, all,
+        apis: all ? undefined : selectedApis,
+        backends: all ? undefined : selectedBackends,
+      });
       setReport(rep);
       setOpen(new Set());
       setFilter('ALL');
@@ -135,22 +163,34 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
     }
   };
 
+  // Status distribution across BOTH sections (front-end APIs + backends).
   const counts = useMemo(() => {
     const c = {} as Record<LogStatus, number>;
     report?.apis.forEach((a) => { c[a.status] = (c[a.status] || 0) + 1; });
+    report?.backends.forEach((b) => { c[b.status] = (c[b.status] || 0) + 1; });
     return c;
   }, [report]);
-  const issuesCount = useMemo(() => report?.apis.filter((a) => a.status !== 'SUCCESS').length ?? 0, [report]);
+  const total = (report?.apis.length ?? 0) + (report?.backends.length ?? 0);
+  const issuesCount = useMemo(() =>
+    (report?.apis.filter((a) => a.status !== 'SUCCESS').length ?? 0)
+    + (report?.backends.filter((b) => b.status !== 'SUCCESS').length ?? 0), [report]);
 
-  // Apply the status filter + sort to get the rows actually shown.
-  const shown = useMemo(() => {
+  const keep = (s: LogStatus) => filter === 'ALL' || (filter === 'ISSUES' ? s !== 'SUCCESS' : s === filter);
+
+  const shownApis = useMemo(() => {
     if (!report) return [];
-    let list = report.apis;
-    if (filter === 'ISSUES') list = list.filter((a) => a.status !== 'SUCCESS');
-    else if (filter !== 'ALL') list = list.filter((a) => a.status === filter);
-    return [...list].sort((a, b) => (sort === 'api'
+    return report.apis.filter((a) => keep(a.status)).sort((a, b) => (sort === 'api'
       ? a.api.localeCompare(b.api)
       : SEVERITY[a.status] - SEVERITY[b.status] || a.api.localeCompare(b.api)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report, filter, sort]);
+
+  const shownBackends = useMemo(() => {
+    if (!report) return [];
+    return report.backends.filter((b) => keep(b.status)).sort((x, y) => (sort === 'api'
+      ? x.backend.localeCompare(y.backend)
+      : SEVERITY[x.status] - SEVERITY[y.status] || x.backend.localeCompare(y.backend)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report, filter, sort]);
 
   const toggle = (k: string) => {
@@ -162,12 +202,17 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
 
   const exportCsv = () => {
     if (!report) return;
-    const rows = [['api', 'operation', 'status', 'tested', 'responseCode', 'responseDescription',
-      'feLatencyMs', 'attempts', 'success', 'failure', 'latestAt', 'correlationId', 'note']];
-    shown.forEach((a) => rows.push([
-      a.api, a.operation, a.status, String(a.tested), a.responseCode || '', a.responseDescription || '',
+    const rows = [['kind', 'name', 'status', 'tested', 'responseCode', 'responseDescription',
+      'latencyMs', 'attempts', 'success', 'failure', 'latestAt', 'correlationId', 'note']];
+    shownApis.forEach((a) => rows.push([
+      'api', a.api, a.status, String(a.tested), a.responseCode || '', a.responseDescription || '',
       a.feLatencyMs == null ? '' : String(a.feLatencyMs), String(a.attempts), String(a.successCount),
       String(a.failureCount), a.latestAt || '', a.correlationId || '', a.note || '',
+    ]));
+    shownBackends.forEach((b) => rows.push([
+      'backend', b.backend, b.status, String(b.tested), b.responseCode || '', b.responseDescription || '',
+      b.latencyMs == null ? '' : String(b.latencyMs), String(b.attempts), String(b.successCount),
+      String(b.failureCount), b.latestAt || '', b.correlationId || '', b.note || '',
     ]));
     downloadText('log-analysis.csv', rows.map((r) => r.map((c) => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n'));
   };
@@ -204,11 +249,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
             : <span>Click to choose an output log file (.log / .txt / .gz)</span>}
       </div>
 
-      {selectedApis.length > 0 && (
-        <label className="check" style={{ marginTop: 8 }}>
-          <input type="checkbox" checked={onlySelected} onChange={(e) => setOnlySelected(e.target.checked)} />
-          Limit to the {selectedApis.length} selected API(s)
-        </label>
+      {hasSelection && (
+        <>
+          <label className="check" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={limitToSelection} onChange={(e) => setLimitToSelection(e.target.checked)} />
+            Limit to my selection ({selectedApis.length} API{selectedApis.length === 1 ? '' : 's'} → front-end logs,
+            {' '}{selectedBackends.length} backend{selectedBackends.length === 1 ? '' : 's'} → host-message logs)
+          </label>
+          <div className="sub">Unchecked → analyse the whole {version || 'BASE'} release (front-end + backends).</div>
+        </>
       )}
 
       <button className="trace" disabled={!file || loading} onClick={run}>
@@ -228,7 +277,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
             <Donut counts={counts} />
             <div className="report-side">
               <div className="fchips">
-                <button className={'fchip all' + (filter === 'ALL' ? ' active' : '')} onClick={() => pick('ALL')}>All {report.apis.length}</button>
+                <button className={'fchip all' + (filter === 'ALL' ? ' active' : '')} onClick={() => pick('ALL')}>All {total}</button>
                 {issuesCount > 0 && (
                   <button className={'fchip issues' + (filter === 'ISSUES' ? ' active' : '')} onClick={() => pick('ISSUES')}>Issues {issuesCount}</button>
                 )}
@@ -238,37 +287,53 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
                   </button>
                 ))}
               </div>
-              <div className="sub" style={{ marginTop: 2 }}>Click a status to filter the table below.</div>
+              <div className="sub" style={{ marginTop: 2 }}>Click a status to filter the tables below.</div>
             </div>
           </div>
 
           {report.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}
 
           <div className="row between" style={{ marginTop: 8 }}>
-            <span className="muted">Showing {shown.length} of {report.apis.length}</span>
+            <span className="muted">Showing {shownApis.length + shownBackends.length} of {total}</span>
             <span className="row" style={{ gap: 8 }}>
               <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value as 'severity' | 'api')}>
                 <option value="severity">Sort: worst first</option>
-                <option value="api">Sort: API name</option>
+                <option value="api">Sort: name</option>
               </select>
               <button className="minibtn" onClick={exportCsv}>Export CSV</button>
             </span>
           </div>
 
-          <table className="grid">
-            <thead>
-              <tr><th>Status</th><th>API</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
-            </thead>
-            <tbody>
-              {shown.map((a) => {
-                const k = a.api + a.operation;
-                return <Row key={k} a={a} isOpen={open.has(k)} onToggle={() => toggle(k)} />;
-              })}
-              {shown.length === 0 && (
-                <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No APIs match this filter.</td></tr>
-              )}
-            </tbody>
-          </table>
+          {report.apis.length > 0 && (
+            <table className="grid">
+              <thead>
+                <tr><th>Status</th><th>Front-end API</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
+              </thead>
+              <tbody>
+                {shownApis.map((a) => {
+                  const k = a.api + a.operation;
+                  return <Row key={k} a={a} isOpen={open.has(k)} onToggle={() => toggle(k)} />;
+                })}
+                {shownApis.length === 0 && (
+                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No front-end APIs match this filter.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {report.backends.length > 0 && (
+            <table className="grid" style={{ marginTop: 12 }}>
+              <thead>
+                <tr><th>Status</th><th>Backend (host-message)</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
+              </thead>
+              <tbody>
+                {shownBackends.map((b) => <BackendRow key={b.backend} b={b} />)}
+                {shownBackends.length === 0 && (
+                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No backends match this filter.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>

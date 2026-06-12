@@ -92,9 +92,12 @@ public class RouteGraphController {
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String sourceDir,
-            @RequestParam(required = false) List<String> apis) throws IOException {
+            @RequestParam(required = false) List<String> apis,
+            @RequestParam(required = false) List<String> backends,
+            @RequestParam(required = false, defaultValue = "false") boolean all) throws IOException {
         try (InputStream in = file.getInputStream()) {
-            return logService.analyze(in, file.getOriginalFilename(), version, country, sourceDir, apis);
+            return logService.analyze(in, file.getOriginalFilename(), version, country, sourceDir,
+                    apis, backends, all);
         }
     }
 

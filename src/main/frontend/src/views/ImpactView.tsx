@@ -67,12 +67,13 @@ export default function ImpactView() {
   // Direct API selection drives the Splunk query and scopes the log analysis.
   const allApiPaths = useMemo(() => (idx ? [...new Set(idx.apis.map((a) => a.api).filter(Boolean))] : []), [idx]);
   const selectedApiList = useMemo(() => [...selectedApis], [selectedApis]);
-  const selectedBackends = useMemo(() => {
-    if (!idx) return [];
-    const set = new Set<string>();
-    idx.apis.forEach((a) => { if (selectedApis.has(a.api)) a.backends.forEach((b) => set.add(b)); });
+  const selectedBackendList = useMemo(() => [...changedBackends], [changedBackends]);
+  // The query covers the selected APIs' backends plus any directly-chosen backends.
+  const splBackends = useMemo(() => {
+    const set = new Set<string>(changedBackends);
+    if (idx) idx.apis.forEach((a) => { if (selectedApis.has(a.api)) a.backends.forEach((b) => set.add(b)); });
     return [...set];
-  }, [idx, selectedApis]);
+  }, [idx, selectedApis, changedBackends]);
 
   const exportCsv = () => {
     const rows = [['api', 'operation', 'resolvedRoute', 'impactedViaRoutes', 'impactedViaBackends', 'backends']];
@@ -166,14 +167,15 @@ export default function ImpactView() {
             <SplunkPanel
               title="Splunk query — selected APIs"
               frontendApis={selectedApiList}
-              backendApis={selectedBackends}
+              backendApis={splBackends}
               hint="Run this in Splunk, export the result (CSV/JSON), then upload it under “Verify with logs” below."
             />
           </div>
         </div>
 
         <div style={{ padding: '0 18px 18px' }}>
-          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} selectedApis={selectedApiList} />
+          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir}
+                            selectedApis={selectedApiList} selectedBackends={selectedBackendList} />
         </div>
         </>
       )}

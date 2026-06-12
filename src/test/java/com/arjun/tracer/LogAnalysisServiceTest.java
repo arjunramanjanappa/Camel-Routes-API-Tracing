@@ -2,6 +2,7 @@ package com.arjun.tracer;
 
 import com.arjun.tracer.api.ApiLogResult;
 import com.arjun.tracer.api.BackendCallResult;
+import com.arjun.tracer.api.BackendLogResult;
 import com.arjun.tracer.api.LogAnalysisReport;
 import com.arjun.tracer.api.LogStatus;
 import com.arjun.tracer.service.LogAnalysisService;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,8 +29,15 @@ class LogAnalysisServiceTest {
     private final LogAnalysisService service = new LogAnalysisService(new RouteTraceService(FW));
 
     private LogAnalysisReport analyze(String logFile, String version) throws IOException {
+        // all=true ⇒ front-end report for the whole release (the API-centric tests).
         try (InputStream in = Files.newInputStream(Path.of("src/test/resources/sample-logs/" + logFile))) {
-            return service.analyze(in, logFile, version, null, FW, null);
+            return service.analyze(in, logFile, version, null, FW, null, null, true);
+        }
+    }
+
+    private LogAnalysisReport analyzeBackends(String logFile, String version, List<String> backends) throws IOException {
+        try (InputStream in = Files.newInputStream(Path.of("src/test/resources/sample-logs/" + logFile))) {
+            return service.analyze(in, logFile, version, null, FW, List.of(), backends, false);
         }
     }
 
@@ -122,6 +131,22 @@ class LogAnalysisServiceTest {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
         });
+    }
+
+    @Test
+    void backendOnlySelectionReadsHostMessageLines() throws IOException {
+        // Select a backend, no front-end API → a per-backend report driven by the
+        // MightyHostMessage lines (matched through the /mty-banking-01/ context prefix).
+        LogAnalysisReport r = analyzeBackends("analysis-realistic.log", "9.4",
+                List.of("{{baseUrl}}/bfs/ft/own/submit"));
+
+        assertThat(r.apis()).isEmpty();          // no front-end section
+        assertThat(r.backends()).hasSize(1);
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.tested()).isTrue();
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(be.latencyMs()).isEqualTo(230);
+        assertThat(be.responseCode()).isEqualTo("0000000");
     }
 
     @Test

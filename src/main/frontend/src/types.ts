@@ -125,6 +125,21 @@ export interface ApiLogResult {
   backends: BackendCallResult[];
 }
 
+export interface BackendLogResult {
+  backend: string;
+  status: LogStatus;
+  tested: boolean;
+  latencyMs?: number | null;
+  responseCode?: string | null;
+  responseDescription?: string | null;
+  attempts: number;
+  successCount: number;
+  failureCount: number;
+  latestAt?: string | null;
+  correlationId?: string | null;
+  note?: string | null;
+}
+
 export interface LogAnalysisReport {
   uploadType: string;
   clientVersion?: string | null;
@@ -134,5 +149,6 @@ export interface LogAnalysisReport {
   transactions: number;
   unparsedLines: number;
   apis: ApiLogResult[];
+  backends: BackendLogResult[];
   warnings: string[];
 }

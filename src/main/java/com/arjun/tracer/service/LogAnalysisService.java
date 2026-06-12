@@ -3,6 +3,7 @@ package com.arjun.tracer.service;
 import com.arjun.tracer.api.ApiImpact;
 import com.arjun.tracer.api.ApiLogResult;
 import com.arjun.tracer.api.BackendCallResult;
+import com.arjun.tracer.api.BackendLogResult;
 import com.arjun.tracer.api.ImpactIndex;
 import com.arjun.tracer.api.LogAnalysisReport;
 import com.arjun.tracer.api.LogStatus;
@@ -76,9 +77,20 @@ public class LogAnalysisService {
     private static final Pattern VERSION_FIELD = Pattern.compile("R?(\\d+(?:\\.\\d+)+)");
     private static final Pattern ALL_ZEROS = Pattern.compile("0+");
 
-    /** Analyse a raw output log. Caller owns the stream. */
+    /**
+     * Analyse an uploaded log / Splunk export. Caller owns the stream.
+     *
+     * <p>What is reported is driven by the selection, log-type aware:
+     * <ul>
+     *   <li>{@code all=true} → every API (front-end) and every backend of the release.</li>
+     *   <li>front-end APIs selected → per-API report from the MightyMessage lines.</li>
+     *   <li>backends selected → per-backend report from the MightyHostMessage lines.</li>
+     *   <li>both selected → both sections.</li>
+     * </ul>
+     */
     public LogAnalysisReport analyze(InputStream raw, String filename, String version,
-                                     String country, String sourceDir, List<String> selectedApis)
+                                     String country, String sourceDir,
+                                     List<String> selectedApis, List<String> selectedBackends, boolean all)
             throws IOException {
         InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
                 ? new GZIPInputStream(raw) : raw;
@@ -150,16 +162,31 @@ public class LogAnalysisService {
 
         // Footprint (controller path + traced backends per API) for this release.
         ImpactIndex idx = traceService.impactIndex(new TraceRequest(null, version, null, sourceDir, country));
-        List<ApiLogResult> results = new ArrayList<>();
-        for (ApiImpact api : idx.getApis()) {
-            if (selectedApis != null && !selectedApis.isEmpty() && !selectedApis.contains(api.api())) {
-                continue;
+        boolean apiSel = selectedApis != null && !selectedApis.isEmpty();
+        boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
+
+        // Front-end (MightyMessage) section: the whole release when all=true, the
+        // selected APIs when chosen, otherwise none (e.g. a backend-only analysis).
+        List<ApiLogResult> apiResults = new ArrayList<>();
+        if (all || apiSel) {
+            for (ApiImpact api : idx.getApis()) {
+                if (!all && !selectedApis.contains(api.api())) {
+                    continue;
+                }
+                apiResults.add(correlate(api, txns, version));
             }
-            results.add(correlate(api, txns, version));
+        }
+
+        // Backend (MightyHostMessage) section: every release backend when all=true,
+        // the selected backends when chosen, otherwise none.
+        List<BackendLogResult> backendResults = new ArrayList<>();
+        List<String> beTargets = all ? idx.getAllBackends() : (beSel ? selectedBackends : List.of());
+        for (String backend : beTargets) {
+            backendResults.add(correlateBackend(backend, txns, version));
         }
 
         return new LogAnalysisReport(detected, version, idx.getCountry(),
-                counters[0], lines.size(), txns.size(), counters[1], results, warnings);
+                counters[0], lines.size(), txns.size(), counters[1], apiResults, backendResults, warnings);
     }
 
     // --- input shape detection + extraction ---
@@ -475,6 +502,69 @@ public class LogAnalysisService {
                 latest.ts(), latest.correlationId(), eval.note(), eval.backends());
     }
 
+    /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
+    private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version) {
+        boolean versionScoped = version != null && !version.isBlank();
+        List<BackendHit> hits = new ArrayList<>();
+        Set<String> seen = new TreeSet<>();
+        boolean anyPathMatch = false;
+        for (Txn t : txns) {
+            for (BackendCall c : t.calls()) {
+                if (!backendMatches(backend, c.path())) {
+                    continue;
+                }
+                anyPathMatch = true;
+                seen.add(t.version() == null || t.version().isBlank() ? "(no version field read)" : t.version());
+                if (!versionScoped || version.trim().equals(t.version())) {
+                    hits.add(new BackendHit(t, c));
+                }
+            }
+        }
+
+        if (hits.isEmpty()) {
+            String note;
+            if (!anyPathMatch) {
+                note = "No host-message (backend) line matched this backend — never tested. "
+                        + "Looked for a path ending with '" + backendPathPart(backend) + "'.";
+            } else if (versionScoped) {
+                note = "Matched backend call(s), but none at client release " + version.trim()
+                        + " — versions seen in the log: " + String.join(", ", seen) + ".";
+            } else {
+                note = "No backend call observed — never tested.";
+            }
+            return new BackendLogResult(backend, LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note);
+        }
+
+        BackendHit latest = hits.stream().max(Comparator.comparing(h -> h.txn().ts())).orElseThrow();
+        int success = 0;
+        for (BackendHit h : hits) {
+            if (beStatus(h.call()) == LogStatus.SUCCESS) {
+                success++;
+            }
+        }
+        LogStatus status = beStatus(latest.call());
+        String note = switch (status) {
+            case SUCCESS -> null;
+            case TIMEOUT -> "Backend request logged but no response.";
+            case INDETERMINATE -> "Backend response logged but no responseCode could be read.";
+            default -> "Backend responseCode " + latest.call().code()
+                    + (latest.call().desc() != null ? " (" + latest.call().desc() + ")." : ".");
+        };
+        return new BackendLogResult(backend, status, true, latest.call().tookMs(),
+                latest.call().code(), latest.call().desc(),
+                hits.size(), success, hits.size() - success, latest.txn().ts(), latest.txn().correlationId(), note);
+    }
+
+    private LogStatus beStatus(BackendCall c) {
+        if (!c.hasResponse()) {
+            return LogStatus.TIMEOUT;
+        }
+        if (c.code() == null) {
+            return LogStatus.INDETERMINATE;
+        }
+        return isSuccessCode(c.code()) ? LogStatus.SUCCESS : LogStatus.FAILED;
+    }
+
     /** Front-end path match: the log path ends with (or contains) the traced controller path. */
     private boolean feMatches(String logPath, String apiPath) {
         if (apiPath == null || apiPath.isBlank()) {
@@ -484,11 +574,44 @@ public class LogAnalysisService {
         return logPath.endsWith(a) || logPath.contains(a);
     }
 
-    /** Backend match: the traced backend (which may carry a {{baseUrl}} prefix) ends with the log path. */
+    /**
+     * Backend match: compare the path portions. The traced backend may carry a
+     * {{baseUrl}}/scheme+host prefix and the log path a deployment context prefix
+     * (e.g. /mty-banking-01/...), so reduce both to their path tail and check that
+     * the observed path ends with the traced backend path.
+     */
     private boolean backendMatches(String tracedBackend, String observedPath) {
-        String tb = tracedBackend.trim();
+        if (tracedBackend == null || observedPath == null) {
+            return false;
+        }
+        String tbPath = backendPathPart(tracedBackend.trim());
         String op = observedPath.trim();
-        return tb.endsWith(op) || tb.endsWith(op.startsWith("/") ? op.substring(1) : "/" + op);
+        if (tbPath.isEmpty() || op.isEmpty()) {
+            return false;
+        }
+        return op.endsWith(tbPath) || op.contains(tbPath) || tbPath.endsWith(op);
+    }
+
+    /** The path tail of a backend: strip a leading {{...}} placeholder, scheme+host and query. */
+    private static String backendPathPart(String backend) {
+        String s = backend;
+        int ph = s.indexOf("}}");
+        if (ph >= 0) {
+            s = s.substring(ph + 2);
+        }
+        int scheme = s.indexOf("://");
+        if (scheme >= 0) {
+            int slash = s.indexOf('/', scheme + 3);
+            s = slash >= 0 ? s.substring(slash) : "";
+        }
+        int q = s.indexOf('?');
+        if (q >= 0) {
+            s = s.substring(0, q);
+        }
+        if (!s.isEmpty() && !s.startsWith("/")) {
+            s = "/" + s;
+        }
+        return s;
     }
 
     private Eval evaluate(Txn t, List<String> tracedBackends) {
@@ -565,6 +688,9 @@ public class LogAnalysisService {
     }
 
     private record BackendCall(String path, Integer tookMs, String code, String desc, boolean hasResponse) {
+    }
+
+    private record BackendHit(Txn txn, BackendCall call) {
     }
 
     private record Txn(String correlationId, String ts, String version, String platform,

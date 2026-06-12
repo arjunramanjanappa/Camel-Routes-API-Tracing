@@ -12,7 +12,8 @@ import java.util.List;
  * @param matchedLines  lines that matched a MightyMessage/MightyHostMessage pattern
  * @param transactions  distinct correlation ids reconstructed
  * @param unparsedLines marker lines that could not be parsed (surfaced for investigation)
- * @param apis          per-API correlation results
+ * @param apis          per-API (front-end / MightyMessage) correlation results
+ * @param backends      per-backend (MightyHostMessage) results, when backends were analysed
  * @param warnings      non-fatal notes (e.g. detection fell back, fields missing)
  */
 public record LogAnalysisReport(
@@ -24,5 +25,6 @@ public record LogAnalysisReport(
         int transactions,
         int unparsedLines,
         List<ApiLogResult> apis,
+        List<BackendLogResult> backends,
         List<String> warnings) {
 }

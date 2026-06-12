@@ -39,6 +39,27 @@ class RouteTraceServiceTest {
     }
 
     @Test
+    void serviceVersionDoesNotLeakToSiblingBranchesWithoutATemplate() {
+        // All branches: own has a template (2.2); intra/inter have none and must NOT
+        // inherit own's version.
+        TraceResponse r = trace("/payment/v2/fund/submit", "9.4", null);
+
+        assertThat(r.getBackendVersions()).containsEntry("{{baseUrl}}/bfs/ft/own/submit", "2.2");
+        assertThat(r.getBackendVersions()).doesNotContainKey("{{baseUrl}}/bfs/ft/intra/submit");
+        assertThat(r.getBackendVersions()).doesNotContainKey("{{baseUrl}}/bfs/ft/inter/submit");
+    }
+
+    @Test
+    void scenario5_templateAfterTheChoiceBackfillsBothBranchBackends() {
+        // Both branches set the api with no template; the template comes after the
+        // choice and must still attach (3.3) to the backend.
+        TraceResponse r = trace("/payment/v2/limit/initiate", "9.4", null);
+
+        assertThat(r.getResolvedRoute()).isEqualTo("R9.4_limitInitiateApi");
+        assertThat(r.getBackendVersions()).containsEntry("/asv/transaction/limit/initiate", "3.3");
+    }
+
+    @Test
     void resolvesOperationAndCommandFromController() {
         TraceResponse r = trace("/payment/v2/fund/submit", "9.4", null);
         assertThat(r.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
@@ -147,8 +168,8 @@ class RouteTraceServiceTest {
     void noApiProducesCatalogGroupedByVersion() {
         CatalogResponse cat = catalog(null);
         assertThat(cat.getMode()).isEqualTo("catalog");
-        // Two controller endpoints: v1 (no routes) and v2 (R9.4, R9.3, BASE).
-        assertThat(cat.getOperationCount()).isEqualTo(2);
+        // Three controller endpoints: v1 (no routes), v2 (R9.4, R9.3, BASE), limitInitiate (R9.4).
+        assertThat(cat.getOperationCount()).isEqualTo(3);
         assertThat(cat.getVersionsFound()).containsExactly("9.4", "9.3", "BASE", "(no route found)");
         assertThat(cat.getGraph().getNodes()).isNotEmpty();
     }

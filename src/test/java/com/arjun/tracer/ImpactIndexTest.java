@@ -18,12 +18,14 @@ class ImpactIndexTest {
     void buildsPerApiFootprintScopedToTheRelease() {
         ImpactIndex idx = service.impactIndex(new TraceRequest(null, "9.4", null, null));
 
-        // Only the API that release 9.4 actually impacts (resolves to R9.4) is listed;
+        // Only the APIs that release 9.4 actually impacts (resolve to R9.4) are listed;
         // the v1 endpoint has no route and is excluded with a notice.
-        assertThat(idx.getApis()).extracting(ApiImpact::operation).containsExactly("fundTransferSubmitV2Api");
+        assertThat(idx.getApis()).extracting(ApiImpact::operation)
+                .containsExactlyInAnyOrder("fundTransferSubmitV2Api", "limitInitiateApi");
         assertThat(idx.getWarnings()).anyMatch(w -> w.contains("not impacted by version 9.4"));
 
-        ApiImpact v2 = idx.getApis().get(0);
+        ApiImpact v2 = idx.getApis().stream()
+                .filter(a -> a.operation().equals("fundTransferSubmitV2Api")).findFirst().orElseThrow();
         assertThat(v2.resolvedRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");
         assertThat(v2.routes()).contains("R9.4_fundTransferSubmitV2Api", "R9.4_masterFundTransferSubmitApi");
         assertThat(v2.backends()).contains(

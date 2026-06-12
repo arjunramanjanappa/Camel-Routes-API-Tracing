@@ -25,4 +25,11 @@ public class PaymentController {
     public ApiSingleResponse fundTransferSubmitV2Api(Object body) {
         return null;
     }
+
+    // Scenario-5 shape: the request template comes AFTER the choice branches set the api.
+    @CommandHandler(command = "LimitInitiateCommand")
+    @PostMapping("/v2/limit/initiate")
+    public ApiSingleResponse limitInitiateApi(Object body) {
+        return null;
+    }
 }

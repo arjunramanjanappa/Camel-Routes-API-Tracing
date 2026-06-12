@@ -91,6 +91,9 @@ public class RouteTraverser {
         }
 
         boolean firstVisit = expandedRoutes.add(identity);   // expand body once (loop guard)
+        if (firstVisit) {
+            currentServiceVersion = null;   // backend service version is scoped to this route's body
+        }
         if (route == null) {
             if (firstVisit) {
                 response.getWarnings().add("Route not found in source: " + endpoint);
@@ -189,7 +192,7 @@ public class RouteTraverser {
         List<PendingApi> out = new ArrayList<>();
         for (RouteElement el : elements) {
             if (el instanceof ToElement to && isTemplateUri(to.uri())) {
-                currentServiceVersion = templateVersion.apply(to.uri());
+                applyTemplateVersion(to.uri(), out);
             } else if (el instanceof SetPropertyElement sp) {
                 if (sp.name() != null && sp.name().equalsIgnoreCase("api")
                         && sp.value() != null && !sp.value().isBlank()) {
@@ -225,8 +228,9 @@ public class RouteTraverser {
         for (RouteElement el : elements) {
             if (el instanceof ToElement to) {
                 if (isTemplateUri(to.uri())) {
-                    // framework template just before a backend — carries its service version.
-                    currentServiceVersion = templateVersion.apply(to.uri());
+                    // framework template carries the backend service version — applies to the
+                    // next setProperty api, or back-fills one set just before it (template after).
+                    applyTemplateVersion(to.uri(), active);
                 } else {
                     handleTo(to.uri(), currentNodeId, branch, active, forward);
                 }
@@ -361,7 +365,33 @@ public class RouteTraverser {
     /** Walk one choice branch with its own fresh api scope; return what it leaves un-consumed. */
     private List<PendingApi> walkBranch(List<RouteElement> elements, String currentNodeId,
                                         String branch, boolean forward) {
-        return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
+        // Each branch inherits the service version in scope before the choice, but a
+        // template inside one branch must not leak to sibling branches or after the choice.
+        String savedServiceVersion = currentServiceVersion;
+        try {
+            return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
+        } finally {
+            currentServiceVersion = savedServiceVersion;
+        }
+    }
+
+    /**
+     * Apply a framework template's service version. New apis after it pick it up via
+     * {@code currentServiceVersion}; an api set just BEFORE it (template-after-setProperty,
+     * e.g. inside choice branches with the template after the choice) is back-filled.
+     */
+    private void applyTemplateVersion(String uri, List<PendingApi> pending) {
+        String sv = templateVersion.apply(uri);
+        currentServiceVersion = sv;
+        if (sv == null) {
+            return;
+        }
+        for (int i = 0; i < pending.size(); i++) {
+            PendingApi p = pending.get(i);
+            if (p.serviceVersion() == null) {
+                pending.set(i, new PendingApi(p.value(), p.branch(), sv));
+            }
+        }
     }
 
     private void addBackend(String value, String routeNodeId, String branch, boolean into, String serviceVersion) {

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Scenario 5: both branches set the api, the template comes AFTER the choice
+         (before the host call) and must apply to both backends. -->
+    <route id="R9.4_limitInitiateApi">
+        <from uri="direct:R9.4_limitInitiateApi"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'OWN'</simple>
+                <setProperty name="api">
+                    <simple>/asv/transaction/limit/initiate</simple>
+                </setProperty>
+            </when>
+            <otherwise>
+                <setProperty name="api">
+                    <simple>/asv/transaction/limit/initiate</simple>
+                </setProperty>
+            </otherwise>
+        </choice>
+        <to uri="freemarker:META-INF/templates/sg/manage/postcapture.ftl"/>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

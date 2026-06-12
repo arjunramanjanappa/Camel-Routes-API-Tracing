@@ -31,7 +31,7 @@ export async function fetchImpactIndex(sourceDir?: string, country?: string, ver
 /** Upload an output log / Splunk export and correlate it against the traced APIs. */
 export async function analyzeLog(
   file: File,
-  params: { version?: string; country?: string; sourceDir?: string; apis?: string[]; backends?: string[]; all?: boolean },
+  params: { version?: string; country?: string; sourceDir?: string; apis?: string[]; backends?: string[]; all?: boolean; app?: string },
 ): Promise<LogAnalysisReport> {
   const form = new FormData();
   form.append('file', file);
@@ -41,6 +41,7 @@ export async function analyzeLog(
   (params.apis ?? []).forEach((a) => form.append('apis', a));
   (params.backends ?? []).forEach((b) => form.append('backends', b));
   if (params.all) form.append('all', 'true');
+  if (params.app) form.append('app', params.app);
   const res = await fetch('/internal/log-analysis', { method: 'POST', body: form });
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);

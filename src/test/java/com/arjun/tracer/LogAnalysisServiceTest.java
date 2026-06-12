@@ -29,15 +29,19 @@ class LogAnalysisServiceTest {
     private final LogAnalysisService service = new LogAnalysisService(new RouteTraceService(FW));
 
     private LogAnalysisReport analyze(String logFile, String version) throws IOException {
+        return analyze(logFile, version, "Mighty");
+    }
+
+    private LogAnalysisReport analyze(String logFile, String version, String app) throws IOException {
         // all=true ⇒ front-end report for the whole release (the API-centric tests).
         try (InputStream in = Files.newInputStream(Path.of("src/test/resources/sample-logs/" + logFile))) {
-            return service.analyze(in, logFile, version, null, FW, null, null, true);
+            return service.analyze(in, logFile, version, null, FW, null, null, true, app);
         }
     }
 
     private LogAnalysisReport analyzeBackends(String logFile, String version, List<String> backends) throws IOException {
         try (InputStream in = Files.newInputStream(Path.of("src/test/resources/sample-logs/" + logFile))) {
-            return service.analyze(in, logFile, version, null, FW, List.of(), backends, false);
+            return service.analyze(in, logFile, version, null, FW, List.of(), backends, false, "Mighty");
         }
     }
 
@@ -172,6 +176,17 @@ class LogAnalysisServiceTest {
         assertThat(be.loggedServiceVersion()).isEqualTo("9.9");
         assertThat(be.serviceVersionOk()).isFalse();
         assertThat(be.note()).contains("Service version mismatch").contains("9.9").contains("2.2");
+    }
+
+    @Test
+    void splApplicationUsesSplMarkersNotMighty() throws IOException {
+        // The SPL app's lines use SPLMessage / SPLHostMessage — analysed as SPL they
+        // resolve; analysed as Mighty (different markers) they are ignored.
+        LogAnalysisReport spl = analyze("analysis-spl-app.log", "9.4", "SPL");
+        assertThat(api(spl, V2).status()).isEqualTo(LogStatus.SUCCESS);
+
+        LogAnalysisReport mighty = analyze("analysis-spl-app.log", "9.4", "Mighty");
+        assertThat(api(mighty, V2).status()).isEqualTo(LogStatus.NOT_TESTED);
     }
 
     @Test

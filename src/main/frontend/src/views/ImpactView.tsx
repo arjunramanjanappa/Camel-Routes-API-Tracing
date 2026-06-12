@@ -9,7 +9,7 @@ import LogAnalysisPanel from '../components/LogAnalysisPanel';
 function get(k: string, d = '') { return localStorage.getItem('tracer.' + k) ?? d; }
 function put(k: string, v: string) { localStorage.setItem('tracer.' + k, v); }
 
-export default function ImpactView() {
+export default function ImpactView({ app }: { app?: string }) {
   const [sourceDir, setSourceDir] = useState('');   // not pre-filled; blank => server's tracer.source-dir
   const [country, setCountry] = useState(get('country'));
   const [version, setVersion] = useState(get('version'));
@@ -184,7 +184,7 @@ export default function ImpactView() {
         </div>
 
         <div style={{ padding: '0 18px 18px' }}>
-          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir}
+          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} app={app}
                             selectedApis={selectedApiList} selectedBackends={selectedBackendList} />
         </div>
         </>

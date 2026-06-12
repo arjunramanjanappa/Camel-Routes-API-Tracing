@@ -138,6 +138,27 @@ tr.lsub code { background: transparent; }
 .svcchip.ok { background: #dcfce7; color: #166534; }
 .svcchip.bad { background: #fee2e2; color: #991b1b; }
 
+/* ---- application picker (landing) ---- */
+.app-picker { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f7f9fb; padding: 24px; }
+.app-picker-inner { max-width: 760px; width: 100%; text-align: center; }
+.app-picker-head { font-size: 30px; font-weight: 700; color: #1f2933; }
+.app-picker-sub { color: #7b8794; font-size: 14px; margin: 8px auto 28px; max-width: 520px; }
+.app-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.app-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; background: #fff; border: 1px solid #e4e7eb; border-top: 4px solid var(--accent); border-radius: 14px; padding: 22px; cursor: pointer; transition: transform .12s, box-shadow .12s, border-color .12s; }
+.app-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(15,23,42,.12); border-color: var(--accent); }
+.app-card-badge { width: 44px; height: 44px; border-radius: 12px; color: #fff; font-size: 22px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.app-card-name { font-size: 20px; font-weight: 700; color: #1f2933; }
+.app-card-desc { font-size: 13px; color: #52606d; }
+.app-card-markers { font-size: 11px; background: #eef2f7; color: #52606d; padding: 3px 8px; border-radius: 6px; }
+.app-card-cta { margin-top: 6px; color: var(--accent); font-weight: 700; font-size: 13px; }
+.app-badge { font-size: 11px; font-weight: 700; background: #2563eb; color: #fff; padding: 2px 9px; border-radius: 999px; vertical-align: middle; margin-left: 8px; }
+[data-theme="dark"] .app-picker { background: #0b1220; }
+[data-theme="dark"] .app-picker-head { color: #e2e8f0; }
+[data-theme="dark"] .app-card { background: #1e293b; border-color: #334155; }
+[data-theme="dark"] .app-card-name { color: #e2e8f0; }
+[data-theme="dark"] .app-card-desc { color: #94a3b8; }
+[data-theme="dark"] .app-card-markers { background: #0b1220; color: #94a3b8; }
+
 .graph-controls { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 6px 8px; z-index: 6; }
 .graph-controls select { width: auto; padding: 5px 8px; font-size: 12px; }
 .graph-controls .minibtn { padding: 5px 10px; font-weight: 700; }

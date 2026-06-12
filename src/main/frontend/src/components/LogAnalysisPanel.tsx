@@ -130,6 +130,7 @@ interface Props {
   version?: string;
   country?: string;
   sourceDir?: string;
+  app?: string;
   selectedApis?: string[];
   selectedBackends?: string[];
 }
@@ -140,7 +141,7 @@ interface Props {
  * front-end APIs are read from MightyMessage lines, selected backends from
  * MightyHostMessage lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, selectedApis = [], selectedBackends = [] }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, app, selectedApis = [], selectedBackends = [] }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
   const [limitToSelection, setLimitToSelection] = useState(true);
@@ -162,7 +163,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, selected
       // Unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
       const all = !hasSelection || !limitToSelection;
       const rep = await analyzeLog(file, {
-        version, country, sourceDir, all,
+        version, country, sourceDir, all, app,
         apis: all ? undefined : selectedApis,
         backends: all ? undefined : selectedBackends,
       });

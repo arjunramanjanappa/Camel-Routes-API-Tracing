@@ -66,7 +66,7 @@ public class LogAnalysisService {
     private static final Pattern LINE = Pattern.compile(
             "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
                     + "\\[[^\\]]*\\]\\s+\\S+\\s+"
-                    + "\\[(MightyMessage|MightyHostMessage)\\]"
+                    + "\\[([A-Za-z0-9_]+Message)\\]"   // app marker, e.g. MightyMessage / SPLHostMessage
                     + "((?:\\[[^\\]]*\\])+?)-(\\S+)\\s+-\\s*\\[?(Request|Response)\\]?\\s*-\\s*(.*)$");
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
     private static final Pattern CODE = Pattern.compile("\"responseCode\"\\s*:\\s*\"([^\"]*)\"");
@@ -92,10 +92,16 @@ public class LogAnalysisService {
      */
     public LogAnalysisReport analyze(InputStream raw, String filename, String version,
                                      String country, String sourceDir,
-                                     List<String> selectedApis, List<String> selectedBackends, boolean all)
+                                     List<String> selectedApis, List<String> selectedBackends, boolean all,
+                                     String app)
             throws IOException {
         InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
                 ? new GZIPInputStream(raw) : raw;
+
+        // The two applications differ only in the log marker: Mighty → MightyMessage /
+        // MightyHostMessage, SPL → SPLMessage / SPLHostMessage. Everything else is identical.
+        String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
+        Markers markers = new Markers(application + "Message", application + "HostMessage");
 
         int[] counters = new int[2];   // [0] = records scanned, [1] = marked-but-unparsed
         List<LogLine> lines = new ArrayList<>();
@@ -105,7 +111,7 @@ public class LogAnalysisService {
         // The upload is one of three shapes — a raw output log, or a Splunk export
         // (CSV or JSON) of the generated query. A Splunk export carries the original
         // log line in its _raw field, so every shape ultimately yields the same
-        // MightyMessage/MightyHostMessage strings, which feed the one line parser.
+        // marker lines, which feed the one line parser.
         try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String firstNonBlank = null;
             String line;
@@ -116,13 +122,13 @@ public class LogAnalysisService {
             if (firstNonBlank == null) {
                 detected = "EMPTY";
             } else {
-                detected = detectFormat(firstNonBlank);
+                detected = detectFormat(firstNonBlank, markers);
                 switch (detected) {
                     case "SPLUNK_CSV" -> {
                         int rawIdx = csvRawIndex(firstNonBlank);   // header row consumed
                         while ((line = r.readLine()) != null) {
                             counters[0]++;
-                            ingest(csvCell(line, rawIdx), lines, counters);
+                            ingest(csvCell(line, rawIdx, markers), lines, counters, markers);
                         }
                     }
                     case "SPLUNK_JSON" -> {
@@ -132,15 +138,15 @@ public class LogAnalysisService {
                         }
                         for (String event : extractJsonRaw(sb.toString(), warnings)) {
                             counters[0]++;
-                            ingest(event, lines, counters);
+                            ingest(event, lines, counters, markers);
                         }
                     }
                     default -> {
                         counters[0]++;
-                        ingest(firstNonBlank, lines, counters);
+                        ingest(firstNonBlank, lines, counters, markers);
                         while ((line = r.readLine()) != null) {
                             counters[0]++;
-                            ingest(line, lines, counters);
+                            ingest(line, lines, counters, markers);
                         }
                     }
                 }
@@ -148,8 +154,9 @@ public class LogAnalysisService {
         }
 
         if (lines.isEmpty()) {
-            warnings.add("No MightyMessage/MightyHostMessage lines found in the upload (detected "
-                    + detected + "). Check the file is the raw output log or a Splunk export of the query.");
+            warnings.add("No " + markers.fe() + " / " + markers.be() + " lines found in the upload (detected "
+                    + detected + "). Check the file is for the " + application
+                    + " application and is the raw output log or a Splunk export of the query.");
         }
 
         // Group into transactions by correlation id (FE + BE share the id).
@@ -201,16 +208,16 @@ public class LogAnalysisService {
     // --- input shape detection + extraction ---
 
     /** A single candidate log line (raw, or a Splunk _raw value) → parse + collect. */
-    private void ingest(String s, List<LogLine> lines, int[] counters) {
+    private void ingest(String s, List<LogLine> lines, int[] counters, Markers markers) {
         if (s == null) {
             return;
         }
-        if (s.indexOf("[MightyMessage]") < 0 && s.indexOf("[MightyHostMessage]") < 0) {
+        if (s.indexOf(markers.fe()) < 0 && s.indexOf(markers.be()) < 0) {
             return;   // cheap pre-filter: skip the noise without touching the regex
         }
         LogLine parsed = null;
         try {
-            parsed = parseLine(s);
+            parsed = parseLine(s, markers);
         } catch (RuntimeException ignore) {
             // a single malformed line must never abort the scan
         }
@@ -221,12 +228,12 @@ public class LogAnalysisService {
         }
     }
 
-    private String detectFormat(String firstNonBlank) {
+    private String detectFormat(String firstNonBlank, Markers markers) {
         String t = firstNonBlank.trim();
         if (t.startsWith("[") || t.startsWith("{")) {
             return "SPLUNK_JSON";
         }
-        boolean marker = t.contains("[MightyMessage]") || t.contains("[MightyHostMessage]");
+        boolean marker = t.contains(markers.fe()) || t.contains(markers.be());
         if (marker) {
             return "RAW_LOG";   // the very first line is already an event
         }
@@ -250,13 +257,13 @@ public class LogAnalysisService {
         return -1;   // no _raw column — fall back to "any cell with a marker"
     }
 
-    private String csvCell(String line, int rawIdx) {
+    private String csvCell(String line, int rawIdx, Markers markers) {
         List<String> cells = parseCsvLine(line);
         if (rawIdx >= 0 && rawIdx < cells.size()) {
             return cells.get(rawIdx);
         }
         for (String c : cells) {
-            if (c.contains("[MightyMessage]") || c.contains("[MightyHostMessage]")) {
+            if (c.contains(markers.fe()) || c.contains(markers.be())) {
                 return c;
             }
         }
@@ -344,13 +351,21 @@ public class LogAnalysisService {
 
     // --- parsing ---
 
-    private LogLine parseLine(String line) {
+    private LogLine parseLine(String line, Markers markers) {
         Matcher m = LINE.matcher(line);
         if (!m.find()) {
             return null;
         }
+        String marker = m.group(2);
+        boolean fe;
+        if (marker.equals(markers.fe())) {
+            fe = true;
+        } else if (marker.equals(markers.be())) {
+            fe = false;
+        } else {
+            return null;   // a different application's marker — ignore
+        }
         String ts = m.group(1);
-        boolean fe = "MightyMessage".equals(m.group(2));
         List<String> fields = new ArrayList<>();
         Matcher b = BRACKET.matcher(m.group(3));
         while (b.find()) {
@@ -734,6 +749,10 @@ public class LogAnalysisService {
     }
 
     private record BackendHit(Txn txn, BackendCall call) {
+    }
+
+    /** The front-end and backend log markers for the selected application. */
+    private record Markers(String fe, String be) {
     }
 
     private record Txn(String correlationId, String ts, String version, String platform,

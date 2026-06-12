@@ -7,6 +7,7 @@ import ResultPanels from '../components/ResultPanels';
 import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
+import Loader, { SCAN_MESSAGES } from '../components/Loader';
 
 // Only the app CONTEXT (sourceDir + country) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
@@ -106,7 +107,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           <button className="minibtn" onClick={copyJson}>JSON</button>
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
-        {loading && <div className="overlay"><div className="spinner" /><div className="spin-label">Scanning source…</div></div>}
+        {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="bulk source analysis" /></div>}
         <Legend />
       </div>
     </div>

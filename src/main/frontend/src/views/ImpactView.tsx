@@ -6,6 +6,7 @@ import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel from '../components/LogAnalysisPanel';
 import ApiFlowModal from '../components/ApiFlowModal';
+import Loader, { IMPACT_MESSAGES } from '../components/Loader';
 
 // The context (sourceDir + country + version) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
@@ -144,7 +145,9 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
-      {idx && (
+      {loading && <div className="impact-loading"><Loader messages={IMPACT_MESSAGES} note="building the impact index" /></div>}
+
+      {!loading && idx && (
         <>
         <div className="impact-body">
           <div className="impact-left">

@@ -636,15 +636,15 @@ public class LogAnalysisService {
         Set<String> seen = new TreeSet<>();
         boolean anyPathMatch = false;
         for (Txn t : txns) {
-            for (BackendCall c : t.calls()) {
-                if (!backendMatches(backend, c.path())) {
-                    continue;
-                }
-                anyPathMatch = true;
-                seen.add(t.version() == null || t.version().isBlank() ? "(no version field read)" : t.version());
-                if (!versionScoped || version.trim().equals(t.version())) {
-                    hits.add(new BackendHit(t, c));
-                }
+            // Match by URL AND service version together (prefer the svc-matching call).
+            BackendCall c = pickCall(t.calls(), backend, expectedVersion);
+            if (c == null) {
+                continue;
+            }
+            anyPathMatch = true;
+            seen.add(t.version() == null || t.version().isBlank() ? "(no version field read)" : t.version());
+            if (!versionScoped || version.trim().equals(t.version())) {
+                hits.add(new BackendHit(t, c));
             }
         }
 
@@ -746,7 +746,34 @@ public class LogAnalysisService {
         if (tbPath.isEmpty() || op.isEmpty()) {
             return false;
         }
-        return op.endsWith(tbPath) || op.contains(tbPath) || tbPath.endsWith(op);
+        // Observed path = the traced path tail with an optional deployment-context
+        // prefix, so it ENDS WITH the traced path (the leading '/' keeps it segment
+        // aligned). The reverse covers a log that truncated the prefix. Dropped a loose
+        // "contains" that could match the path mid-string.
+        return op.endsWith(tbPath) || tbPath.endsWith(op);
+    }
+
+    /**
+     * Pick the backend call that matches a traced backend by URL <b>and</b> service
+     * version together: among the path-matching calls, prefer the one whose
+     * serviceVersionNumber equals the expected version (so similar paths like
+     * {@code /bfs/…} vs {@code /bp/bfs/…}, called at different versions, aren't
+     * confused). Falls back to the first path match (its svc, if different, is flagged).
+     */
+    private BackendCall pickCall(List<BackendCall> calls, String tracedBackend, String expectedVersion) {
+        BackendCall pathMatch = null;
+        for (BackendCall c : calls) {
+            if (!backendMatches(tracedBackend, c.path())) {
+                continue;
+            }
+            if (expectedVersion != null && Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
+                return c;   // URL and svc both match — the precise call
+            }
+            if (pathMatch == null) {
+                pathMatch = c;
+            }
+        }
+        return pathMatch;
     }
 
     /** The path tail of a backend: strip a leading {{...}} placeholder, scheme+host and query. */
@@ -813,14 +840,8 @@ public class LogAnalysisService {
     private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions) {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
-            BackendCall hit = null;
-            for (BackendCall c : t.calls()) {
-                if (backendMatches(tb, c.path())) {
-                    hit = c;
-                    break;
-                }
-            }
             String expected = expectedVersions == null ? null : expectedVersions.get(tb);
+            BackendCall hit = pickCall(t.calls(), tb, expected);
             if (hit == null) {
                 out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null));
                 continue;

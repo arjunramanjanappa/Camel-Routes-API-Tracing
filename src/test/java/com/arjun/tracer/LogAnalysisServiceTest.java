@@ -242,6 +242,22 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void backendMatchedByUrlAndServiceVersionTogether() throws IOException {
+        // Two host lines share a correlation id and both END WITH /bfs/ft/own/submit:
+        // /bp/bfs/… at svc 9.9 and /bfs/… at svc 2.2. The traced own/submit expects 2.2,
+        // so the URL+svc pair must pick the 2.2 line — not the first path match.
+        LogAnalysisReport r = analyzeBackends("analysis-svcpick.log", "9.4",
+                List.of("{{baseUrl}}/bfs/ft/own/submit"));
+
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.expectedServiceVersion()).isEqualTo("2.2");
+        assertThat(be.loggedServiceVersion()).isEqualTo("2.2");
+        assertThat(be.serviceVersionOk()).isTrue();
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(be.latencyMs()).isEqualTo(230);
+    }
+
+    @Test
     void backendServiceVersionMismatchIsFlagged() throws IOException {
         // The log calls own/submit at 9.9 but the tracer expects 2.2 — flag it.
         LogAnalysisReport r = analyzeBackends("analysis-svcmismatch.log", "9.4",

@@ -149,7 +149,6 @@ tr.lsub code { background: transparent; }
 .app-card-badge { width: 44px; height: 44px; border-radius: 12px; color: #fff; font-size: 22px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
 .app-card-name { font-size: 20px; font-weight: 700; color: #1f2933; }
 .app-card-desc { font-size: 13px; color: #52606d; }
-.app-card-markers { font-size: 11px; background: #eef2f7; color: #52606d; padding: 3px 8px; border-radius: 6px; }
 .app-card-cta { margin-top: 6px; color: var(--accent); font-weight: 700; font-size: 13px; }
 .app-badge { font-size: 11px; font-weight: 700; background: #2563eb; color: #fff; padding: 2px 9px; border-radius: 999px; vertical-align: middle; margin-left: 8px; }
 [data-theme="dark"] .app-picker { background: #0b1220; }
@@ -157,7 +156,6 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .app-card { background: #1e293b; border-color: #334155; }
 [data-theme="dark"] .app-card-name { color: #e2e8f0; }
 [data-theme="dark"] .app-card-desc { color: #94a3b8; }
-[data-theme="dark"] .app-card-markers { background: #0b1220; color: #94a3b8; }
 
 .graph-controls { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 6px 8px; z-index: 6; }
 .graph-controls select { width: auto; padding: 5px 8px; font-size: 12px; }

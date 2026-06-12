@@ -68,7 +68,7 @@ function Donut({ counts }: { counts: Record<LogStatus, number> }) {
   );
 }
 
-/** One row of the backend-only (host-message) report. */
+/** One row of the backend-only report. */
 function BackendRow({ b }: { b: BackendLogResult }) {
   const resultText = b.status === 'NOT_TESTED' || b.status === 'TIMEOUT'
     ? b.note || '—'
@@ -138,8 +138,8 @@ interface Props {
 /**
  * Upload an output log or Splunk export and correlate it against the traced APIs
  * for the current client release. The report is log-type aware: selected
- * front-end APIs are read from MightyMessage lines, selected backends from
- * MightyHostMessage lines; with nothing selected the whole release is analysed.
+ * front-end APIs are read from front-end log lines, selected backends from backend
+ * log lines; with nothing selected the whole release is analysed.
  */
 export default function LogAnalysisPanel({ version, country, sourceDir, app, selectedApis = [], selectedBackends = [] }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
@@ -268,7 +268,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
           <label className="check" style={{ marginTop: 8 }}>
             <input type="checkbox" checked={limitToSelection} onChange={(e) => setLimitToSelection(e.target.checked)} />
             Limit to my selection ({selectedApis.length} API{selectedApis.length === 1 ? '' : 's'} → front-end logs,
-            {' '}{selectedBackends.length} backend{selectedBackends.length === 1 ? '' : 's'} → host-message logs)
+            {' '}{selectedBackends.length} backend{selectedBackends.length === 1 ? '' : 's'} → backend logs)
           </label>
           <div className="sub">Unchecked → analyse the whole {version || 'BASE'} release (front-end + backends).</div>
         </>
@@ -338,7 +338,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
           {report.backends.length > 0 && (
             <table className="grid" style={{ marginTop: 12 }}>
               <thead>
-                <tr><th>Status</th><th>Backend (host-message)</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
+                <tr><th>Status</th><th>Backend</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
               </thead>
               <tbody>
                 {shownBackends.map((b) => <BackendRow key={b.backend} b={b} />)}

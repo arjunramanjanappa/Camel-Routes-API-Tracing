@@ -154,9 +154,8 @@ public class LogAnalysisService {
         }
 
         if (lines.isEmpty()) {
-            warnings.add("No " + markers.fe() + " / " + markers.be() + " lines found in the upload (detected "
-                    + detected + "). Check the file is for the " + application
-                    + " application and is the raw output log or a Splunk export of the query.");
+            warnings.add("No log events found for the " + application + " application (detected " + detected
+                    + "). Check the file is the raw output log or a Splunk export of the query.");
         }
 
         // Group into transactions by correlation id (FE + BE share the id).

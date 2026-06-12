@@ -746,11 +746,26 @@ public class LogAnalysisService {
         if (tbPath.isEmpty() || op.isEmpty()) {
             return false;
         }
-        // Observed path = the traced path tail with an optional deployment-context
-        // prefix, so it ENDS WITH the traced path (the leading '/' keeps it segment
-        // aligned). The reverse covers a log that truncated the prefix. Dropped a loose
-        // "contains" that could match the path mid-string.
-        return op.endsWith(tbPath) || tbPath.endsWith(op);
+        if (!op.endsWith(tbPath)) {
+            return false;
+        }
+        // The observed path is the traced backend path ({{baseUrl}}/bfs/payee/...) plus
+        // at most ONE leading deployment-context segment (e.g. /mty-banking-01/...). So
+        // their '/'-segment counts must differ by 0 or 1. This stops a shorter traced
+        // path like /bfs/payee/manage/initiate from matching a different, longer logged
+        // path like /bp/bfs/payee/manage/initiate (which it is a suffix of).
+        int diff = countChar(op, '/') - countChar(tbPath, '/');
+        return diff == 0 || diff == 1;
+    }
+
+    private static int countChar(String s, char c) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == c) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /**

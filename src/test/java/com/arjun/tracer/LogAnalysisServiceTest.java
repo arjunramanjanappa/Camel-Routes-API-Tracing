@@ -242,6 +242,21 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void shorterBackendPathDoesNotMatchALongerDifferentOne() throws IOException {
+        // Backends are set as {{baseUrl}}/bfs/… and {{baseUrl}}/bp/bfs/… — the logged
+        // /mty-banking-01/bp/bfs/ft/own/submit is a SUFFIX of nothing we want: it must
+        // NOT be attributed to the traced /bfs/ft/own/submit (one extra path segment).
+        // Only the genuine /bfs/… line (one context segment) counts.
+        LogAnalysisReport r = analyzeBackends("analysis-pathseg.log", "9.4",
+                List.of("{{baseUrl}}/bfs/ft/own/submit"));
+
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.attempts()).isEqualTo(1);                 // the /bp/bfs/… decoy was excluded
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);   // not the decoy's 00999 failure
+        assertThat(be.responseCode()).isEqualTo("0000000");
+    }
+
+    @Test
     void backendMatchedByUrlAndServiceVersionTogether() throws IOException {
         // Two host lines share a correlation id and both END WITH /bfs/ft/own/submit:
         // /bp/bfs/… at svc 9.9 and /bfs/… at svc 2.2. The traced own/submit expects 2.2,

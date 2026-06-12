@@ -8,13 +8,16 @@ needs the framework running) and it will, for any REST API:
 1. resolve the **operation name** from the controllers,
 2. resolve the **route version** with fallback (`R9.4 → R9.3 → … → BASE`),
 3. **traverse** the Camel routes (`direct:`/`seda:` calls, recursively),
-4. collect every **backend API** invoked (`setProperty name="api"`),
+4. collect every **backend API** invoked (`setProperty name="api"`) **and the
+   backend service version** read from its request template,
 5. render the whole flow as an interactive **graph**, and
 6. tell you — from your **logs or a Splunk export** — which APIs were actually
-   exercised for a release and whether they passed **end-to-end**.
+   exercised for a release, whether they passed **end-to-end**, and whether each
+   backend was called at the **right service version**.
 
-The app is a single Spring Boot jar with a **React + Vite + TypeScript** UI built
-into it.
+It serves **two independent applications — Mighty and SPL** — from one common entry
+point: they share this tool but are traced and analysed separately. The app is a
+single Spring Boot jar with a **React + Vite + TypeScript** UI built into it.
 
 ---
 
@@ -89,10 +92,20 @@ java -jar target/camel-route-tracer-1.0.0.jar
 
 ---
 
+## Applications (Mighty / SPL)
+
+On load, the SPA shows an **application picker** with two cards: **Mighty** and
+**SPL**. They are *separate codebases* that use the same tool — only their internal
+log markers differ (`MightyMessage`/`MightyHostMessage` vs `SPLMessage`/
+`SPLHostMessage`), which the UI never shows. Pick one and you work entirely within
+it; the header shows the active app and a **⇄ App** button switches. The **source
+directory, country and client version are remembered per application**, so each app
+keeps its own context (`tracer.<app>.*` in localStorage) — switching never leaks one
+app's settings into the other.
+
 ## UI
 
-The SPA at **`/`** has two tabs and a light/dark theme toggle. Nothing
-trace-specific is pre-filled — only `country` is remembered across loads.
+The workspace has two tabs (Trace / Impact analysis) and a light/dark theme toggle.
 
 ### Trace
 
@@ -103,7 +116,9 @@ trace-specific is pre-filled — only `country` is remembered across loads.
   version or BASE, are excluded with a notice). Blank ⇒ whole catalog.
 * **Graph** — React Flow with a layout switcher, minimap, zoom, role-coloured
   nodes, an entry-route ring, selected-path highlighting (BFS up + downstream),
-  per-call host instances, node search, **Fit**, and **PNG/JSON** export.
+  per-call host instances, node search, **Fit**, and **PNG/JSON** export. Each
+  backend node shows a **`svc vX.Y`** chip — its traced service version (or
+  `svc v2.2 / 3.3` when the same backend is called at several versions).
 
 ### Impact analysis
 
@@ -116,15 +131,22 @@ trace-specific is pre-filled — only `country` is remembered across loads.
   excluded from the change pickers so they don't falsely impact everything.
 * **Splunk query — selected APIs** — one combined search over the selected
   front-end paths **and their backends**, with a **time-range** picker
-  (`15m / 1h / 4h / 24h / 7d / 30d`, max 30 days). It returns **raw events**
-  (`| table _time, _raw`) so the exported report can be uploaded straight back
-  for correlation. Configurable `index` and front-end/backend field names; copy
-  or download as `.spl`.
-* **Verify with logs** — upload a raw **output log** or a **Splunk export**
-  (CSV/JSON); the shape is auto-detected. The report shows a **status donut**,
-  clickable **filter chips** (All / Issues / per-status), a **worst-first sort**,
-  per-API end-to-end verdict, FE latency, attempts (`n✓/n✗`), an expandable
-  backend breakdown, and **CSV export**.
+  (`15m / 1h / 4h / 24h / 7d / 30d`, max 30 days). Each backend is paired with its
+  traced **service version** (`(uri="…" serviceVersionNumber="2.2")`) so the search
+  targets the right version, and a **path-suffix wildcard** (`uri="*…"`) tolerates a
+  deployment context prefix. It returns **raw events** (`| table _time, _raw`) so
+  the exported report uploads straight back for correlation. Configurable `index`,
+  front-end / backend / service-version field names; copy or download as `.spl`.
+* **Verify with logs** — pick **Output log** or **Splunk report**, then upload a raw
+  output log or a Splunk export (CSV/JSON); the shape is auto-detected. The report,
+  **log-type aware** (front-end APIs from front-end log lines, backends from backend
+  log lines, both when both are selected), shows a **status donut**, clickable
+  **filter chips** (All / Issues / per-status), a **worst-first sort**, per-API
+  end-to-end verdict, FE latency, attempts (`n✓/n✗`), an expandable backend
+  breakdown, and **CSV export**. Every backend row carries a **service-version
+  chip**: `svc 2.2 ✓` when the logged version matches the traced one, `svc 9.9 ✗
+  (exp 2.2)` on a mismatch (which flags the row even if the backend itself
+  succeeded).
 
 ---
 
@@ -139,8 +161,11 @@ trace-specific is pre-filled — only `country` is remembered across loads.
 | `/internal/countries` | GET | Bootstrap (country) scopes |
 
 Common params (query or, for `log-analysis`, multipart form fields): `version`,
-`country`, `sourceDir`, plus `transferType` (route-graph) and `apis` (repeatable,
-log-analysis — narrow to a subset).
+`country`, `sourceDir`, plus `transferType` (route-graph). `log-analysis` also takes
+`apis` / `backends` (repeatable — the front-end APIs and/or backends to report),
+`all` (analyse the whole release), and `app` (`Mighty` / `SPL` — selects which log
+markers to parse). The impact index exposes a `backendVersions` map (backend URL →
+traced service version) per API.
 
 `route-graph` carries a `mode` discriminator:
 
@@ -168,18 +193,23 @@ is auto-detected and reported as `uploadType`:
 2026-06-11 18.43.45.102 [thread] INFO [MARKER][app][session][user][9.14][corrId][platform][500ms]-/.../services/sg/<api> -Response - {json}
 ```
 
-* **MARKER** — `[MightyMessage]` = front-end (controller), `[MightyHostMessage]` =
-  backend.
-* Bracket fields after the marker, in order: app, session, user,
-  **client version**, **correlation id**, platform, **time taken** (e.g. `500ms`
-  on a front-end Response = total time; `230ms` on a backend Response = that
+* **MARKER** — `[<App>Message]` = front-end (controller), `[<App>HostMessage]` =
+  backend, where `<App>` is the selected application (`Mighty` / `SPL`); lines from
+  the other application are ignored.
+* **Bracket fields are located by pattern, not fixed position** (environments vary in
+  how many fields precede them): the **client version** is the first `9.18`-shaped
+  field, the **correlation id** is the field right after it, the **time taken** is
+  the `500ms`-shaped field (FE Response = total time, backend Response = that
   backend's time; empty on Request lines).
 * **Direction** — front-end uses `-Request -` / `-Response -`; backend uses
   `-[Request]` / `-[Response]`.
-* **Path** — front-end matched by suffix to the controller path (the
-  `/services/<country>/` segment is tolerated); backend matched **ends-with** to
-  the traced backend.
+* **Path** — front-end matched by suffix to the controller path; backend matched by
+  its path tail. Both tolerate a deployment **context prefix** (e.g.
+  `/mty-banking-01/services/sg/…`).
 * **Success** — `responseCode` is all zeros (any length: `00000` … `0000000`).
+* **Backend service version** — the host-message JSON payload carries
+  `"serviceVersionNumber":"2.0"`, compared against the version the tracer expects for
+  that backend (see *Backend service version* below).
 
 A **transaction** is every line sharing one **correlation id**, printed
 front-end-Request → backend-Request → backend-Response → front-end-Response. When
@@ -193,12 +223,39 @@ all attempts are counted.
 | **Success** | Front-end response all-zeros and every observed backend all-zeros |
 | **Failed** | Front-end response present but its code is not all-zeros |
 | **Timeout** | Front-end request seen but no response — timeout / server down |
-| **Partial** | Front-end OK but an *observed* backend failed |
+| **Partial** | Front-end OK but an *observed* backend failed **or was called at the wrong service version** |
 | **Indeterminate** | A response was logged but no parseable code |
 | **Not tested** | No entry for this API at the requested client release |
 
 A traced backend that never appears in a transaction is treated as a **not-taken
-choice branch** (informational), not a failure.
+choice branch** (informational), not a failure. When an API is *not tested*, the note
+explains why — no log line matched the path, or lines matched but none at the
+requested release (listing the versions actually seen).
+
+---
+
+## Backend service version
+
+Before a backend call, a route evaluates a request-body **template** —
+`<to uri="freemarker:META-INF/templates/…/precapture.ftl"/>` (or `velocity:`/`.vm`,
+etc.). That template's JSON `ServiceContext` carries `"serviceVersionNumber":"2.2"` —
+the version of the backend to call. The tracer:
+
+1. **Captures it during tracing** — it resolves the template file under the source
+   root (suffix match, tolerating a nested `classpath:`/`file:` prefix), reads the
+   version, and attaches it to the backend on the graph and in
+   `ApiImpact.backendVersions`. The pairing is one consistent rule (works for the
+   template before/after the api, inside/outside `<choice>` branches, per-branch or
+   shared) and a reused backend URL keeps **all** its versions (`2.2 / 3.3`).
+2. **Filters the Splunk query** by it — `(uri="…" serviceVersionNumber="2.2")` — so
+   the search targets that api's version and ignores others.
+3. **Checks it in the log** — the same `serviceVersionNumber` appears in the
+   host-message payload; if the logged version differs from the expected one, the
+   backend row is flagged (`svc 9.9 ✗ (exp 2.2)`) and the verdict drops to *Partial*.
+
+Recognises the common template schemes (`freemarker`/`velocity`/`mvel`/`mustache`/
+`thymeleaf`/`framework`/…) and extensions (`.ftl`/`.vm`/`.vtl`/…), and reads
+`serviceVersionNumber` with single or double quotes.
 
 ---
 
@@ -232,7 +289,9 @@ Starts at the resolved entry route and follows `direct:` calls recursively
 `direct:${exchangeProperty[operationName]}`, honours `<choice>` branches
 (filtered by `transferType`, or all branches when omitted), follows async
 `seda:`/`vm:` calls, records external `CamelHttpUri` host calls as per-call
-instances, and collects backend endpoints from `setProperty name="api"`.
+instances, and collects backend endpoints from `setProperty name="api"`. A
+framework template `<to>` (`.ftl`/`.vm`) near a backend contributes its **service
+version** to that backend.
 
 ### Hybrid route loader
 Each route XML is loaded the **Camel 4 way** — via `RoutesLoader` into a
@@ -263,18 +322,20 @@ tree is considered.
 ```
 src/main/java/com/arjun/tracer/
   api/        DTOs — TraceRequest/Response, GraphNode/Edge, RouteGraph,
-              ImpactIndex/ApiImpact, LogAnalysisReport/ApiLogResult/
-              BackendCallResult, LogStatus
+              ImpactIndex/ApiImpact (+ backendVersions), LogAnalysisReport/
+              ApiLogResult/BackendCallResult/BackendLogResult, LogStatus
   model/      neutral route model shared by both loaders
   loader/     CamelRouteModelLoader, XmlDomRouteModelLoader, RouteRegistry
   resolve/    OperationResolver (JavaParser), VersionResolver
-  trace/      RouteTraverser
-  service/    RouteTraceService (trace/catalog/impact), LogAnalysisService
+  trace/      RouteTraverser (+ template service-version capture)
+  service/    RouteTraceService (trace/catalog/impact/template resolution),
+              LogAnalysisService (app-aware parse, correlation, version match)
   web/        RouteGraphController, WebConfig
 src/main/frontend/                React + Vite + TypeScript SPA (built into the jar)
-  src/views/      TraceView, ImpactView
-  src/components/  RouteGraph, ControlPanel, SplunkPanel, LogAnalysisPanel, …
-  src/spl.ts       SPL generation (events query + time presets)
+  src/App.tsx     application picker (Mighty/SPL) + tabbed shell
+  src/views/      TraceView, ImpactView   (per-app context: tracer.<app>.*)
+  src/components/  AppPicker, RouteGraph, ControlPanel, SplunkPanel, LogAnalysisPanel, …
+  src/spl.ts       SPL generation (events query, time presets, service-version filter)
 src/test/resources/sample-framework/   synthetic framework fixture (test-only)
 src/test/resources/sample-logs/         synthetic logs + Splunk exports (test-only)
 ```
@@ -293,8 +354,11 @@ mvn test          # or:  mvn -Dskip.frontend=true test   (Java only)
 * `RouteTraceServiceTest` / `ImpactIndexTest` — the trace pipeline and impact
   index against the synthetic framework fixture (exact/fallback/BASE version
   resolution, `transferType` filtering, `<otherwise>` branches, cross-version
-  delegation, shared-host-route exclusion).
+  delegation, shared-host-route exclusion, **release scoping**, and **backend
+  service-version capture** across every template/route shape incl. reused URLs).
 * `LogAnalysisServiceTest` — end-to-end verdicts (success/latest-wins, not-tested,
-  timeout, partial) over synthetic output logs **and** Splunk CSV/JSON exports.
+  timeout, partial) over synthetic output logs **and** Splunk CSV/JSON exports,
+  plus **pattern-based field detection**, **backend-only analysis**,
+  **service-version match/mismatch**, and the **SPL vs Mighty** marker switch.
 
 All fixtures under `src/test/resources` are test-only — not part of the app or jar.

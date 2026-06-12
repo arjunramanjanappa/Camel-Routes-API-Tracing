@@ -4,7 +4,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Entry point for the Camel Route Tracing utility.
+ * Entry point for TraceGuard — the Camel route trace / impact / verification utility.
  *
  * <p>This is a standalone Spring Boot application. It does NOT host the
  * enterprise framework's CamelContext; instead it is pointed at a source

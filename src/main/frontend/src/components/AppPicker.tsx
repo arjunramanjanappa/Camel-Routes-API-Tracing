@@ -17,7 +17,7 @@ export default function AppPicker({ onPick }: { onPick: (app: string) => void })
   return (
     <div className="app-picker">
       <div className="app-picker-inner">
-        <div className="app-picker-head">Camel Route Tracer</div>
+        <div className="app-picker-head">TraceGuard</div>
         <div className="app-picker-sub">
           Choose an application to work with. Tracing, impact analysis and the Splunk workflow are the same for both.
         </div>

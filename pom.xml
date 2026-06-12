@@ -14,8 +14,8 @@
     <groupId>com.arjun</groupId>
     <artifactId>camel-route-tracer</artifactId>
     <version>1.0.0</version>
-    <name>Camel Routes API Tracing</name>
-    <description>Generic route tracing utility for Apache Camel XML DSL frameworks</description>
+    <name>TraceGuard</name>
+    <description>Route trace, release impact and end-to-end log/Splunk verification for Apache Camel XML DSL frameworks</description>
 
     <properties>
         <java.version>21</java.version>

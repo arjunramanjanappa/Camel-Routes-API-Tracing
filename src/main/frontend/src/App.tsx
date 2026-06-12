@@ -24,7 +24,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="brand">
-          <h1>Camel Route Tracer <span className="app-badge" title="selected application">{app}</span></h1>
+          <h1>TraceGuard <span className="app-badge" title="selected application">{app}</span></h1>
           <span>API → Resolved Route → Sub-routes → Backend APIs</span>
         </div>
         <nav className="tabs">

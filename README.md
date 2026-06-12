@@ -1,6 +1,6 @@
-# Camel Routes API Tracing
+# TraceGuard
 
-A standalone **route-tracing, impact-analysis and log-correlation tool** for
+*Trace · Impact · Verify* — a standalone **route-tracing, impact-analysis and log-correlation tool** for
 enterprise frameworks built on **Spring Boot + Apache Camel 4 (XML DSL)** with a
 UFW command/AOP layer. Point it at a framework **source directory** (it never
 needs the framework running) and it will, for any REST API:

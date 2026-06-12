@@ -90,6 +90,27 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void tolerantOfWhitespaceAroundSeparatorDashes() throws IOException {
+        // Real-world spacing: "[] -/path - Request - {json}" — spaces around the dash
+        // before the path and around the Request/Response separator — unlike the compact
+        // "[]-/path -Request - {json}". Both shapes must parse, else every line is dropped
+        // and the API reads "not tested".
+        LogAnalysisReport r = analyze("analysis-spaced.log", "9.4");
+
+        assertThat(r.matchedLines()).isEqualTo(3);
+        assertThat(r.unparsedLines()).isZero();
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.tested()).isTrue();
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.correlationId()).isEqualTo("C9");
+        assertThat(v2.feLatencyMs()).isEqualTo(500);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
+    @Test
     void apiExercisedOnlyOnAnotherReleaseIsNotTestedWithDiagnostic() throws IOException {
         // The log has the API only at 9.3; analysing for 9.4 ⇒ matched but wrong
         // release, and the note must say so (the diagnostic that explains "not tested").

@@ -67,7 +67,9 @@ public class LogAnalysisService {
             "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
                     + "\\[[^\\]]*\\]\\s+\\S+\\s+"
                     + "\\[([A-Za-z0-9_]+Message)\\]"   // app marker, e.g. MightyMessage / SPLHostMessage
-                    + "((?:\\[[^\\]]*\\])+?)-(\\S+)\\s+-\\s*\\[?(Request|Response)\\]?\\s*-\\s*(.*)$");
+                    // ] - /path - Request - {json}: tolerate optional whitespace around every
+                    // separator dash — environments differ in spacing (e.g. "[] -/path" vs "[]-/path").
+                    + "((?:\\[[^\\]]*\\])+?)\\s*-\\s*(\\S+)\\s*-\\s*\\[?(Request|Response)\\]?\\s*-\\s*(.*)$");
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
     private static final Pattern CODE = Pattern.compile("\"responseCode\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern DESC = Pattern.compile("\"responseDescription\"\\s*:\\s*\"([^\"]*)\"");

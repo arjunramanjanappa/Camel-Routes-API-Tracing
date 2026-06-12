@@ -62,6 +62,21 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void versionAndContextPathFoundByPatternNotPosition() throws IOException {
+        // Real-world shape: a /mty-banking-01/ context prefix and extra bracket
+        // fields push the version off its "expected" slot (here it sits at index 5,
+        // after MTY/channel/session/user/device). Pattern matching must still find
+        // 9.4 and match the API by path suffix — otherwise everything reads "not tested".
+        LogAnalysisReport r = analyze("analysis-realistic.log", "9.4");
+
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.tested()).isTrue();
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.correlationId()).isEqualTo("C9");   // the field right after the version
+        assertThat(v2.feLatencyMs()).isEqualTo(500);      // the 500ms-shaped field
+    }
+
+    @Test
     void apiExercisedOnlyOnAnotherReleaseIsNotTestedWithDiagnostic() throws IOException {
         // The log has the API only at 9.3; analysing for 9.4 ⇒ matched but wrong
         // release, and the note must say so (the diagnostic that explains "not tested").

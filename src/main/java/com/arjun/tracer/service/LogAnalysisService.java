@@ -58,8 +58,10 @@ public class LogAnalysisService {
         this.traceService = traceService;
     }
 
-    // timestamp [thread] LEVEL [marker][f0..f6]-/path -Dir - json
-    // fields after the marker, in order: app, session, user, version, correlationId, platform, tookMs
+    // timestamp [thread] LEVEL [marker][...fields...]-/path -Dir - json
+    // The bracket fields after the marker are located by PATTERN, not by fixed
+    // position — environments differ in how many/which fields they emit, so the
+    // version is found by its 9.18 shape and the latency by its 500ms shape.
     private static final Pattern LINE = Pattern.compile(
             "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
                     + "\\[[^\\]]*\\]\\s+\\S+\\s+"
@@ -69,6 +71,9 @@ public class LogAnalysisService {
     private static final Pattern CODE = Pattern.compile("\"responseCode\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern DESC = Pattern.compile("\"responseDescription\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern TOOK = Pattern.compile("(\\d+)\\s*ms");
+    // A client release version: 9.18, 9.4, R9.14, 9.4.1 — at least one dot so plain
+    // numeric fields (session ids etc.) are never mistaken for a version.
+    private static final Pattern VERSION_FIELD = Pattern.compile("R?(\\d+(?:\\.\\d+)+)");
     private static final Pattern ALL_ZEROS = Pattern.compile("0+");
 
     /** Analyse a raw output log. Caller owns the stream. */
@@ -313,12 +318,31 @@ public class LogAnalysisService {
         List<String> fields = new ArrayList<>();
         Matcher b = BRACKET.matcher(m.group(3));
         while (b.find()) {
-            fields.add(b.group(1));
+            fields.add(b.group(1).trim());
         }
-        String version = at(fields, 3);
-        String corr = at(fields, 4);
-        String platform = at(fields, 5);
-        Integer took = parseTook(at(fields, 6));
+        // Locate the version by pattern; the correlation id is the field right after
+        // it (per the [...][version][correlationId][platform]... layout), and the
+        // latency is whichever field is shaped like "500ms".
+        int vi = -1;
+        String version = null;
+        for (int i = 0; i < fields.size(); i++) {
+            Matcher vm = VERSION_FIELD.matcher(fields.get(i));
+            if (vm.matches()) {
+                version = vm.group(1);
+                vi = i;
+                break;
+            }
+        }
+        String corr = (vi >= 0 && vi + 1 < fields.size()) ? blankToNull(fields.get(vi + 1)) : null;
+        String platform = (vi >= 0 && vi + 2 < fields.size()) ? blankToNull(fields.get(vi + 2)) : null;
+        Integer took = null;
+        for (String f : fields) {
+            Matcher tm = TOOK.matcher(f);
+            if (tm.matches()) {
+                took = Integer.valueOf(tm.group(1));
+                break;
+            }
+        }
         boolean request = "Request".equalsIgnoreCase(m.group(5));
         String path = m.group(4);
         String json = m.group(6);
@@ -327,20 +351,8 @@ public class LogAnalysisService {
         return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc);
     }
 
-    private static String at(List<String> list, int i) {
-        return i >= 0 && i < list.size() ? blankToNull(list.get(i)) : null;
-    }
-
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
-    }
-
-    private static Integer parseTook(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        Matcher m = TOOK.matcher(raw);
-        return m.find() ? Integer.valueOf(m.group(1)) : null;
     }
 
     private static String firstGroup(Pattern p, String s) {

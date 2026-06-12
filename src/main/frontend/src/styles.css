@@ -93,9 +93,15 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .checklist .search-mini { width: 100%; padding: 6px 9px; font-size: 12px; margin-bottom: 4px; }
 .checklist-items { max-height: 280px; overflow-y: auto; border: 1px solid #eef2f7; border-radius: 6px; padding: 6px; }
 .check { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 4px; }
+.check.has-hint { align-items: flex-start; }
 .check:hover { background: #f3f6fb; }
 .check input { width: auto; }
+.check.has-hint input { margin-top: 2px; }
 .check code { word-break: break-all; }
+.check-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.check-hint { font-size: 11px; color: #8895a7; word-break: break-all; }
+.check-hint .hint-route { color: var(--accent); font-weight: 600; }
+.check-hint .hint-be { color: #64748b; }
 
 table.grid { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
 table.grid th { text-align: left; color: #7b8794; font-weight: 600; border-bottom: 2px solid #e4e7eb; padding: 6px 8px; }
@@ -243,6 +249,8 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .entry .op { color: #e2e8f0; }
 [data-theme="dark"] .checklist-items { border-color: #334155; }
 [data-theme="dark"] .check:hover { background: #0b1220; }
+[data-theme="dark"] .check-hint { color: #7689a0; }
+[data-theme="dark"] .check-hint .hint-be { color: #94a3b8; }
 [data-theme="dark"] table.grid th { border-color: #334155; }
 [data-theme="dark"] table.grid td { border-color: #1e293b; }
 [data-theme="dark"] table.grid tr:hover td { background: #1e293b; }

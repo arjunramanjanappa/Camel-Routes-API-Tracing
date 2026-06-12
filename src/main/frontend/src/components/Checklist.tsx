@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 
 interface Props {
   title: string;
@@ -6,10 +7,12 @@ interface Props {
   selected: Set<string>;
   onToggle: (item: string) => void;
   onSetMany: (items: string[], on: boolean) => void;
+  /** Optional secondary line rendered under each item (e.g. an API's route → backend). */
+  renderHint?: (item: string) => ReactNode;
 }
 
 /** A searchable checklist with "select all shown" / "clear shown" helpers. */
-export default function Checklist({ title, items, selected, onToggle, onSetMany }: Props) {
+export default function Checklist({ title, items, selected, onToggle, onSetMany, renderHint }: Props) {
   const [q, setQ] = useState('');
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -27,12 +30,18 @@ export default function Checklist({ title, items, selected, onToggle, onSetMany 
       </div>
       <div className="checklist-items">
         {shown.length === 0 && <div className="muted">no items</div>}
-        {shown.map((i) => (
-          <label key={i} className="check">
-            <input type="checkbox" checked={selected.has(i)} onChange={() => onToggle(i)} />
-            <code>{i}</code>
-          </label>
-        ))}
+        {shown.map((i) => {
+          const hint = renderHint ? renderHint(i) : null;
+          return (
+            <label key={i} className={'check' + (hint ? ' has-hint' : '')}>
+              <input type="checkbox" checked={selected.has(i)} onChange={() => onToggle(i)} />
+              <span className="check-body">
+                <code>{i}</code>
+                {hint && <span className="check-hint">{hint}</span>}
+              </span>
+            </label>
+          );
+        })}
       </div>
     </div>
   );

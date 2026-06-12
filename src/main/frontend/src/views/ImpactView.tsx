@@ -150,7 +150,20 @@ export default function ImpactView({ app }: { app?: string }) {
             </div>
             <Checklist title="APIs" items={allApiPaths} selected={selectedApis}
                        onToggle={(i) => toggle(selectedApis, setSelectedApis, i)}
-                       onSetMany={(items, on) => setMany(selectedApis, setSelectedApis, items, on)} />
+                       onSetMany={(items, on) => setMany(selectedApis, setSelectedApis, items, on)}
+                       renderHint={(apiPath) => {
+                         const a = apiByPath[apiPath];
+                         if (!a) return null;
+                         const route = a.resolvedRoute || a.routes[0];
+                         const bes = a.backends || [];
+                         const be = bes.length === 1 ? backendPath(bes[0])
+                           : bes.length > 1 ? `${bes.length} backends` : null;
+                         if (!route && !be) return null;
+                         return (
+                           <>→ {route && <span className="hint-route">{route}</span>}
+                             {be && <> → <span className="hint-be">{be}</span></>}</>
+                         );
+                       }} />
 
             <div className="panel">
               <h2>Routes &amp; backends <span className="muted">auto-filled</span></h2>

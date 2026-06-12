@@ -41,6 +41,7 @@ export interface DerivedNode {
   isEntry: boolean;
   source: string;
   reached: string;
+  serviceVersion: string;
 }
 
 export interface DerivedEdge {
@@ -87,6 +88,7 @@ export function derive(graph: RouteGraph, opNames: string[], clientVersion: stri
       isEntry: entry.has(n.id),
       source: (n.data && n.data.source) || '',
       reached: (reachedBy[n.id] || []).join(', '),
+      serviceVersion: (n.data && n.data.serviceVersion) || '',
     };
   });
 

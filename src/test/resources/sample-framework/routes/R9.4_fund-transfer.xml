@@ -31,6 +31,8 @@
         <setProperty name="hostUrl">
             <constant>/bfs/ft/own/submit</constant>
         </setProperty>
+        <!-- the request template carries the backend service version to send -->
+        <to uri="framework:META-INF/templates/ft/own/precapture.ftl"/>
         <setProperty name="api">
             <simple>{{baseUrl}}/bfs/ft/own/submit</simple>
         </setProperty>

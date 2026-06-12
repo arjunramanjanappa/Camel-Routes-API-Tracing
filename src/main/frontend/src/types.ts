@@ -4,7 +4,7 @@ export interface GraphNode {
   id: string;
   label: string;
   type: NodeType;
-  data?: { source?: string; host?: boolean } | null;
+  data?: { source?: string; host?: boolean; serviceVersion?: string } | null;
 }
 
 export interface GraphEdge {
@@ -72,6 +72,7 @@ export interface ApiImpact {
   routes: string[];
   backends: string[];
   hosts: string[];
+  backendVersions?: Record<string, string>;
 }
 
 export interface ImpactIndex {

@@ -58,6 +58,9 @@ export function BackendNode(props: NodeProps) {
     <div className={cls(d, 'backend')} style={{ minWidth: d.w }}>
       <div className="rf-kind">☁ backend</div>
       <div className="rf-title">{d.label}</div>
+      {d.serviceVersion && (
+        <div className="rf-chips"><span className="rf-chip svc" title="backend service version">svc v{d.serviceVersion}</span></div>
+      )}
       <Handles dir={d.dir} />
     </div>
   );

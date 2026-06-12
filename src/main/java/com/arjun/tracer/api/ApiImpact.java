@@ -1,6 +1,7 @@
 package com.arjun.tracer.api;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * One API's footprint for impact analysis: the routes it traverses, the backend
@@ -15,8 +16,10 @@ import java.util.List;
  * @param routes          every route id in its flow
  * @param backends        every backend API it calls
  * @param hosts           the host (CamelHttpUri) route ids it uses
+ * @param backendVersions backend URL → service version number (from its framework template)
  */
 public record ApiImpact(String api, String operation, String command,
                         String resolvedRoute, String resolvedVersion, boolean baseFallback,
-                        List<String> routes, List<String> backends, List<String> hosts) {
+                        List<String> routes, List<String> backends, List<String> hosts,
+                        Map<String, String> backendVersions) {
 }

@@ -120,6 +120,7 @@ public class RouteTraceService {
         boolean versionGiven = request.version() != null && !request.version().isBlank();
         String wantedVersion = versionGiven ? request.version().trim() : null;
         int excluded = 0;
+        var templateVersion = templateVersionResolver(request);
 
         for (OperationInfo op : prepared.index().operations().all()) {
             ResolvedRoute resolved =
@@ -131,7 +132,7 @@ public class RouteTraceService {
             TraceResponse r = new TraceResponse();
             RouteGraph graph = new RouteGraph();
             traverseInto(r, op.path(), op.operationName(), resolved,
-                    request.transferType(), prepared.registry(), graph);
+                    request.transferType(), prepared.registry(), graph, templateVersion);
             List<String> apiHosts = extractHosts(graph);
 
             // Shared call routes (CamelHttpUri hosts AND per-call terminal routes such
@@ -147,7 +148,8 @@ public class RouteTraceService {
             out.getApis().add(new ApiImpact(
                     op.path(), op.operationName(), op.command(),
                     resolved.routeName(), resolved.version(), resolved.baseFallback(),
-                    businessRoutes, List.copyOf(r.getBackendApis()), apiHosts));
+                    businessRoutes, List.copyOf(r.getBackendApis()), apiHosts,
+                    Map.copyOf(r.getBackendVersions())));
 
             routes.addAll(businessRoutes);
             backends.addAll(r.getBackendApis());
@@ -247,7 +249,7 @@ public class RouteTraceService {
                 versionResolver.resolve(prepared.registry(), operationName, request.version());
         RouteGraph graph = new RouteGraph();
         traverseInto(response, request.api(), operationName, resolved,
-                request.transferType(), prepared.registry(), graph);
+                request.transferType(), prepared.registry(), graph, templateVersionResolver(request));
         response.setGraph(graph);
         return response;
     }
@@ -279,6 +281,7 @@ public class RouteTraceService {
         String wantedVersion = versionGiven ? request.version().trim() : null;
         int excluded = 0;
 
+        var templateVersion = templateVersionResolver(request);
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
         for (OperationInfo op : operations) {
             for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven)) {
@@ -294,7 +297,7 @@ public class RouteTraceService {
                 }
                 TraceResponse entry = newEntry(op, request.transferType());
                 traverseInto(entry, op.path(), op.operationName(), target,
-                        request.transferType(), registry, graph);
+                        request.transferType(), registry, graph, templateVersion);
                 String key = target.version() != null ? target.version() : BASE_GROUP;
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
@@ -350,7 +353,8 @@ public class RouteTraceService {
 
     private void traverseInto(TraceResponse response, String api, String operationName,
                               ResolvedRoute resolved, String transferType,
-                              RouteRegistry registry, RouteGraph graph) {
+                              RouteRegistry registry, RouteGraph graph,
+                              java.util.function.Function<String, String> templateVersion) {
         response.setResolvedRoute(resolved.routeName());
         response.setResolvedVersion(resolved.version());
         response.setBaseFallback(resolved.baseFallback());
@@ -358,8 +362,56 @@ public class RouteTraceService {
         String apiNodeId = "api:" + (api != null ? api : operationName);
         String apiLabel = (api != null ? api : operationName) + "  [" + operationName + "]";
         graph.addNode(new GraphNode(apiNodeId, apiLabel, GraphNode.TYPE_API));
-        new RouteTraverser(registry, graph, response, transferType, resolved.routeName())
+        new RouteTraverser(registry, graph, response, transferType, resolved.routeName(), templateVersion)
                 .trace(resolved.routeName(), apiNodeId);
+    }
+
+    /**
+     * A cached resolver: given a framework template {@code <to>} uri
+     * (e.g. {@code framework:META-INF/templates/x/precapture.ftl}), find the file
+     * under the source root and read its {@code "serviceVersionNumber"} — the
+     * backend service version to send to the host.
+     */
+    private java.util.function.Function<String, String> templateVersionResolver(TraceRequest request) {
+        Path root;
+        try {
+            root = resolveRoot(request);
+        } catch (RuntimeException e) {
+            return uri -> null;   // no source dir → nothing to resolve
+        }
+        Map<String, String> cache = new java.util.HashMap<>();
+        return uri -> cache.computeIfAbsent(uri, u -> resolveTemplateVersion(root, u));
+    }
+
+    private static final java.util.regex.Pattern SERVICE_VERSION =
+            java.util.regex.Pattern.compile("\"serviceVersionNumber\"\\s*:\\s*\"?([0-9][0-9.]*)\"?");
+
+    private String resolveTemplateVersion(Path root, String uri) {
+        String suffix = uri.contains(":") ? uri.substring(uri.indexOf(':') + 1) : uri;
+        suffix = suffix.replace('\\', '/').trim();
+        int q = suffix.indexOf('?');
+        if (q >= 0) {
+            suffix = suffix.substring(0, q);
+        }
+        while (suffix.startsWith("/") || suffix.startsWith("./")) {
+            suffix = suffix.replaceFirst("^\\.?/", "");
+        }
+        final String want = suffix;
+        if (want.isEmpty()) {
+            return null;
+        }
+        try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
+            java.util.Optional<Path> file = paths.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().replace('\\', '/').endsWith(want))
+                    .findFirst();
+            if (file.isEmpty()) {
+                return null;
+            }
+            java.util.regex.Matcher m = SERVICE_VERSION.matcher(Files.readString(file.get()));
+            return m.find() ? m.group(1) : null;
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
     }
 
     private String resolveOperation(String api, OperationResolver resolver, TraceResponse response) {

@@ -1,6 +1,7 @@
 package com.arjun.tracer;
 
 import com.arjun.tracer.api.CatalogResponse;
+import com.arjun.tracer.api.GraphNode;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
 import com.arjun.tracer.api.VersionGroup;
@@ -22,6 +23,19 @@ class RouteTraceServiceTest {
 
     private TraceResponse trace(String api, String version, String transferType) {
         return service.trace(new TraceRequest(api, version, transferType, null));
+    }
+
+    @Test
+    void capturesBackendServiceVersionFromTheFrameworkTemplate() {
+        // The own-account route has <to uri="framework:.../precapture.ftl"/> just before
+        // its backend; that template's "serviceVersionNumber":"2.2" must attach to the URL.
+        TraceResponse r = trace("/payment/v2/fund/submit", "9.4", "OWN");
+
+        assertThat(r.getBackendVersions()).containsEntry("{{baseUrl}}/bfs/ft/own/submit", "2.2");
+
+        GraphNode own = r.getGraph().getNodes().stream()
+                .filter(n -> n.id().equals("backend:{{baseUrl}}/bfs/ft/own/submit")).findFirst().orElseThrow();
+        assertThat(own.data()).containsEntry("serviceVersion", "2.2");
     }
 
     @Test

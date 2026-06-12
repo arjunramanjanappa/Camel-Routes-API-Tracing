@@ -49,13 +49,20 @@ public class RouteTraverser {
     private final List<String> backendsSeen = new ArrayList<>();
     private int consumerSeq = 0;   // gives each host/terminal call its own instance node
 
+    /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (or null). */
+    private final java.util.function.Function<String, String> templateVersion;
+    /** Service version from the most recent template {@code <to>}, applied to the next backend. */
+    private String currentServiceVersion;
+
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
-                          String transferType, String operationRouteName) {
+                          String transferType, String operationRouteName,
+                          java.util.function.Function<String, String> templateVersion) {
         this.registry = registry;
         this.graph = graph;
         this.response = response;
         this.transferType = (transferType == null || transferType.isBlank()) ? null : transferType.trim();
         this.operationRouteName = operationRouteName;
+        this.templateVersion = templateVersion != null ? templateVersion : uri -> null;
     }
 
     /** Trace from the entry route, attaching it under the given API node. */
@@ -119,7 +126,7 @@ public class RouteTraverser {
     /** @param into true to draw backend → node (into a host barrel); false for node → backend. */
     private void attach(List<PendingApi> apis, String nodeId, boolean into) {
         for (PendingApi p : apis) {
-            addBackend(p.value(), nodeId, p.branch(), into);
+            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion());
         }
     }
 
@@ -141,7 +148,7 @@ public class RouteTraverser {
         List<PendingApi> all = new ArrayList<>(inherited);
         all.addAll(collectApis(route.elements(), null));   // the host's own api, if it sets one
         for (PendingApi p : all) {
-            addBackend(p.value(), instanceId, p.branch(), false);   // host instance → backend
+            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion());   // host instance → backend
         }
     }
 
@@ -181,10 +188,12 @@ public class RouteTraverser {
     private List<PendingApi> collectApis(List<RouteElement> elements, String branch) {
         List<PendingApi> out = new ArrayList<>();
         for (RouteElement el : elements) {
-            if (el instanceof SetPropertyElement sp) {
+            if (el instanceof ToElement to && isTemplateUri(to.uri())) {
+                currentServiceVersion = templateVersion.apply(to.uri());
+            } else if (el instanceof SetPropertyElement sp) {
                 if (sp.name() != null && sp.name().equalsIgnoreCase("api")
                         && sp.value() != null && !sp.value().isBlank()) {
-                    out.add(new PendingApi(sp.value().trim(), branch));
+                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion));
                 }
             } else if (el instanceof ChoiceElement choice) {
                 for (WhenElement when : choice.whens()) {
@@ -215,13 +224,18 @@ public class RouteTraverser {
                                   String branch, List<PendingApi> active, boolean forward) {
         for (RouteElement el : elements) {
             if (el instanceof ToElement to) {
-                handleTo(to.uri(), currentNodeId, branch, active, forward);
+                if (isTemplateUri(to.uri())) {
+                    // framework template just before a backend — carries its service version.
+                    currentServiceVersion = templateVersion.apply(to.uri());
+                } else {
+                    handleTo(to.uri(), currentNodeId, branch, active, forward);
+                }
             } else if (el instanceof RecipientListElement rl) {
                 handleRecipient(rl.expression(), currentNodeId, branch);
             } else if (el instanceof SetPropertyElement sp) {
                 if (sp.name() != null && sp.name().equalsIgnoreCase("api")
                         && sp.value() != null && !sp.value().isBlank()) {
-                    active.add(new PendingApi(sp.value().trim(), branch));
+                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion));
                 }
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch, active, forward);
@@ -231,6 +245,16 @@ public class RouteTraverser {
             // WhenElement never appears at this level (only inside ChoiceElement)
         }
         return active;
+    }
+
+    /** A FreeMarker/Velocity template step (framework:/freemarker:/velocity: or a .ftl/.vm uri). */
+    private static boolean isTemplateUri(String uri) {
+        if (uri == null) {
+            return false;
+        }
+        String u = uri.toLowerCase();
+        return u.startsWith("framework:") || u.startsWith("freemarker:") || u.startsWith("velocity:")
+                || u.matches(".*\\.(ftl|vm)(\\?.*)?$");
     }
 
     private void handleTo(String uri, String currentNodeId, String branch,
@@ -273,7 +297,7 @@ public class RouteTraverser {
                 visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch, false); // external call is itself a backend
+            addBackend(uri, currentNodeId, branch, false, currentServiceVersion); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
     }
@@ -340,9 +364,11 @@ public class RouteTraverser {
         return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
     }
 
-    private void addBackend(String value, String routeNodeId, String branch, boolean into) {
+    private void addBackend(String value, String routeNodeId, String branch, boolean into, String serviceVersion) {
         String nodeId = "backend:" + value;
-        graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
+        java.util.Map<String, Object> data = serviceVersion != null && !serviceVersion.isBlank()
+                ? java.util.Map.of("serviceVersion", serviceVersion) : null;
+        graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND, data));
         if (into) {
             graph.addEdge(nodeId, routeNodeId, branch);      // backend → host (converges into the barrel)
         } else {
@@ -351,6 +377,9 @@ public class RouteTraverser {
         if (!backendsSeen.contains(value)) {
             backendsSeen.add(value);
             response.getBackendApis().add(value);
+        }
+        if (serviceVersion != null && !serviceVersion.isBlank()) {
+            response.getBackendVersions().putIfAbsent(value, serviceVersion);
         }
     }
 
@@ -409,6 +438,6 @@ public class RouteTraverser {
     }
 
     /** A deferred backend api value, tagged with the branch condition that set it. */
-    private record PendingApi(String value, String branch) {
+    private record PendingApi(String value, String branch, String serviceVersion) {
     }
 }

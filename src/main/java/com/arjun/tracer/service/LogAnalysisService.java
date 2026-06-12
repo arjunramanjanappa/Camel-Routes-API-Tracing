@@ -24,6 +24,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
@@ -422,8 +424,23 @@ public class LogAnalysisService {
         }
 
         if (forVersion.isEmpty()) {
-            String note = "No log entry for this API at client release "
-                    + (versionScoped ? version.trim() : "(any)") + " — never tested.";
+            // Explain WHY it's not tested so the cause is visible: either no log
+            // line's path matched this API at all, or lines matched but none carried
+            // the requested release version (points at a path vs version-field issue).
+            String note;
+            if (matched.isEmpty()) {
+                note = "No log line's front-end path matched this API — never tested. "
+                        + "Looked for a path ending with '" + api.api() + "'.";
+            } else if (versionScoped) {
+                Set<String> seen = new TreeSet<>();
+                for (Txn t : matched) {
+                    seen.add(t.version() == null || t.version().isBlank() ? "(no version field read)" : t.version());
+                }
+                note = "Matched " + matched.size() + " log transaction(s) for this API, but none at client release "
+                        + version.trim() + " — versions seen in the log: " + String.join(", ", seen) + ".";
+            } else {
+                note = "No log entry for this API — never tested.";
+            }
             return new ApiLogResult(api.api(), api.operation(), api.resolvedRoute(), version,
                     LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note, List.of());
         }

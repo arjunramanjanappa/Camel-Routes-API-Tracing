@@ -15,23 +15,24 @@ class ImpactIndexTest {
             new RouteTraceService("src/test/resources/sample-framework");
 
     @Test
-    void buildsPerApiFootprintAndUnions() {
+    void buildsPerApiFootprintScopedToTheRelease() {
         ImpactIndex idx = service.impactIndex(new TraceRequest(null, "9.4", null, null));
 
-        // Both controller endpoints are present.
-        assertThat(idx.getApis()).extracting(ApiImpact::operation)
-                .contains("fundTransferSubmitV2Api", "fundTransferSubmitApi");
+        // Only the API that release 9.4 actually impacts (resolves to R9.4) is listed;
+        // the v1 endpoint has no route and is excluded with a notice.
+        assertThat(idx.getApis()).extracting(ApiImpact::operation).containsExactly("fundTransferSubmitV2Api");
+        assertThat(idx.getWarnings()).anyMatch(w -> w.contains("not impacted by version 9.4"));
 
-        ApiImpact v2 = idx.getApis().stream()
-                .filter(a -> a.operation().equals("fundTransferSubmitV2Api")).findFirst().orElseThrow();
+        ApiImpact v2 = idx.getApis().get(0);
         assertThat(v2.resolvedRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");
         assertThat(v2.routes()).contains("R9.4_fundTransferSubmitV2Api", "R9.4_masterFundTransferSubmitApi");
         assertThat(v2.backends()).contains(
                 "{{baseUrl}}/bfs/ft/own/submit", "{{baseUrl}}/bfs/ft/inter/submit");
 
-        // Unions for the UI's change pickers.
+        // Unions for the UI's change pickers — scoped to the 9.4 footprint.
         assertThat(idx.getAllBackends()).contains("{{baseUrl}}/bfs/ft/inter/fraud-check");
         assertThat(idx.getAllRoutes()).contains("R9.4_ftInterbankProcessSubmitDGEApi");
+        assertThat(idx.getAllRoutes()).allMatch(r -> r.startsWith("R9.4_"));   // only 9.4 routes
     }
 
     @Test

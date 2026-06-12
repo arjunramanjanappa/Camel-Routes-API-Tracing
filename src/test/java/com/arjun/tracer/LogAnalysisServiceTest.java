@@ -22,8 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LogAnalysisServiceTest {
 
     private static final String FW = "src/test/resources/sample-framework";
-    private static final String V2 = "/payment/v2/fund/submit";   // has routes at 9.4
-    private static final String V1 = "/payment/v1/fund/submit";   // no route → never tested
+    private static final String V2 = "/payment/v2/fund/submit";   // resolves to R9.4
 
     private final LogAnalysisService service = new LogAnalysisService(new RouteTraceService(FW));
 
@@ -63,13 +62,14 @@ class LogAnalysisServiceTest {
     }
 
     @Test
-    void apiWithNoEntryForThatReleaseIsNotTested() throws IOException {
-        LogAnalysisReport r = analyze("analysis-mixed.log", "9.4");
+    void apiExercisedOnlyOnAnotherReleaseIsNotTestedWithDiagnostic() throws IOException {
+        // The log has the API only at 9.3; analysing for 9.4 ⇒ matched but wrong
+        // release, and the note must say so (the diagnostic that explains "not tested").
+        LogAnalysisReport r = analyze("analysis-otherversion.log", "9.4");
 
-        ApiLogResult v1 = api(r, V1);
-        assertThat(v1.tested()).isFalse();
-        assertThat(v1.status()).isEqualTo(LogStatus.NOT_TESTED);
-        assertThat(v1.note()).containsIgnoringCase("never tested");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.NOT_TESTED);
+        assertThat(v2.note()).contains("versions seen").contains("9.3");
     }
 
     @Test
@@ -107,7 +107,6 @@ class LogAnalysisServiceTest {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
         });
-        assertThat(api(r, V1).status()).isEqualTo(LogStatus.NOT_TESTED);
     }
 
     @Test

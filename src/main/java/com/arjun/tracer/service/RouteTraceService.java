@@ -112,9 +112,22 @@ public class RouteTraceService {
         Set<String> backends = new TreeSet<>();
         Set<String> hosts = new TreeSet<>();
 
+        // With a client release version, the impact set is ONLY the APIs that
+        // release actually changed — i.e. whose entry route resolves to exactly
+        // that version. APIs that fall back to a lower version or BASE are not
+        // impacted and are excluded, so the APIs / routes / backends shown are
+        // scoped to the release (e.g. only R9.18_* routes), not the whole repo.
+        boolean versionGiven = request.version() != null && !request.version().isBlank();
+        String wantedVersion = versionGiven ? request.version().trim() : null;
+        int excluded = 0;
+
         for (OperationInfo op : prepared.index().operations().all()) {
             ResolvedRoute resolved =
                     versionResolver.resolve(prepared.registry(), op.operationName(), request.version());
+            if (wantedVersion != null && !wantedVersion.equals(resolved.version())) {
+                excluded++;
+                continue;   // resolves to a lower version or BASE — not impacted by this release
+            }
             TraceResponse r = new TraceResponse();
             RouteGraph graph = new RouteGraph();
             traverseInto(r, op.path(), op.operationName(), resolved,
@@ -143,6 +156,10 @@ public class RouteTraceService {
         out.getAllRoutes().addAll(routes);
         out.getAllBackends().addAll(backends);
         out.getAllHosts().addAll(hosts);
+        if (excluded > 0) {
+            out.getWarnings().add(excluded + " API(s) are not impacted by version " + wantedVersion
+                    + " (they resolve to a lower version or BASE) and were excluded.");
+        }
         return out;
     }
 

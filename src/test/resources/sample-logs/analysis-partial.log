@@ -1,0 +1,4 @@
+2026-06-11 19.10.00.100 [XNIO-1 task-7] INFO [MightyMessage][MTY][sessP][userP][9.4][P1][Android][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {"serviceRequest":{}}
+2026-06-11 19.10.00.120 [XNIO-1 task-7] INFO [MightyHostMessage][MTY][sessP][userP][9.4][P1][Android][]-/bfs/ft/own/submit -[Request] - {"req":1}
+2026-06-11 19.10.00.300 [XNIO-1 task-7] INFO [MightyHostMessage][MTY][sessP][userP][9.4][P1][Android][210ms]-/bfs/ft/own/submit -[Response] - {"serviceResponse":{"responseCode":"00911","responseDescription":"Backend down"}}
+2026-06-11 19.10.00.500 [XNIO-1 task-7] INFO [MightyMessage][MTY][sessP][userP][9.4][P1][Android][420ms]-/mty-banking/services/sg/payment/v2/fund/submit -Response - {"serviceResponse":{"responseCode":"000000","responseDescription":"Success"}}

@@ -1,0 +1,2 @@
+2026-06-11 19.00.00.100 [XNIO-1 task-9] INFO [MightyMessage][MTY][sessT][userT][9.4][T1][Android][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {"serviceRequest":{}}
+2026-06-11 19.00.00.150 [XNIO-1 task-9] INFO [MightyHostMessage][MTY][sessT][userT][9.4][T1][Android][]-/bfs/ft/own/submit -[Request] - {"req":1}

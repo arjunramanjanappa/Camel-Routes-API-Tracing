@@ -1,0 +1,11 @@
+2026-06-11 18.39.59.000 [XNIO-1 task-1] INFO  com.arjun.something - app started, this line has no marker and must be ignored
+2026-06-11 18.40.00.100 [XNIO-1 task-2] INFO [MightyMessage][MTY][sess0][user0][9.4][C2][IOS][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {"serviceRequest":{"amount":99}}
+2026-06-11 18.40.00.220 [XNIO-1 task-2] INFO [MightyHostMessage][MTY][sess0][user0][9.4][C2][IOS][]-/bfs/ft/own/submit -[Request] - {"req":1}
+2026-06-11 18.40.00.410 [XNIO-1 task-2] INFO [MightyHostMessage][MTY][sess0][user0][9.4][C2][IOS][180ms]-/bfs/ft/own/submit -[Response] - {"serviceResponse":{"responseCode":"0000000","responseDescription":"Success"}}
+2026-06-11 18.40.00.450 [XNIO-1 task-2] INFO [MightyMessage][MTY][sess0][user0][9.4][C2][IOS][350ms]-/mty-banking/services/sg/payment/v2/fund/submit -Response - {"serviceResponse":{"responseCode":"00500","responseDescription":"Limit exceeded"}}
+2026-06-11 18.41.00.100 [XNIO-1 task-3] INFO [MightyMessage][MTY][sess3][user3][9.3][C3][Android][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {"serviceRequest":{}}
+2026-06-11 18.41.00.400 [XNIO-1 task-3] INFO [MightyMessage][MTY][sess3][user3][9.3][C3][Android][300ms]-/mty-banking/services/sg/payment/v2/fund/submit -Response - {"serviceResponse":{"responseCode":"000000","responseDescription":"Success"}}
+2026-06-11 18.43.45.102 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][C1][Android][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {"serviceRequest":{"amount":10}}
+2026-06-11 18.43.45.118 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][C1][Android][]-/bfs/ft/own/submit -[Request] - {"req":1}
+2026-06-11 18.43.45.318 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][C1][Android][230ms]-/bfs/ft/own/submit -[Response] - {"serviceResponse":{"responseCode":"0000000","responseDescription":"Success"}}
+2026-06-11 18.43.45.502 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][C1][Android][500ms]-/mty-banking/services/sg/payment/v2/fund/submit -Response - {"serviceResponse":{"responseCode":"000000","responseDescription":"Success"}}

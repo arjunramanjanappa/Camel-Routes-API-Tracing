@@ -1,5 +1,7 @@
 target/
 *.log
+# …but the synthetic log fixtures the tests run against MUST be committed
+!src/test/resources/sample-logs/*.log
 .idea/
 *.iml
 .DS_Store

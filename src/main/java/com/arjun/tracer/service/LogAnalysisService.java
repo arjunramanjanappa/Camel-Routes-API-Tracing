@@ -71,15 +71,17 @@ public class LogAnalysisService {
                     // separator dash — environments differ in spacing (e.g. "[] -/path" vs "[]-/path").
                     + "((?:\\[[^\\]]*\\])+?)\\s*-\\s*(\\S+)\\s*-\\s*\\[?(Request|Response)\\]?\\s*-\\s*(.*)$");
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
-    private static final Pattern CODE = Pattern.compile("\"responseCode\"\\s*:\\s*\"([^\"]*)\"");
-    private static final Pattern DESC = Pattern.compile("\"responseDescription\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern TOOK = Pattern.compile("(\\d+)\\s*ms");
     // A client release version: 9.18, 9.4, R9.14, 9.4.1 — at least one dot so plain
     // numeric fields (session ids etc.) are never mistaken for a version.
     private static final Pattern VERSION_FIELD = Pattern.compile("R?(\\d+(?:\\.\\d+)+)");
     private static final Pattern ALL_ZEROS = Pattern.compile("0+");
-    // The backend service version carried in a MightyHostMessage payload (quotes tolerant).
-    private static final Pattern SVC_VERSION = Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)[\"']?");
+    // Regex fallbacks (case-insensitive, quote/number tolerant) used only when the
+    // payload isn't valid JSON — the primary path parses the JSON and searches the tree.
+    private static final Pattern CODE = Pattern.compile("[\"']?responseCode[\"']?\\s*:\\s*[\"']?([0-9A-Za-z]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DESC = Pattern.compile("[\"']?responseDescription[\"']?\\s*:\\s*[\"']?([^\"',}]*)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SVC_VERSION = Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)", Pattern.CASE_INSENSITIVE);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
      * Analyse an uploaded log / Splunk export. Caller owns the stream.
@@ -372,12 +374,16 @@ public class LogAnalysisService {
         while (b.find()) {
             fields.add(b.group(1).trim());
         }
-        // Locate the version by pattern; the correlation id is the field right after
-        // it (per the [...][version][correlationId][platform]... layout), and the
-        // latency is whichever field is shaped like "500ms".
+        // Locate the client version by its 9.x shape. An EMPTY version field means the
+        // BASE release (default 0.0) — it must NOT drop the line. The correlation id is
+        // the field right after the version; when the version is blank there's no pattern
+        // to anchor on, so it's read from the trailing meta layout
+        // [version][correlationId][platform][latency]. Tracing guarantees the front-end
+        // and host lines carry the same correlation id. Latency is the "500ms"-shaped field.
+        int n = fields.size();
         int vi = -1;
         String version = null;
-        for (int i = 0; i < fields.size(); i++) {
+        for (int i = 0; i < n; i++) {
             Matcher vm = VERSION_FIELD.matcher(fields.get(i));
             if (vm.matches()) {
                 version = vm.group(1);
@@ -385,8 +391,16 @@ public class LogAnalysisService {
                 break;
             }
         }
-        String corr = (vi >= 0 && vi + 1 < fields.size()) ? blankToNull(fields.get(vi + 1)) : null;
-        String platform = (vi >= 0 && vi + 2 < fields.size()) ? blankToNull(fields.get(vi + 2)) : null;
+        String corr;
+        String platform;
+        if (vi >= 0) {
+            corr = (vi + 1 < n) ? blankToNull(fields.get(vi + 1)) : null;
+            platform = (vi + 2 < n) ? blankToNull(fields.get(vi + 2)) : null;
+        } else {
+            version = "0.0";   // empty version field → base release
+            corr = (n >= 3) ? blankToNull(fields.get(n - 3)) : null;
+            platform = (n >= 2) ? blankToNull(fields.get(n - 2)) : null;
+        }
         Integer took = null;
         for (String f : fields) {
             Matcher tm = TOOK.matcher(f);
@@ -398,9 +412,23 @@ public class LogAnalysisService {
         boolean request = "Request".equalsIgnoreCase(m.group(5));
         String path = m.group(4);
         String json = m.group(6);
-        String code = request ? null : firstGroup(CODE, json);
-        String desc = request ? null : firstGroup(DESC, json);
-        String svc = firstGroup(SVC_VERSION, json);   // backend service version (host-message payload)
+        // Parse the payload as a JSON object and search the tree (any depth, any shape,
+        // numeric or quoted, case-insensitive key) so it works for any API regardless of
+        // where these fields nest. Falls back to a regex only if the JSON won't parse
+        // (e.g. a truncated line).
+        JsonNode tree = tryParseJson(json);
+        String code;
+        String desc;
+        String svc;
+        if (tree != null) {
+            code = request ? null : jsonFind(tree, "responseCode");
+            desc = request ? null : jsonFind(tree, "responseDescription");
+            svc = jsonFind(tree, "serviceVersionNumber");
+        } else {
+            code = request ? null : firstGroup(CODE, json);
+            desc = request ? null : firstGroup(DESC, json);
+            svc = firstGroup(SVC_VERSION, json);
+        }
         return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc);
     }
 
@@ -414,6 +442,57 @@ public class LogAnalysisService {
         }
         Matcher m = p.matcher(s);
         return m.find() ? m.group(1) : null;
+    }
+
+    /** Parse the payload as JSON; null if it isn't a JSON object/array (e.g. truncated). */
+    private static JsonNode tryParseJson(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        if (t.isEmpty() || (t.charAt(0) != '{' && t.charAt(0) != '[')) {
+            return null;
+        }
+        try {
+            return MAPPER.readTree(t);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Find a scalar field anywhere in the JSON tree (breadth-first so the shallowest
+     * match wins), matching the key case-insensitively. Returns its text value (works
+     * for {@code "0000"} and numeric {@code 0} alike), or null if absent.
+     */
+    private static String jsonFind(JsonNode node, String key) {
+        if (node == null) {
+            return null;
+        }
+        if (node.isObject()) {
+            var direct = node.fields();
+            while (direct.hasNext()) {
+                var e = direct.next();
+                if (e.getKey().equalsIgnoreCase(key) && e.getValue().isValueNode() && !e.getValue().isNull()) {
+                    return e.getValue().asText();
+                }
+            }
+            var nested = node.fields();
+            while (nested.hasNext()) {
+                String found = jsonFind(nested.next().getValue(), key);
+                if (found != null) {
+                    return found;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                String found = jsonFind(child, key);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static boolean isSuccessCode(String code) {

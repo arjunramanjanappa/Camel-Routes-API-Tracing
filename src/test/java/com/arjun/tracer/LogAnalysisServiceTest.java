@@ -111,6 +111,27 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void responseCodeParsedFromJsonAtAnyDepthAndEmptyVersionIsBase() throws IOException {
+        // Base-release lines (EMPTY version bracket) whose responseCode is a NUMBER nested
+        // at an arbitrary depth (and one with a different-cased key). The payload is parsed
+        // as JSON and searched, so it works for any API shape; the empty version must read
+        // as base (0.0) rather than dropping the line.
+        LogAnalysisReport r = analyze("analysis-jsonbase.log", "");   // blank = no version scoping
+
+        assertThat(r.unparsedLines()).isZero();                       // empty version didn't drop the lines
+        assertThat(r.transactions()).isEqualTo(1);                    // all three share correlation id C9
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.tested()).isTrue();
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);         // numeric responseCode 0 → pass
+        assertThat(v2.responseCode()).isEqualTo("0");
+        assertThat(v2.correlationId()).isEqualTo("C9");               // found despite the empty version
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/base/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);      // nested, mixed-case "ResponseCode":0
+        });
+    }
+
+    @Test
     void apiExercisedOnlyOnAnotherReleaseIsNotTestedWithDiagnostic() throws IOException {
         // The log has the API only at 9.3; analysing for 9.4 ⇒ matched but wrong
         // release, and the note must say so (the diagnostic that explains "not tested").

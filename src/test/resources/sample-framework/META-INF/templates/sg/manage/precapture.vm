@@ -1,0 +1,7 @@
+## limit precapture velocity template
+{
+  "ServiceContext": {
+    "channelId": "MTY",
+    "serviceVersionNumber": "5.5"
+  }
+}

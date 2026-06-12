@@ -22,4 +22,27 @@
         <to uri="direct:callUFWDGE"/>
     </route>
 
+    <!-- Combination: a velocity template BEFORE the choice (5.5) is inherited by the
+         OWN branch; the otherwise branch OVERRIDES with its own freemarker template (3.3).
+         Different backends, mixed .vm/.ftl, no cross-branch leak. -->
+    <route id="R9.4_comboApi">
+        <from uri="direct:R9.4_comboApi"/>
+        <to uri="velocity:META-INF/templates/sg/manage/precapture.vm"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'OWN'</simple>
+                <setProperty name="api">
+                    <simple>/combo/own</simple>
+                </setProperty>
+            </when>
+            <otherwise>
+                <to uri="freemarker:META-INF/templates/sg/manage/postcapture.ftl"/>
+                <setProperty name="api">
+                    <simple>/combo/other</simple>
+                </setProperty>
+            </otherwise>
+        </choice>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
 </routes>

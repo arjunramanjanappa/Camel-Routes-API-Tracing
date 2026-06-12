@@ -60,6 +60,17 @@ class RouteTraceServiceTest {
     }
 
     @Test
+    void templateBeforeChoiceIsInheritedAndABranchCanOverride() {
+        // velocity template before the choice (5.5) → OWN branch inherits it;
+        // the otherwise branch overrides with its own freemarker template (3.3).
+        TraceResponse r = trace("/payment/v2/combo", "9.4", null);
+
+        assertThat(r.getBackendVersions())
+                .containsEntry("/combo/own", "5.5")
+                .containsEntry("/combo/other", "3.3");
+    }
+
+    @Test
     void resolvesOperationAndCommandFromController() {
         TraceResponse r = trace("/payment/v2/fund/submit", "9.4", null);
         assertThat(r.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
@@ -168,8 +179,8 @@ class RouteTraceServiceTest {
     void noApiProducesCatalogGroupedByVersion() {
         CatalogResponse cat = catalog(null);
         assertThat(cat.getMode()).isEqualTo("catalog");
-        // Three controller endpoints: v1 (no routes), v2 (R9.4, R9.3, BASE), limitInitiate (R9.4).
-        assertThat(cat.getOperationCount()).isEqualTo(3);
+        // Four controller endpoints: v1 (no routes), v2 (R9.4, R9.3, BASE), limitInitiate + combo (R9.4).
+        assertThat(cat.getOperationCount()).isEqualTo(4);
         assertThat(cat.getVersionsFound()).containsExactly("9.4", "9.3", "BASE", "(no route found)");
         assertThat(cat.getGraph().getNodes()).isNotEmpty();
     }

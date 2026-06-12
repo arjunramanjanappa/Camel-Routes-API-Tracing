@@ -21,7 +21,7 @@ class ImpactIndexTest {
         // Only the APIs that release 9.4 actually impacts (resolve to R9.4) are listed;
         // the v1 endpoint has no route and is excluded with a notice.
         assertThat(idx.getApis()).extracting(ApiImpact::operation)
-                .containsExactlyInAnyOrder("fundTransferSubmitV2Api", "limitInitiateApi");
+                .containsExactlyInAnyOrder("fundTransferSubmitV2Api", "limitInitiateApi", "comboApi");
         assertThat(idx.getWarnings()).anyMatch(w -> w.contains("not impacted by version 9.4"));
 
         ApiImpact v2 = idx.getApis().stream()

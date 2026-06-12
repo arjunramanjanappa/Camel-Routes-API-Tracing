@@ -32,4 +32,12 @@ public class PaymentController {
     public ApiSingleResponse limitInitiateApi(Object body) {
         return null;
     }
+
+    // Combination: template before the choice (inherited by one branch) + a branch
+    // overriding with its own template — different backends, mixed .vm/.ftl.
+    @CommandHandler(command = "ComboCommand")
+    @PostMapping("/v2/combo")
+    public ApiSingleResponse comboApi(Object body) {
+        return null;
+    }
 }

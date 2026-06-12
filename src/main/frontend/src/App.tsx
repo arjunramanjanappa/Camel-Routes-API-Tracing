@@ -37,7 +37,7 @@ export default function App() {
           </button>
         </nav>
       </header>
-      {view === 'trace' ? <TraceView app={app} colorMode={theme} /> : <ImpactView app={app} />}
+      {view === 'trace' ? <TraceView app={app} colorMode={theme} /> : <ImpactView app={app} colorMode={theme} />}
     </div>
   );
 }

@@ -5,12 +5,13 @@ import { backendPath, downloadText } from '../spl';
 import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel from '../components/LogAnalysisPanel';
+import ApiFlowModal from '../components/ApiFlowModal';
 
 // The context (sourceDir + country + version) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
 
-export default function ImpactView({ app }: { app?: string }) {
+export default function ImpactView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState(() => localStorage.getItem(appKey(app, 'version')) ?? '');
@@ -23,6 +24,7 @@ export default function ImpactView({ app }: { app?: string }) {
   const [manualRoutes, setManualRoutes] = useState<Set<string>>(new Set());
   const [manualBackends, setManualBackends] = useState<Set<string>>(new Set());
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
+  const [flowApi, setFlowApi] = useState<string | null>(null);   // which API's graph is open
 
   const load = async () => {
     // Remember this app's context (source dir + country + version).
@@ -176,7 +178,10 @@ export default function ImpactView({ app }: { app?: string }) {
                   if (!a) return null;
                   return (
                     <div className="sel-api" key={p}>
-                      <div className="sel-api-path"><code>{a.api}</code></div>
+                      <div className="sel-api-path row between">
+                        <code>{a.api}</code>
+                        <button className="linkbtn" onClick={() => setFlowApi(a.api)}>View flow ▸</button>
+                      </div>
                       <div className="sel-row">
                         <span className="sel-label">routes</span>
                         {a.routes.length ? a.routes.map((r) => <span key={r} className="tag route">{r}</span>) : <span className="muted">—</span>}
@@ -220,7 +225,7 @@ export default function ImpactView({ app }: { app?: string }) {
               {hasChange && impacted.length === 0 && <div className="sub">No APIs are impacted by the selected change.</div>}
               {impacted.length > 0 && (
                 <table className="grid">
-                  <thead><tr><th>API</th><th>Operation</th><th>Resolves to</th><th>Impacted via</th></tr></thead>
+                  <thead><tr><th>API</th><th>Operation</th><th>Resolves to</th><th>Impacted via</th><th></th></tr></thead>
                   <tbody>
                     {impacted.map((i) => (
                       <tr key={i.api.api + i.api.operation}>
@@ -235,6 +240,7 @@ export default function ImpactView({ app }: { app?: string }) {
                             </span>
                           ))}
                         </td>
+                        <td><button className="linkbtn" onClick={() => setFlowApi(i.api.api)} title="Show this API's route graph">flow ▸</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -257,6 +263,11 @@ export default function ImpactView({ app }: { app?: string }) {
                             selectedApis={selectedApiList} selectedBackends={selectedBackendList} />
         </div>
         </>
+      )}
+
+      {flowApi && (
+        <ApiFlowModal api={flowApi} version={version} sourceDir={sourceDir} country={country}
+                      colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>
   );

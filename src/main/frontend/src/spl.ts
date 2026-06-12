@@ -40,13 +40,26 @@ export function buildEventsSpl(
   beField: string,
   beTerms: string[],
   earliest = '-24h',
+  beVersions: Record<string, string> = {},
+  svcField = 'serviceVersionNumber',
 ): string {
   const fe = [...new Set(feTerms.filter(Boolean))];
   const be = [...new Set(beTerms.filter(Boolean))];
   if (fe.length === 0 && be.length === 0) return '';
   const groups: string[] = [];
   if (fe.length) groups.push('(' + fe.map((t) => `${feField}="${t}"`).join(' OR ') + ')');
-  if (be.length) groups.push('(' + be.map((t) => `${beField}="${t}"`).join(' OR ') + ')');
+  if (be.length) {
+    // Each backend is searched together with its traced service version(s) so the
+    // query targets that api's version and ignores events at other versions.
+    const clauses = be.map((t) => {
+      const ver = beVersions[t];
+      if (!ver) return `${beField}="${t}"`;
+      const vers = ver.split(' / ').map((v) => `${svcField}="${v.trim()}"`);
+      const verClause = vers.length > 1 ? '(' + vers.join(' OR ') + ')' : vers[0];
+      return `(${beField}="${t}" ${verClause})`;
+    });
+    groups.push('(' + clauses.join(' OR ') + ')');
+  }
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   return `index=${index} ${win}(${groups.join(' OR ')})\n| table _time, _raw\n| sort 0 _time`;
 }

@@ -74,6 +74,15 @@ export default function ImpactView() {
     if (idx) idx.apis.forEach((a) => { if (selectedApis.has(a.api)) a.backends.forEach((b) => set.add(b)); });
     return [...set];
   }, [idx, selectedApis, changedBackends]);
+  // Backend URL → traced service version(s), merged across the release's APIs.
+  const backendVersionMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    idx?.apis.forEach((a) => a.backendVersions && Object.entries(a.backendVersions).forEach(([url, ver]) => {
+      if (!m[url]) m[url] = ver;
+      else if (!m[url].split(' / ').includes(ver)) m[url] += ' / ' + ver;
+    }));
+    return m;
+  }, [idx]);
 
   const exportCsv = () => {
     const rows = [['api', 'operation', 'resolvedRoute', 'impactedViaRoutes', 'impactedViaBackends', 'backends']];
@@ -168,6 +177,7 @@ export default function ImpactView() {
               title="Splunk query — selected APIs"
               frontendApis={selectedApiList}
               backendApis={splBackends}
+              backendVersions={backendVersionMap}
               hint="Run this in Splunk, export the result (CSV/JSON), then upload it under “Verify with logs” below."
             />
           </div>

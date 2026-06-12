@@ -76,6 +76,8 @@ public class LogAnalysisService {
     // numeric fields (session ids etc.) are never mistaken for a version.
     private static final Pattern VERSION_FIELD = Pattern.compile("R?(\\d+(?:\\.\\d+)+)");
     private static final Pattern ALL_ZEROS = Pattern.compile("0+");
+    // The backend service version carried in a MightyHostMessage payload.
+    private static final Pattern SVC_VERSION = Pattern.compile("\"serviceVersionNumber\"\\s*:\\s*\"?([0-9][0-9.]*)\"?");
 
     /**
      * Analyse an uploaded log / Splunk export. Caller owns the stream.
@@ -165,6 +167,13 @@ public class LogAnalysisService {
         boolean apiSel = selectedApis != null && !selectedApis.isEmpty();
         boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
 
+        // Backend URL → expected service version(s), aggregated across the release.
+        Map<String, String> expectedVersions = new LinkedHashMap<>();
+        for (ApiImpact api : idx.getApis()) {
+            api.backendVersions().forEach((url, ver) ->
+                    expectedVersions.merge(url, ver, LogAnalysisService::joinVersions));
+        }
+
         // Front-end (MightyMessage) section: the whole release when all=true, the
         // selected APIs when chosen, otherwise none (e.g. a backend-only analysis).
         List<ApiLogResult> apiResults = new ArrayList<>();
@@ -182,7 +191,7 @@ public class LogAnalysisService {
         List<BackendLogResult> backendResults = new ArrayList<>();
         List<String> beTargets = all ? idx.getAllBackends() : (beSel ? selectedBackends : List.of());
         for (String backend : beTargets) {
-            backendResults.add(correlateBackend(backend, txns, version));
+            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend)));
         }
 
         return new LogAnalysisReport(detected, version, idx.getCountry(),
@@ -375,7 +384,8 @@ public class LogAnalysisService {
         String json = m.group(6);
         String code = request ? null : firstGroup(CODE, json);
         String desc = request ? null : firstGroup(DESC, json);
-        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc);
+        String svc = firstGroup(SVC_VERSION, json);   // backend service version (host-message payload)
+        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc);
     }
 
     private static String blankToNull(String s) {
@@ -425,13 +435,16 @@ public class LogAnalysisService {
         for (LogLine req : beReq) {
             Deque<LogLine> dq = respByPath.get(req.path());
             LogLine rp = dq != null ? dq.poll() : null;
+            // serviceVersionNumber is in both Request and Response payloads — prefer the request.
+            String svc = req.serviceVersion() != null ? req.serviceVersion()
+                    : (rp != null ? rp.serviceVersion() : null);
             calls.add(rp != null
-                    ? new BackendCall(req.path(), rp.tookMs(), rp.code(), rp.desc(), true)
-                    : new BackendCall(req.path(), null, null, null, false));
+                    ? new BackendCall(req.path(), rp.tookMs(), rp.code(), rp.desc(), true, svc)
+                    : new BackendCall(req.path(), null, null, null, false, svc));
         }
         for (Deque<LogLine> leftover : respByPath.values()) {
             for (LogLine rp : leftover) {
-                calls.add(new BackendCall(rp.path(), rp.tookMs(), rp.code(), rp.desc(), true));
+                calls.add(new BackendCall(rp.path(), rp.tookMs(), rp.code(), rp.desc(), true, rp.serviceVersion()));
             }
         }
 
@@ -487,11 +500,11 @@ public class LogAnalysisService {
         Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
         int success = 0;
         for (Txn t : forVersion) {
-            if (evaluate(t, api.backends()).status() == LogStatus.SUCCESS) {
+            if (evaluate(t, api.backends(), api.backendVersions()).status() == LogStatus.SUCCESS) {
                 success++;
             }
         }
-        Eval eval = evaluate(latest, api.backends());
+        Eval eval = evaluate(latest, api.backends(), api.backendVersions());
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
@@ -503,7 +516,7 @@ public class LogAnalysisService {
     }
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
-    private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version) {
+    private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion) {
         boolean versionScoped = version != null && !version.isBlank();
         List<BackendHit> hits = new ArrayList<>();
         Set<String> seen = new TreeSet<>();
@@ -532,7 +545,8 @@ public class LogAnalysisService {
             } else {
                 note = "No backend call observed — never tested.";
             }
-            return new BackendLogResult(backend, LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note);
+            return new BackendLogResult(backend, LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note,
+                    expectedVersion, null, null);
         }
 
         BackendHit latest = hits.stream().max(Comparator.comparing(h -> h.txn().ts())).orElseThrow();
@@ -543,6 +557,8 @@ public class LogAnalysisService {
             }
         }
         LogStatus status = beStatus(latest.call());
+        String logged = latest.call().serviceVersion();
+        Boolean svcOk = versionOk(expectedVersion, logged);
         String note = switch (status) {
             case SUCCESS -> null;
             case TIMEOUT -> "Backend request logged but no response.";
@@ -550,9 +566,36 @@ public class LogAnalysisService {
             default -> "Backend responseCode " + latest.call().code()
                     + (latest.call().desc() != null ? " (" + latest.call().desc() + ")." : ".");
         };
+        if (Boolean.FALSE.equals(svcOk)) {
+            note = (note == null ? "" : note + " ") + "Service version mismatch: called " + logged
+                    + ", expected " + expectedVersion + ".";
+        }
         return new BackendLogResult(backend, status, true, latest.call().tookMs(),
                 latest.call().code(), latest.call().desc(),
-                hits.size(), success, hits.size() - success, latest.txn().ts(), latest.txn().correlationId(), note);
+                hits.size(), success, hits.size() - success, latest.txn().ts(), latest.txn().correlationId(), note,
+                expectedVersion, logged, svcOk);
+    }
+
+    /** true if the logged version is one of the expected (possibly "2.2 / 3.3"); null if either is absent. */
+    private static Boolean versionOk(String expected, String logged) {
+        if (expected == null || expected.isBlank() || logged == null || logged.isBlank()) {
+            return null;
+        }
+        for (String v : expected.split(" / ")) {
+            if (v.trim().equals(logged.trim())) {
+                return Boolean.TRUE;
+            }
+        }
+        return Boolean.FALSE;
+    }
+
+    private static String joinVersions(String existing, String add) {
+        for (String v : existing.split(" / ")) {
+            if (v.equals(add)) {
+                return existing;
+            }
+        }
+        return existing + " / " + add;
     }
 
     private LogStatus beStatus(BackendCall c) {
@@ -614,35 +657,36 @@ public class LogAnalysisService {
         return s;
     }
 
-    private Eval evaluate(Txn t, List<String> tracedBackends) {
+    private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions) {
+        List<BackendCallResult> backends = backendResults(t, tracedBackends, expectedVersions);
         // Front end is the source of truth for the end-to-end verdict.
         if (t.feResp() == null) {
             return new Eval(LogStatus.TIMEOUT,
-                    "Front-end request logged but no response — timeout or server down.",
-                    backendResults(t, tracedBackends));
+                    "Front-end request logged but no response — timeout or server down.", backends);
         }
         String code = t.feResp().code();
         if (code == null) {
             return new Eval(LogStatus.INDETERMINATE,
                     "Front-end response logged but no responseCode could be read"
                             + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")." : "."),
-                    backendResults(t, tracedBackends));
+                    backends);
         }
         if (!isSuccessCode(code)) {
             return new Eval(LogStatus.FAILED,
                     "Front-end responseCode " + code
-                            + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."),
-                    backendResults(t, tracedBackends));
+                            + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."), backends);
         }
-        // Front end OK — check the backends it was traced to call. Only a backend
-        // that was actually observed and failed downgrades the verdict: a traced
-        // backend that never appears is usually a choice branch that wasn't taken,
-        // not a failure, so it is reported for info but does not flag PARTIAL.
-        List<BackendCallResult> backends = backendResults(t, tracedBackends);
+        // Front end OK — check the backends it was traced to call. Only an observed
+        // backend that failed (or was called at the wrong service version) downgrades
+        // the verdict; a traced backend that never appears is usually a choice branch
+        // that wasn't taken, so it is reported for info but does not flag PARTIAL.
         List<String> issues = new ArrayList<>();
         for (BackendCallResult b : backends) {
             if (b.status() != LogStatus.SUCCESS && b.status() != LogStatus.NOT_TESTED) {
                 issues.add(b.status().name().toLowerCase() + " backend: " + b.backend());
+            } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
+                issues.add("wrong service version on " + b.backend()
+                        + " (called " + b.loggedServiceVersion() + ", expected " + b.expectedServiceVersion() + ")");
             }
         }
         if (!issues.isEmpty()) {
@@ -652,7 +696,7 @@ public class LogAnalysisService {
         return new Eval(LogStatus.SUCCESS, null, backends);
     }
 
-    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends) {
+    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions) {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
             BackendCall hit = null;
@@ -662,20 +706,18 @@ public class LogAnalysisService {
                     break;
                 }
             }
+            String expected = expectedVersions == null ? null : expectedVersions.get(tb);
             if (hit == null) {
-                out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null));
-            } else if (!hit.hasResponse()) {
-                out.add(new BackendCallResult(tb, hit.path(), LogStatus.TIMEOUT, null, null, null));
-            } else if (hit.code() == null) {
-                out.add(new BackendCallResult(tb, hit.path(), LogStatus.INDETERMINATE,
-                        hit.tookMs(), hit.code(), hit.desc()));
-            } else if (isSuccessCode(hit.code())) {
-                out.add(new BackendCallResult(tb, hit.path(), LogStatus.SUCCESS,
-                        hit.tookMs(), hit.code(), hit.desc()));
-            } else {
-                out.add(new BackendCallResult(tb, hit.path(), LogStatus.FAILED,
-                        hit.tookMs(), hit.code(), hit.desc()));
+                out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null));
+                continue;
             }
+            LogStatus st = !hit.hasResponse() ? LogStatus.TIMEOUT
+                    : hit.code() == null ? LogStatus.INDETERMINATE
+                    : isSuccessCode(hit.code()) ? LogStatus.SUCCESS : LogStatus.FAILED;
+            boolean timedOut = st == LogStatus.TIMEOUT;
+            out.add(new BackendCallResult(tb, hit.path(), st,
+                    timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), timedOut ? null : hit.desc(),
+                    expected, hit.serviceVersion(), versionOk(expected, hit.serviceVersion())));
         }
         return out;
     }
@@ -684,10 +726,11 @@ public class LogAnalysisService {
 
     private record LogLine(String ts, boolean fe, boolean request, String version,
                            String correlationId, String platform, Integer tookMs,
-                           String path, String code, String desc) {
+                           String path, String code, String desc, String serviceVersion) {
     }
 
-    private record BackendCall(String path, Integer tookMs, String code, String desc, boolean hasResponse) {
+    private record BackendCall(String path, Integer tookMs, String code, String desc,
+                               boolean hasResponse, String serviceVersion) {
     }
 
     private record BackendHit(Txn txn, BackendCall call) {

@@ -150,6 +150,31 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void backendServiceVersionMatchIsOk() throws IOException {
+        // own/submit is traced with service version 2.2; the log calls it at 2.2.
+        LogAnalysisReport r = analyzeBackends("analysis-svcmatch.log", "9.4",
+                List.of("{{baseUrl}}/bfs/ft/own/submit"));
+
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.expectedServiceVersion()).isEqualTo("2.2");
+        assertThat(be.loggedServiceVersion()).isEqualTo("2.2");
+        assertThat(be.serviceVersionOk()).isTrue();
+    }
+
+    @Test
+    void backendServiceVersionMismatchIsFlagged() throws IOException {
+        // The log calls own/submit at 9.9 but the tracer expects 2.2 — flag it.
+        LogAnalysisReport r = analyzeBackends("analysis-svcmismatch.log", "9.4",
+                List.of("{{baseUrl}}/bfs/ft/own/submit"));
+
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.expectedServiceVersion()).isEqualTo("2.2");
+        assertThat(be.loggedServiceVersion()).isEqualTo("9.9");
+        assertThat(be.serviceVersionOk()).isFalse();
+        assertThat(be.note()).contains("Service version mismatch").contains("9.9").contains("2.2");
+    }
+
+    @Test
     void splunkJsonExportYieldsTheSameVerdictAsTheRawLog() throws IOException {
         LogAnalysisReport r = analyze("analysis-splunk.json", "9.4");
 

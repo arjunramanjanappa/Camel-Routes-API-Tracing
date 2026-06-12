@@ -105,6 +105,9 @@ export interface BackendCallResult {
   latencyMs?: number | null;
   responseCode?: string | null;
   responseDescription?: string | null;
+  expectedServiceVersion?: string | null;
+  loggedServiceVersion?: string | null;
+  serviceVersionOk?: boolean | null;
 }
 
 export interface ApiLogResult {
@@ -139,6 +142,9 @@ export interface BackendLogResult {
   latestAt?: string | null;
   correlationId?: string | null;
   note?: string | null;
+  expectedServiceVersion?: string | null;
+  loggedServiceVersion?: string | null;
+  serviceVersionOk?: boolean | null;
 }
 
 export interface LogAnalysisReport {

@@ -18,6 +18,9 @@ package com.arjun.tracer.api;
  * @param latestAt       timestamp of the latest call
  * @param correlationId  correlation id of the latest call
  * @param note           explanation for non-green / investigate states
+ * @param expectedServiceVersion service version the tracer expects (may be "2.2 / 3.3")
+ * @param loggedServiceVersion   service version seen in the latest host-message payload
+ * @param serviceVersionOk       true if logged matches an expected version, false if mismatch, null if unknown
  */
 public record BackendLogResult(
         String backend,
@@ -31,5 +34,8 @@ public record BackendLogResult(
         int failureCount,
         String latestAt,
         String correlationId,
-        String note) {
+        String note,
+        String expectedServiceVersion,
+        String loggedServiceVersion,
+        Boolean serviceVersionOk) {
 }

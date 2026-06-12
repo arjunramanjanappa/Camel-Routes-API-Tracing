@@ -34,6 +34,15 @@ function Badge({ s }: { s: LogStatus }) {
   return <span className={'lstat ' + s.toLowerCase()}>{STATUS_LABEL[s]}</span>;
 }
 
+/** Backend service version: logged vs expected, with a match/mismatch indicator. */
+function SvcChip({ expected, logged, ok }: { expected?: string | null; logged?: string | null; ok?: boolean | null }) {
+  if (!expected && !logged) return null;
+  if (ok === true) return <span className="svcchip ok" title={'expected ' + expected}>svc {logged} ✓</span>;
+  if (ok === false) return <span className="svcchip bad" title={'expected ' + expected}>svc {logged} ✗ (exp {expected})</span>;
+  if (logged) return <span className="svcchip" title={expected ? 'expected ' + expected : undefined}>svc {logged}</span>;
+  return <span className="svcchip" title="not seen in the log">exp svc {expected}</span>;
+}
+
 /** A donut summarising the per-status API counts. */
 function Donut({ counts }: { counts: Record<LogStatus, number> }) {
   const segs = STATUS_ORDER.filter((s) => counts[s]);
@@ -67,7 +76,10 @@ function BackendRow({ b }: { b: BackendLogResult }) {
   return (
     <tr className={'lrow ' + b.status.toLowerCase()}>
       <td><Badge s={b.status} /></td>
-      <td><code>{backendPath(b.backend)}</code></td>
+      <td>
+        <code>{backendPath(b.backend)}</code>
+        {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.serviceVersionOk} />
+      </td>
       <td title={b.correlationId ? 'correlation ' + b.correlationId + (b.latestAt ? ' @ ' + b.latestAt : '') : undefined}>
         {resultText}
       </td>
@@ -104,6 +116,7 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           <td colSpan={2}>
             <code>{b.backend}</code>
             <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : ' not observed'}</span>
+            {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.serviceVersionOk} />
           </td>
           <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
           <td colSpan={2}>{b.responseCode || ''}{b.responseDescription ? ' · ' + b.responseDescription : ''}</td>

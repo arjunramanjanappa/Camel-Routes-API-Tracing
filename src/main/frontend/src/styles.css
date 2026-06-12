@@ -134,6 +134,9 @@ tr.lsub code { background: transparent; }
 .fchip.all { background: #eef2f7; color: #52606d; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; }
 .fchip.issues { background: #fff1e7; color: #9a3412; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; }
 .sortsel { width: auto; padding: 6px 8px; font-size: 12px; }
+.svcchip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; background: #e0e7ff; color: #3730a3; white-space: nowrap; }
+.svcchip.ok { background: #dcfce7; color: #166534; }
+.svcchip.bad { background: #fee2e2; color: #991b1b; }
 
 .graph-controls { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 6px 8px; z-index: 6; }
 .graph-controls select { width: auto; padding: 5px 8px; font-size: 12px; }
@@ -212,6 +215,9 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] tr.lrow.failed td { background: #2a1a12; }
 [data-theme="dark"] tr.lrow.timeout td { background: #1c172e; }
 [data-theme="dark"] tr.lsub td { background: #0f172a; }
+[data-theme="dark"] .svcchip { background: #312e81; color: #c7d2fe; }
+[data-theme="dark"] .svcchip.ok { background: #052e16; color: #86efac; }
+[data-theme="dark"] .svcchip.bad { background: #2a1416; color: #fca5a5; }
 [data-theme="dark"] .donut .dtrack { stroke: #334155; }
 [data-theme="dark"] .donut-num { fill: #e2e8f0; }
 [data-theme="dark"] .fchip.all { background: #1e293b; color: #cbd5e1; }

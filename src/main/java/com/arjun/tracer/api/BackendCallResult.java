@@ -9,6 +9,9 @@ package com.arjun.tracer.api;
  * @param latencyMs    the [Nms] the backend took, when present on the response line
  * @param responseCode raw responseCode from the backend JSON (shown when not determinable)
  * @param responseDescription raw responseDescription from the backend JSON
+ * @param expectedServiceVersion service version the tracer expects for this backend (may be "2.2 / 3.3")
+ * @param loggedServiceVersion   service version actually seen in the host-message payload
+ * @param serviceVersionOk       true if logged matches an expected version, false if mismatch, null if unknown
  */
 public record BackendCallResult(
         String backend,
@@ -16,5 +19,8 @@ public record BackendCallResult(
         LogStatus status,
         Integer latencyMs,
         String responseCode,
-        String responseDescription) {
+        String responseDescription,
+        String expectedServiceVersion,
+        String loggedServiceVersion,
+        Boolean serviceVersionOk) {
 }

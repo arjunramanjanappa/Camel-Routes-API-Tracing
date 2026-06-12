@@ -26,8 +26,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .row { display: flex; gap: 8px; align-items: center; }
 .between { justify-content: space-between; }
 .chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-.chip.single { background: #dbeafe; color: #1e40af; }
-.chip.catalog { background: #ede9fe; color: #5b21b6; }
+.chip.single, .chip.catalog { background: var(--accent-soft); color: var(--accent-num); }
 .linkbtn { background: none; border: 0; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; }
 .linkbtn:hover { text-decoration: underline; }
 .minibtn { padding: 7px 10px; font-size: 12px; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; cursor: pointer; white-space: nowrap; }

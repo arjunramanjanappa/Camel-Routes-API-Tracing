@@ -68,18 +68,34 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
   const cat = data;
   const allFe = [...new Set(cat.groups.flatMap((g) => g.traces.map((t) => t.api || t.operationName || '')).filter(Boolean))];
   const allBe = [...new Set(cat.groups.flatMap((g) => g.traces.flatMap((t) => t.backendApis || [])))];
+  // Impacted APIs = those that actually resolve to a route (the catalog is
+  // already scoped to the requested release, so every routed API is impacted).
+  const impacted = cat.groups.filter((g) => g.version !== '(no route found)').reduce((n, g) => n + g.traces.length, 0);
+  const noRoute = cat.operationCount - impacted;
+  const reqVer = cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion.trim() : '';
   return (
     <>
       <div className="panel">
         <h2>Catalog{cat.country ? ' · ' + cat.country : ''}</h2>
-        <div className="kv"><b>APIs discovered:</b> {cat.operationCount}</div>
+        <div className="catalog-stats">
+          <div className="cstat impacted">
+            <span className="cstat-num">{impacted}</span>
+            <span className="cstat-label">Impacted API{impacted === 1 ? '' : 's'}{reqVer ? ` · R${reqVer}` : ''}</span>
+          </div>
+          {noRoute > 0 && (
+            <div className="cstat muted">
+              <span className="cstat-num">{noRoute}</span>
+              <span className="cstat-label">No route found</span>
+            </div>
+          )}
+        </div>
         <div className="kv"><b>Version groups:</b> {(cat.versionsFound || []).join(', ')}</div>
       </div>
       {cat.groups.map((g) => {
         const cls = g.version === '(no route found)' ? 'none' : g.version === 'BASE' ? 'base' : 'versioned';
         return (
           <div className="panel" key={g.version}>
-            <h2>{g.version} <span className={'pill ' + cls}>{g.traces.length}</span></h2>
+            <h2>{g.version} <span className={'pill ' + cls}>{g.traces.length} API{g.traces.length === 1 ? '' : 's'}</span></h2>
             {g.traces.map((t, i) => {
               const open = () => onOpenApi(t.api || t.operationName || '', cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion : t.resolvedVersion);
               return (

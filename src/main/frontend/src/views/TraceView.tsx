@@ -8,10 +8,10 @@ import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 
-// The "where" context (sourceDir + country) is remembered PER APPLICATION — Mighty
-// and SPL are separate codebases — so switching apps restores the right source dir.
-// The "what" inputs (api/version/transferType) start empty each load.
-const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country'];
+// The context (sourceDir + country + version) is remembered PER APPLICATION — Mighty
+// and SPL are separate codebases — so switching apps restores that app's settings.
+// The remaining "what" inputs (api/transferType) start empty each load.
+const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country', 'version'];
 
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 

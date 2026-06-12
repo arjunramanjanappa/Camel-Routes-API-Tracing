@@ -6,14 +6,14 @@ import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel from '../components/LogAnalysisPanel';
 
-// The "where" context (sourceDir + country) is remembered per application — Mighty
-// and SPL are separate codebases. The release version starts empty (it changes per test).
+// The context (sourceDir + country + version) is remembered per application — Mighty
+// and SPL are separate codebases — so switching apps restores that app's settings.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
 
 export default function ImpactView({ app }: { app?: string }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
-  const [version, setVersion] = useState('');
+  const [version, setVersion] = useState(() => localStorage.getItem(appKey(app, 'version')) ?? '');
   const [idx, setIdx] = useState<ImpactIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,9 +23,10 @@ export default function ImpactView({ app }: { app?: string }) {
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
 
   const load = async () => {
-    // Remember this app's codebase context (source dir + country); version stays per-test.
+    // Remember this app's context (source dir + country + version).
     localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
     localStorage.setItem(appKey(app, 'country'), country);
+    localStorage.setItem(appKey(app, 'version'), version);
     setLoading(true); setError(null);
     try {
       const data = await fetchImpactIndex(sourceDir, country, version);

@@ -8,16 +8,17 @@ import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 
-// Nothing trace-specific is hardcoded or pre-filled. api/version/transferType
-// and sourceDir all start empty each load: a blank sourceDir falls back to the
-// server's configured tracer.source-dir, and the page opens on a whole-code
-// catalog. Only `country` is remembered across loads.
-const PERSIST: (keyof TraceParams)[] = ['country'];
+// The "where" context (sourceDir + country) is remembered PER APPLICATION — Mighty
+// and SPL are separate codebases — so switching apps restores the right source dir.
+// The "what" inputs (api/version/transferType) start empty each load.
+const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country'];
 
-function loadParams(): TraceParams {
+function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
+
+function loadParams(app: string): TraceParams {
   const p: TraceParams = {};
   PERSIST.forEach((f) => {
-    const v = localStorage.getItem('tracer.' + f);
+    const v = localStorage.getItem(appKey(app, f));
     if (v !== null) p[f] = v;
   });
   return p;
@@ -25,8 +26,8 @@ function loadParams(): TraceParams {
 
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
-export default function TraceView({ colorMode }: { colorMode: 'light' | 'dark' }) {
-  const [params, setParams] = useState<TraceParams>(loadParams);
+export default function TraceView({ app = 'Mighty', colorMode }: { app?: string; colorMode: 'light' | 'dark' }) {
+  const [params, setParams] = useState<TraceParams>(() => loadParams(app));
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,7 +36,7 @@ export default function TraceView({ colorMode }: { colorMode: 'light' | 'dark' }
   const [search, setSearch] = useState('');
   const graphRef = useRef<GraphHandle>(null);
 
-  const persist = (p: TraceParams) => PERSIST.forEach((f) => localStorage.setItem('tracer.' + f, p[f] || ''));
+  const persist = (p: TraceParams) => PERSIST.forEach((f) => localStorage.setItem(appKey(app, f), p[f] || ''));
   const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country));
 
   const runTrace = async (p: TraceParams) => {

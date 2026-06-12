@@ -6,13 +6,14 @@ import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel from '../components/LogAnalysisPanel';
 
-function get(k: string, d = '') { return localStorage.getItem('tracer.' + k) ?? d; }
-function put(k: string, v: string) { localStorage.setItem('tracer.' + k, v); }
+// The "where" context (sourceDir + country) is remembered per application — Mighty
+// and SPL are separate codebases. The release version starts empty (it changes per test).
+function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
 
 export default function ImpactView({ app }: { app?: string }) {
-  const [sourceDir, setSourceDir] = useState('');   // not pre-filled; blank => server's tracer.source-dir
-  const [country, setCountry] = useState(get('country'));
-  const [version, setVersion] = useState(get('version'));
+  const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
+  const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
+  const [version, setVersion] = useState('');
   const [idx, setIdx] = useState<ImpactIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +23,9 @@ export default function ImpactView({ app }: { app?: string }) {
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
 
   const load = async () => {
-    put('country', country);   // sourceDir & version are not persisted — they start empty each load
+    // Remember this app's codebase context (source dir + country); version stays per-test.
+    localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
+    localStorage.setItem(appKey(app, 'country'), country);
     setLoading(true); setError(null);
     try {
       const data = await fetchImpactIndex(sourceDir, country, version);

@@ -111,6 +111,23 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void correlationIdMatchedByTraceIdShapeNotPosition() throws IOException {
+        // The correlation id is a long-hex trace id. It's found by that shape (the only
+        // hex field), and the front-end + host lines that share it pair into one txn.
+        LogAnalysisReport r = analyze("analysis-traceid.log", "9.4");
+
+        assertThat(r.transactions()).isEqualTo(1);
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.tested()).isTrue();
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.correlationId()).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
+    @Test
     void responseCodeParsedFromJsonAtAnyDepthAndEmptyVersionIsBase() throws IOException {
         // Base-release lines (EMPTY version bracket) whose responseCode is a NUMBER nested
         // at an arbitrary depth (and one with a different-cased key). The payload is parsed

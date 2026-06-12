@@ -76,6 +76,9 @@ public class LogAnalysisService {
     // numeric fields (session ids etc.) are never mistaken for a version.
     private static final Pattern VERSION_FIELD = Pattern.compile("R?(\\d+(?:\\.\\d+)+)");
     private static final Pattern ALL_ZEROS = Pattern.compile("0+");
+    // The correlation id is a trace id: a long hex string (16+ hex chars, no dashes —
+    // OpenTelemetry/Sleuth style). Matched by shape so it's found regardless of position.
+    private static final Pattern TRACE_ID = Pattern.compile("[0-9a-fA-F]{16,}");
     // Regex fallbacks (case-insensitive, quote/number tolerant) used only when the
     // payload isn't valid JSON — the primary path parses the JSON and searches the tree.
     private static final Pattern CODE = Pattern.compile("[\"']?responseCode[\"']?\\s*:\\s*[\"']?([0-9A-Za-z]+)", Pattern.CASE_INSENSITIVE);
@@ -391,16 +394,29 @@ public class LogAnalysisService {
                 break;
             }
         }
-        String corr;
-        String platform;
-        if (vi >= 0) {
-            corr = (vi + 1 < n) ? blankToNull(fields.get(vi + 1)) : null;
-            platform = (vi + 2 < n) ? blankToNull(fields.get(vi + 2)) : null;
-        } else {
+        if (vi < 0) {
             version = "0.0";   // empty version field → base release
-            corr = (n >= 3) ? blankToNull(fields.get(n - 3)) : null;
-            platform = (n >= 2) ? blankToNull(fields.get(n - 2)) : null;
         }
+        // The correlation id is a trace id (long hex). Match it by that shape when exactly
+        // one field has it — robust regardless of position or a missing version. Otherwise
+        // fall back to the field right after the version, or (for an empty base version)
+        // the trailing [version][correlationId][platform][latency] layout.
+        String corr = null;
+        int hexCount = 0;
+        for (String f : fields) {
+            if (TRACE_ID.matcher(f).matches()) {
+                hexCount++;
+                corr = f;
+            }
+        }
+        if (hexCount != 1) {
+            corr = (vi >= 0)
+                    ? (vi + 1 < n ? blankToNull(fields.get(vi + 1)) : null)
+                    : (n >= 3 ? blankToNull(fields.get(n - 3)) : null);
+        }
+        String platform = (vi >= 0)
+                ? (vi + 2 < n ? blankToNull(fields.get(vi + 2)) : null)
+                : (n >= 2 ? blankToNull(fields.get(n - 2)) : null);
         Integer took = null;
         for (String f : fields) {
             Matcher tm = TOOK.matcher(f);

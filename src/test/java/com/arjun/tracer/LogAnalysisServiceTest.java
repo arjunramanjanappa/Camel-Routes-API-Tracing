@@ -242,18 +242,36 @@ class LogAnalysisServiceTest {
     }
 
     @Test
-    void shorterBackendPathDoesNotMatchALongerDifferentOne() throws IOException {
-        // Backends are set as {{baseUrl}}/bfs/… and {{baseUrl}}/bp/bfs/… — the logged
-        // /mty-banking-01/bp/bfs/ft/own/submit is a SUFFIX of nothing we want: it must
-        // NOT be attributed to the traced /bfs/ft/own/submit (one extra path segment).
-        // Only the genuine /bfs/… line (one context segment) counts.
-        LogAnalysisReport r = analyzeBackends("analysis-pathseg.log", "9.4",
-                List.of("{{baseUrl}}/bfs/ft/own/submit"));
+    void backendMatchesEvenWhenPlaceholderResolvesToAMultiSegmentPrefix() throws IOException {
+        // {{dge.bfs.XX}}/bfs/ft/own/submit — the placeholder resolves in the log to a
+        // host + a MULTI-segment context (/gateway/dge/bfs-svc/…). The observed path
+        // must still match by suffix, not be dropped as "not tested".
+        LogAnalysisReport r = analyze("analysis-mseg.log", "9.4");
 
-        BackendLogResult be = r.backends().get(0);
-        assertThat(be.attempts()).isEqualTo(1);                 // the /bp/bfs/… decoy was excluded
-        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);   // not the decoy's 00999 failure
-        assertThat(be.responseCode()).isEqualTo("0000000");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);   // matched despite the long resolved prefix
+        });
+    }
+
+    @Test
+    void longestMatchKeepsShortAndLongBackendPathsApart() throws IOException {
+        // /bfs/ft/own/submit (ok) and /bp/bfs/ft/own/submit (fail) both end in the same
+        // suffix. With both backends in play, longest-match wins: each line is attributed
+        // to its own backend, not the shorter one stealing the longer's call.
+        LogAnalysisReport r = analyzeBackends("analysis-pathseg.log", "9.4",
+                List.of("{{baseUrl}}/bfs/ft/own/submit", "{{baseUrl}}/bp/bfs/ft/own/submit"));
+
+        BackendLogResult bfs = r.backends().stream()
+                .filter(b -> b.backend().endsWith("/bfs/ft/own/submit") && !b.backend().contains("/bp/")).findFirst().orElseThrow();
+        BackendLogResult bp = r.backends().stream()
+                .filter(b -> b.backend().contains("/bp/bfs/ft/own/submit")).findFirst().orElseThrow();
+        assertThat(bfs.status()).isEqualTo(LogStatus.SUCCESS);   // the /bfs/… line (0000000)
+        assertThat(bfs.attempts()).isEqualTo(1);
+        assertThat(bp.status()).isEqualTo(LogStatus.FAILED);     // the /bp/bfs/… line (00999)
+        assertThat(bp.attempts()).isEqualTo(1);
     }
 
     @Test

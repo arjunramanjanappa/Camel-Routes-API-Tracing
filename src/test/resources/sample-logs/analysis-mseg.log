@@ -1,0 +1,3 @@
+2026-06-11 18.43.45.102 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][aabbccddeeff00112233445566778899][Android][] -/mty-banking-01/services/sg/payment/v2/fund/submit - Request - {"serviceRequest":{}}
+2026-06-11 18.43.45.318 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][aabbccddeeff00112233445566778899][Android][230ms] -/gateway/dge/bfs-svc/bfs/ft/own/submit - Response - {"serviceResponse":{"responseCode":"0000000"}}
+2026-06-11 18.43.45.502 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][aabbccddeeff00112233445566778899][Android][500ms] -/mty-banking-01/services/sg/payment/v2/fund/submit - Response - {"serviceResponse":{"responseCode":"000000"}}

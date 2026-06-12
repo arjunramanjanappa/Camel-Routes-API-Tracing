@@ -19,6 +19,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
@@ -203,8 +204,12 @@ public class LogAnalysisService {
         // the selected backends when chosen, otherwise none.
         List<BackendLogResult> backendResults = new ArrayList<>();
         List<String> beTargets = all ? idx.getAllBackends() : (beSel ? selectedBackends : List.of());
+        // Disambiguate against the whole backend universe (release backends + the chosen
+        // ones) so /bfs/… never steals a /bp/bfs/… call when both exist.
+        Set<String> backendUniverse = new java.util.LinkedHashSet<>(idx.getAllBackends());
+        backendUniverse.addAll(beTargets);
         for (String backend : beTargets) {
-            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend)));
+            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse));
         }
 
         return new LogAnalysisReport(detected, version, idx.getCountry(),
@@ -630,14 +635,16 @@ public class LogAnalysisService {
     }
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
-    private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion) {
+    private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion,
+                                              Collection<String> candidates) {
         boolean versionScoped = version != null && !version.isBlank();
         List<BackendHit> hits = new ArrayList<>();
         Set<String> seen = new TreeSet<>();
         boolean anyPathMatch = false;
         for (Txn t : txns) {
-            // Match by URL AND service version together (prefer the svc-matching call).
-            BackendCall c = pickCall(t.calls(), backend, expectedVersion);
+            // Match by URL AND service version together (prefer the svc-matching call),
+            // letting "longest match wins" keep /bfs/… and /bp/bfs/… apart.
+            BackendCall c = pickCall(t.calls(), backend, expectedVersion, candidates);
             if (c == null) {
                 continue;
             }
@@ -746,26 +753,13 @@ public class LogAnalysisService {
         if (tbPath.isEmpty() || op.isEmpty()) {
             return false;
         }
-        if (!op.endsWith(tbPath)) {
-            return false;
-        }
-        // The observed path is the traced backend path ({{baseUrl}}/bfs/payee/...) plus
-        // at most ONE leading deployment-context segment (e.g. /mty-banking-01/...). So
-        // their '/'-segment counts must differ by 0 or 1. This stops a shorter traced
-        // path like /bfs/payee/manage/initiate from matching a different, longer logged
-        // path like /bp/bfs/payee/manage/initiate (which it is a suffix of).
-        int diff = countChar(op, '/') - countChar(tbPath, '/');
-        return diff == 0 || diff == 1;
-    }
-
-    private static int countChar(String s, char c) {
-        int n = 0;
-        for (int i = 0; i < s.length(); i++) {
-            if (s.charAt(i) == c) {
-                n++;
-            }
-        }
-        return n;
+        // The traced backend keeps a {{placeholder}} (e.g. {{dge.bfs.XX}}) that is
+        // stripped to the path tail; in the log that placeholder is resolved to a host
+        // + context of ANY length, so the observed path simply ENDS WITH the traced tail
+        // (segment-aligned by the leading '/'). Telling apart a short path from a longer
+        // one that shares the suffix (/bfs/… vs /bp/bfs/…) is handled by "longest match
+        // wins" in pickCall, so no fixed segment-count assumption is needed here.
+        return op.endsWith(tbPath);
     }
 
     /**
@@ -775,11 +769,15 @@ public class LogAnalysisService {
      * {@code /bfs/…} vs {@code /bp/bfs/…}, called at different versions, aren't
      * confused). Falls back to the first path match (its svc, if different, is flagged).
      */
-    private BackendCall pickCall(List<BackendCall> calls, String tracedBackend, String expectedVersion) {
+    private BackendCall pickCall(List<BackendCall> calls, String tracedBackend, String expectedVersion,
+                                 Collection<String> candidates) {
         BackendCall pathMatch = null;
         for (BackendCall c : calls) {
             if (!backendMatches(tracedBackend, c.path())) {
                 continue;
+            }
+            if (moreSpecificMatch(candidates, tracedBackend, c.path())) {
+                continue;   // a longer traced backend also ends this path — it owns the call
             }
             if (expectedVersion != null && Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
                 return c;   // URL and svc both match — the precise call
@@ -789,6 +787,23 @@ public class LogAnalysisService {
             }
         }
         return pathMatch;
+    }
+
+    /** True if some OTHER candidate backend has a longer path tail that also ends the observed path. */
+    private boolean moreSpecificMatch(Collection<String> candidates, String tracedBackend, String observedPath) {
+        if (candidates == null) {
+            return false;
+        }
+        int myLen = backendPathPart(tracedBackend).length();
+        for (String other : candidates) {
+            if (other.equals(tracedBackend)) {
+                continue;
+            }
+            if (backendPathPart(other).length() > myLen && backendMatches(other, observedPath)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The path tail of a backend: strip a leading {{...}} placeholder, scheme+host and query. */
@@ -856,7 +871,7 @@ public class LogAnalysisService {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
             String expected = expectedVersions == null ? null : expectedVersions.get(tb);
-            BackendCall hit = pickCall(t.calls(), tb, expected);
+            BackendCall hit = pickCall(t.calls(), tb, expected, tracedBackends);
             if (hit == null) {
                 out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null));
                 continue;

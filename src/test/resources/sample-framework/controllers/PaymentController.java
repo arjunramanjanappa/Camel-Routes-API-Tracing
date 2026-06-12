@@ -40,4 +40,11 @@ public class PaymentController {
     public ApiSingleResponse comboApi(Object body) {
         return null;
     }
+
+    // Same backend URL called with two different service versions (one per branch).
+    @CommandHandler(command = "DualCommand")
+    @PostMapping("/v2/dual")
+    public ApiSingleResponse dualApi(Object body) {
+        return null;
+    }
 }

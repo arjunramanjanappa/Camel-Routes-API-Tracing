@@ -396,9 +396,7 @@ public class RouteTraverser {
 
     private void addBackend(String value, String routeNodeId, String branch, boolean into, String serviceVersion) {
         String nodeId = "backend:" + value;
-        java.util.Map<String, Object> data = serviceVersion != null && !serviceVersion.isBlank()
-                ? java.util.Map.of("serviceVersion", serviceVersion) : null;
-        graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND, data));
+        graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
         if (into) {
             graph.addEdge(nodeId, routeNodeId, branch);      // backend → host (converges into the barrel)
         } else {
@@ -409,7 +407,17 @@ public class RouteTraverser {
             response.getBackendApis().add(value);
         }
         if (serviceVersion != null && !serviceVersion.isBlank()) {
-            response.getBackendVersions().putIfAbsent(value, serviceVersion);
+            // A backend URL may be called with several versions (different branches /
+            // templates) — accumulate the distinct ones, e.g. "2.2 / 3.3".
+            String joined = response.getBackendVersions().merge(value, serviceVersion, (existing, add) -> {
+                for (String v : existing.split(" / ")) {
+                    if (v.equals(add)) {
+                        return existing;
+                    }
+                }
+                return existing + " / " + add;
+            });
+            graph.setBackendServiceVersion(nodeId, joined);
         }
     }
 

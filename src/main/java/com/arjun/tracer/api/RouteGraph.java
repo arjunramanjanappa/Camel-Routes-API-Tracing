@@ -18,6 +18,24 @@ public class RouteGraph {
         nodeIndex.putIfAbsent(node.id(), node);
     }
 
+    /**
+     * Set a backend node's service version. A backend URL can be called with several
+     * versions (different branches/templates), so the caller passes the accumulated
+     * value (e.g. {@code "2.2 / 3.3"}) and this replaces the node's data.
+     */
+    public void setBackendServiceVersion(String id, String serviceVersion) {
+        GraphNode n = nodeIndex.get(id);
+        if (n == null) {
+            return;
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        if (n.data() != null) {
+            data.putAll(n.data());
+        }
+        data.put("serviceVersion", serviceVersion);
+        nodeIndex.put(id, new GraphNode(n.id(), n.label(), n.type(), data));
+    }
+
     public boolean hasNode(String id) {
         return nodeIndex.containsKey(id);
     }

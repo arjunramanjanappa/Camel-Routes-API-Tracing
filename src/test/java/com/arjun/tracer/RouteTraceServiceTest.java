@@ -71,6 +71,19 @@ class RouteTraceServiceTest {
     }
 
     @Test
+    void sameBackendUrlCalledWithTwoVersionsShowsBoth() {
+        // Both branches call /dual/initiate with a different template (5.5 / 3.3) —
+        // a backend URL can be invoked at several service versions; show them all.
+        TraceResponse r = trace("/payment/v2/dual", "9.4", null);
+
+        assertThat(r.getBackendVersions().get("/dual/initiate")).isEqualTo("5.5 / 3.3");
+
+        GraphNode dual = r.getGraph().getNodes().stream()
+                .filter(n -> n.id().equals("backend:/dual/initiate")).findFirst().orElseThrow();
+        assertThat(dual.data()).containsEntry("serviceVersion", "5.5 / 3.3");
+    }
+
+    @Test
     void resolvesOperationAndCommandFromController() {
         TraceResponse r = trace("/payment/v2/fund/submit", "9.4", null);
         assertThat(r.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
@@ -179,8 +192,8 @@ class RouteTraceServiceTest {
     void noApiProducesCatalogGroupedByVersion() {
         CatalogResponse cat = catalog(null);
         assertThat(cat.getMode()).isEqualTo("catalog");
-        // Four controller endpoints: v1 (no routes), v2 (R9.4, R9.3, BASE), limitInitiate + combo (R9.4).
-        assertThat(cat.getOperationCount()).isEqualTo(4);
+        // Five controller endpoints: v1 (no routes), v2 (R9.4, R9.3, BASE), limitInitiate + combo + dual (R9.4).
+        assertThat(cat.getOperationCount()).isEqualTo(5);
         assertThat(cat.getVersionsFound()).containsExactly("9.4", "9.3", "BASE", "(no route found)");
         assertThat(cat.getGraph().getNodes()).isNotEmpty();
     }

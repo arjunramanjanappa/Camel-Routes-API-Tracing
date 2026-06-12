@@ -45,4 +45,26 @@
         <to uri="direct:callUFWDGE"/>
     </route>
 
+    <!-- Same backend URL called with two different service versions (one per branch):
+         both must be shown — 5.5 / 3.3. -->
+    <route id="R9.4_dualApi">
+        <from uri="direct:R9.4_dualApi"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[transferType]} == 'OWN'</simple>
+                <to uri="velocity:META-INF/templates/sg/manage/precapture.vm"/>
+                <setProperty name="api">
+                    <simple>/dual/initiate</simple>
+                </setProperty>
+            </when>
+            <otherwise>
+                <to uri="freemarker:META-INF/templates/sg/manage/postcapture.ftl"/>
+                <setProperty name="api">
+                    <simple>/dual/initiate</simple>
+                </setProperty>
+            </otherwise>
+        </choice>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
 </routes>

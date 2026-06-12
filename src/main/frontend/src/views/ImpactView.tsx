@@ -18,8 +18,10 @@ export default function ImpactView({ app }: { app?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [changedRoutes, setChangedRoutes] = useState<Set<string>>(new Set());
-  const [changedBackends, setChangedBackends] = useState<Set<string>>(new Set());
+  // The user's direct picks. The *effective* routes/backends below are derived by
+  // adding what the selected APIs (and chosen routes) pull in automatically.
+  const [manualRoutes, setManualRoutes] = useState<Set<string>>(new Set());
+  const [manualBackends, setManualBackends] = useState<Set<string>>(new Set());
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
 
   const load = async () => {
@@ -31,8 +33,8 @@ export default function ImpactView({ app }: { app?: string }) {
     try {
       const data = await fetchImpactIndex(sourceDir, country, version);
       setIdx(data);
-      setChangedRoutes(new Set());
-      setChangedBackends(new Set());
+      setManualRoutes(new Set());
+      setManualBackends(new Set());
       setSelectedApis(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -54,30 +56,48 @@ export default function ImpactView({ app }: { app?: string }) {
     fn(next);
   };
 
+  const apiByPath = useMemo<Record<string, ApiImpact>>(() => {
+    const m: Record<string, ApiImpact> = {};
+    idx?.apis.forEach((a) => { if (a.api) m[a.api] = a; });
+    return m;
+  }, [idx]);
+  const routeBackends = useMemo<Record<string, string[]>>(() => idx?.routeBackends || {}, [idx]);
+
+  // Forward selection: choosing an API auto-includes the routes it traverses and the
+  // backends it calls; choosing a route auto-includes that route's backends. The
+  // Changed-routes/backends checklists toggle only the *manual* picks on top of these.
+  const effectiveRoutes = useMemo(() => {
+    const s = new Set(manualRoutes);
+    selectedApis.forEach((p) => apiByPath[p]?.routes.forEach((r) => s.add(r)));
+    return s;
+  }, [manualRoutes, selectedApis, apiByPath]);
+  const effectiveBackends = useMemo(() => {
+    const s = new Set(manualBackends);
+    selectedApis.forEach((p) => apiByPath[p]?.backends.forEach((b) => s.add(b)));
+    effectiveRoutes.forEach((r) => (routeBackends[r] || []).forEach((b) => s.add(b)));
+    return s;
+  }, [manualBackends, selectedApis, apiByPath, effectiveRoutes, routeBackends]);
+
   const impacted = useMemo<{ api: ApiImpact; viaRoutes: string[]; viaBackends: string[] }[]>(() => {
     if (!idx) return [];
     const out: { api: ApiImpact; viaRoutes: string[]; viaBackends: string[] }[] = [];
     for (const a of idx.apis) {
-      const vr = a.routes.filter((r) => changedRoutes.has(r));
-      const vb = a.backends.filter((b) => changedBackends.has(b));
+      const vr = a.routes.filter((r) => effectiveRoutes.has(r));
+      const vb = a.backends.filter((b) => effectiveBackends.has(b));
       if (vr.length || vb.length) out.push({ api: a, viaRoutes: vr, viaBackends: vb });
     }
     return out;
-  }, [idx, changedRoutes, changedBackends]);
+  }, [idx, effectiveRoutes, effectiveBackends]);
 
-  const hasChange = changedRoutes.size > 0 || changedBackends.size > 0;
+  const hasChange = effectiveRoutes.size > 0 || effectiveBackends.size > 0;
   const feApis = useMemo(() => impacted.map((i) => i.api.api).filter(Boolean), [impacted]);
 
   // Direct API selection drives the Splunk query and scopes the log analysis.
   const allApiPaths = useMemo(() => (idx ? [...new Set(idx.apis.map((a) => a.api).filter(Boolean))] : []), [idx]);
   const selectedApiList = useMemo(() => [...selectedApis], [selectedApis]);
-  const selectedBackendList = useMemo(() => [...changedBackends], [changedBackends]);
-  // The query covers the selected APIs' backends plus any directly-chosen backends.
-  const splBackends = useMemo(() => {
-    const set = new Set<string>(changedBackends);
-    if (idx) idx.apis.forEach((a) => { if (selectedApis.has(a.api)) a.backends.forEach((b) => set.add(b)); });
-    return [...set];
-  }, [idx, selectedApis, changedBackends]);
+  // The query covers every backend implied by the current selection.
+  const splBackends = useMemo(() => [...effectiveBackends], [effectiveBackends]);
+  const selectedBackendList = splBackends;
   // Backend URL → traced service version(s), merged across the release's APIs.
   const backendVersionMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -125,7 +145,7 @@ export default function ImpactView({ app }: { app?: string }) {
           <div className="impact-left">
             <div className="panel">
               <h2>APIs to analyse</h2>
-              <div className="sub">Pick the APIs (single, several, or all) to build a Splunk query for and to scope the log analysis. The query covers each API plus the backends it calls.</div>
+              <div className="sub">Pick an API to build a Splunk query and scope the log analysis. Selecting an API auto-selects the route(s) it uses and the backend(s) it calls below — no need to dig through the source.</div>
               <div className="kv"><b>{selectedApis.size}</b> of {allApiPaths.length} selected · version {idx.version || 'BASE'}{idx.country ? ', ' + idx.country : ''}</div>
             </div>
             <Checklist title="APIs" items={allApiPaths} selected={selectedApis}
@@ -133,15 +153,15 @@ export default function ImpactView({ app }: { app?: string }) {
                        onSetMany={(items, on) => setMany(selectedApis, setSelectedApis, items, on)} />
 
             <div className="panel">
-              <h2>What changed? <span className="muted">optional</span></h2>
-              <div className="sub">Or select routes/backends that changed to find — and select — the impacted APIs.</div>
+              <h2>Routes &amp; backends <span className="muted">auto-filled</span></h2>
+              <div className="sub">Auto-selected from the API above (the route it resolves to and the backend it calls). You can also tick routes/backends directly — a route also pulls in the backend it calls.</div>
             </div>
-            <Checklist title="Changed routes" items={idx.allRoutes} selected={changedRoutes}
-                       onToggle={(i) => toggle(changedRoutes, setChangedRoutes, i)}
-                       onSetMany={(items, on) => setMany(changedRoutes, setChangedRoutes, items, on)} />
-            <Checklist title="Changed backends" items={idx.allBackends} selected={changedBackends}
-                       onToggle={(i) => toggle(changedBackends, setChangedBackends, i)}
-                       onSetMany={(items, on) => setMany(changedBackends, setChangedBackends, items, on)} />
+            <Checklist title="Changed routes" items={idx.allRoutes} selected={effectiveRoutes}
+                       onToggle={(i) => toggle(manualRoutes, setManualRoutes, i)}
+                       onSetMany={(items, on) => setMany(manualRoutes, setManualRoutes, items, on)} />
+            <Checklist title="Changed backends" items={idx.allBackends} selected={effectiveBackends}
+                       onToggle={(i) => toggle(manualBackends, setManualBackends, i)}
+                       onSetMany={(items, on) => setMany(manualBackends, setManualBackends, items, on)} />
           </div>
 
           <div className="impact-right">
@@ -155,7 +175,7 @@ export default function ImpactView({ app }: { app?: string }) {
                   </span>
                 )}
               </div>
-              {!hasChange && <div className="sub">Select what changed on the left to see impacted APIs.</div>}
+              {!hasChange && <div className="sub">Select an API (or a route/backend) on the left to see impacted APIs.</div>}
               {hasChange && impacted.length === 0 && <div className="sub">No APIs are impacted by the selected change.</div>}
               {impacted.length > 0 && (
                 <table className="grid">

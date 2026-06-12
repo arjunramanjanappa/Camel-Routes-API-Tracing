@@ -54,4 +54,22 @@ class ImpactIndexTest {
         assertThat(idx.getAllRoutes()).contains("R9.4_masterFundTransferSubmitApi");
         assertThat(idx.getAllBackends()).contains("{{baseUrl}}/bfs/ft/own/submit");
     }
+
+    @Test
+    void mapsEachBusinessRouteToTheBackendsItReaches() {
+        ImpactIndex idx = service.impactIndex(new TraceRequest(null, "9.4", null, null));
+
+        // limitInitiate reaches its backend THROUGH the shared callUFWDGE route, so the
+        // backend must still be attributed to the nearest business route (the entry one),
+        // not lost with the excluded shared route. This drives the UI's route → backend
+        // auto-selection.
+        assertThat(idx.getRouteBackends())
+                .containsEntry("R9.4_limitInitiateApi", java.util.List.of("/asv/transaction/limit/initiate"));
+
+        // A route that delegates to sub-routes has no backend of its own; its backends
+        // belong to the sub-routes that actually call them.
+        assertThat(idx.getRouteBackends().get("R9.4_ftOwnAccountProcessSubmitDGEApi"))
+                .containsExactly("{{baseUrl}}/bfs/ft/own/submit");
+        assertThat(idx.getRouteBackends()).doesNotContainKey("callUFWDGE");
+    }
 }

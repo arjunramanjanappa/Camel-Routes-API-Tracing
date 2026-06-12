@@ -2,6 +2,7 @@ package com.arjun.tracer.service;
 
 import com.arjun.tracer.api.ApiImpact;
 import com.arjun.tracer.api.CatalogResponse;
+import com.arjun.tracer.api.GraphEdge;
 import com.arjun.tracer.api.GraphNode;
 import com.arjun.tracer.api.ImpactIndex;
 import com.arjun.tracer.api.RouteGraph;
@@ -21,11 +22,16 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -111,6 +117,7 @@ public class RouteTraceService {
         Set<String> routes = new TreeSet<>();
         Set<String> backends = new TreeSet<>();
         Set<String> hosts = new TreeSet<>();
+        Map<String, Set<String>> routeBackends = new TreeMap<>();
 
         // With a client release version, the impact set is ONLY the APIs that
         // release actually changed — i.e. whose entry route resolves to exactly
@@ -154,15 +161,67 @@ public class RouteTraceService {
             routes.addAll(businessRoutes);
             backends.addAll(r.getBackendApis());
             hosts.addAll(apiHosts);
+            collectRouteBackends(graph, new HashSet<>(businessRoutes), routeBackends);
         }
         out.getAllRoutes().addAll(routes);
         out.getAllBackends().addAll(backends);
         out.getAllHosts().addAll(hosts);
+        routeBackends.forEach((route, bes) -> out.getRouteBackends().put(route, new ArrayList<>(bes)));
         if (excluded > 0) {
             out.getWarnings().add(excluded + " API(s) are not impacted by version " + wantedVersion
                     + " (they resolve to a lower version or BASE) and were excluded.");
         }
         return out;
+    }
+
+    /**
+     * Map each business route to the backend APIs reachable from it, from this API's
+     * graph. A backend is attributed to the <em>nearest</em> business route on the
+     * path back to the API — walking transparently through shared/host call routes
+     * (e.g. {@code callUFWDGE}, CamelHttpUri barrels) that sit between a business
+     * route and the backend. Lets the UI auto-select a route's backend(s) when the
+     * route is chosen.
+     */
+    private void collectRouteBackends(RouteGraph graph, Set<String> businessRoutes,
+                                      Map<String, Set<String>> acc) {
+        Map<String, GraphNode> byId = new HashMap<>();
+        for (GraphNode n : graph.getNodes()) {
+            byId.put(n.id(), n);
+        }
+        Map<String, List<String>> adj = new HashMap<>();
+        for (GraphEdge e : graph.getEdges()) {
+            adj.computeIfAbsent(e.from(), k -> new ArrayList<>()).add(e.to());
+            adj.computeIfAbsent(e.to(), k -> new ArrayList<>()).add(e.from());   // undirected
+        }
+        for (GraphNode backend : byId.values()) {
+            if (!GraphNode.TYPE_BACKEND.equals(backend.type())) {
+                continue;
+            }
+            // BFS outward from the backend; the first business route(s) reached own it.
+            Set<String> visited = new HashSet<>();
+            Deque<String> queue = new ArrayDeque<>();
+            visited.add(backend.id());
+            for (String nb : adj.getOrDefault(backend.id(), List.of())) {
+                if (visited.add(nb)) {
+                    queue.add(nb);
+                }
+            }
+            while (!queue.isEmpty()) {
+                GraphNode node = byId.get(queue.poll());
+                if (node == null || !GraphNode.TYPE_ROUTE.equals(node.type())) {
+                    continue;   // never expand through API or BACKEND nodes
+                }
+                if (businessRoutes.contains(node.label())) {
+                    acc.computeIfAbsent(node.label(), k -> new TreeSet<>()).add(backend.label());
+                    continue;   // stop at a business route → gives the nearest one
+                }
+                for (String nb : adj.getOrDefault(node.id(), List.of())) {   // shared/host: pass through
+                    if (visited.add(nb)) {
+                        queue.add(nb);
+                    }
+                }
+            }
+        }
     }
 
     private List<String> extractHosts(RouteGraph graph) {

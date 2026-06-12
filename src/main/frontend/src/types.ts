@@ -82,6 +82,7 @@ export interface ImpactIndex {
   allRoutes: string[];
   allBackends: string[];
   allHosts: string[];
+  routeBackends?: Record<string, string[]>;
   warnings: string[];
 }
 

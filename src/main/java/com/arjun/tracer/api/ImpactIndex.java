@@ -1,7 +1,9 @@
 package com.arjun.tracer.api;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The impact catalog: every API's footprint (routes/backends/hosts) for a given
@@ -18,6 +20,8 @@ public class ImpactIndex {
     private final List<String> allBackends = new ArrayList<>();
     private final List<String> allHosts = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
+    /** Route id → the backend APIs that route calls directly (for forward route→backend selection). */
+    private final Map<String, List<String>> routeBackends = new LinkedHashMap<>();
 
     public String getVersion() { return version; }
     public void setVersion(String version) { this.version = version; }
@@ -30,4 +34,5 @@ public class ImpactIndex {
     public List<String> getAllBackends() { return allBackends; }
     public List<String> getAllHosts() { return allHosts; }
     public List<String> getWarnings() { return warnings; }
+    public Map<String, List<String>> getRouteBackends() { return routeBackends; }
 }

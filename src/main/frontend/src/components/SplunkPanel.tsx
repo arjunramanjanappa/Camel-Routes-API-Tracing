@@ -25,6 +25,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const [beField, setBeField] = useState(pref('splBeField', 'uri'));
   const [svcField, setSvcField] = useState(pref('splSvcField', 'serviceVersionNumber'));
   const [earliest, setEarliest] = useState(pref('splEarliest', '-24h'));
+  const [wildcard, setWildcard] = useState(pref('splWildcard', '1') === '1');
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
 
@@ -34,7 +35,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const beVer: Record<string, string> = {};
   backendApis.forEach((url) => { const p = backendPath(url); if (p && backendVersions[url]) beVer[p] = backendVersions[url]; });
   const versioned = be.filter((p) => beVer[p]).length;
-  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField);
+  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
 
   return (
@@ -54,6 +55,12 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
                   onClick={() => set('splEarliest', p.earliest, setEarliest)}>{p.label}</button>
         ))}
       </div>
+
+      <label className="check" style={{ marginTop: 8 }}>
+        <input type="checkbox" checked={wildcard}
+               onChange={(e) => { setWildcard(e.target.checked); localStorage.setItem('tracer.splWildcard', e.target.checked ? '1' : '0'); }} />
+        Match path suffix (<code>field="*path"</code>) — handles a logged context prefix like <code>/mty-banking-01/</code>
+      </label>
 
       <div className="sub" style={{ marginTop: 8 }}>
         Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_time, _raw</code>) for <b>{fe.length}</b> front-end

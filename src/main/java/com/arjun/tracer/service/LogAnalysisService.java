@@ -76,8 +76,8 @@ public class LogAnalysisService {
     // numeric fields (session ids etc.) are never mistaken for a version.
     private static final Pattern VERSION_FIELD = Pattern.compile("R?(\\d+(?:\\.\\d+)+)");
     private static final Pattern ALL_ZEROS = Pattern.compile("0+");
-    // The backend service version carried in a MightyHostMessage payload.
-    private static final Pattern SVC_VERSION = Pattern.compile("\"serviceVersionNumber\"\\s*:\\s*\"?([0-9][0-9.]*)\"?");
+    // The backend service version carried in a MightyHostMessage payload (quotes tolerant).
+    private static final Pattern SVC_VERSION = Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)[\"']?");
 
     /**
      * Analyse an uploaded log / Splunk export. Caller owns the stream.

@@ -1,7 +1,7 @@
-## limit precapture velocity template
+## limit precapture velocity template (single-quoted fields, to exercise tolerant parsing)
 {
-  "ServiceContext": {
-    "channelId": "MTY",
-    "serviceVersionNumber": "5.5"
+  'ServiceContext': {
+    'channelId': 'MTY',
+    'serviceVersionNumber': '5.5'
   }
 }

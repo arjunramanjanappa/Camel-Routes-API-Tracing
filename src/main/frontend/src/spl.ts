@@ -42,21 +42,25 @@ export function buildEventsSpl(
   earliest = '-24h',
   beVersions: Record<string, string> = {},
   svcField = 'serviceVersionNumber',
+  wildcard = true,
 ): string {
   const fe = [...new Set(feTerms.filter(Boolean))];
   const be = [...new Set(beTerms.filter(Boolean))];
   if (fe.length === 0 && be.length === 0) return '';
+  // A path field=value term. Wildcard prefixes the path with * so it matches even when
+  // the logged uri carries a deployment context prefix (e.g. /mty-banking-01/...).
+  const term = (field: string, t: string) => `${field}="${wildcard ? '*' + t : t}"`;
   const groups: string[] = [];
-  if (fe.length) groups.push('(' + fe.map((t) => `${feField}="${t}"`).join(' OR ') + ')');
+  if (fe.length) groups.push('(' + fe.map((t) => term(feField, t)).join(' OR ') + ')');
   if (be.length) {
     // Each backend is searched together with its traced service version(s) so the
     // query targets that api's version and ignores events at other versions.
     const clauses = be.map((t) => {
       const ver = beVersions[t];
-      if (!ver) return `${beField}="${t}"`;
+      if (!ver) return term(beField, t);
       const vers = ver.split(' / ').map((v) => `${svcField}="${v.trim()}"`);
       const verClause = vers.length > 1 ? '(' + vers.join(' OR ') + ')' : vers[0];
-      return `(${beField}="${t}" ${verClause})`;
+      return `(${term(beField, t)} ${verClause})`;
     });
     groups.push('(' + clauses.join(' OR ') + ')');
   }

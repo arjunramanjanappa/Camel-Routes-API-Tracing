@@ -383,18 +383,22 @@ public class RouteTraceService {
         return uri -> cache.computeIfAbsent(uri, u -> resolveTemplateVersion(root, u));
     }
 
+    // Tolerant of single/double quotes around the key and value: "serviceVersionNumber":"2.0" or '...':'2.0'.
     private static final java.util.regex.Pattern SERVICE_VERSION =
-            java.util.regex.Pattern.compile("\"serviceVersionNumber\"\\s*:\\s*\"?([0-9][0-9.]*)\"?");
+            java.util.regex.Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)[\"']?");
 
     private String resolveTemplateVersion(Path root, String uri) {
+        // Strip the component scheme (velocity:/freemarker:/framework:…) and any nested
+        // classpath:/file: resource scheme, leaving the path to suffix-match under the root.
         String suffix = uri.contains(":") ? uri.substring(uri.indexOf(':') + 1) : uri;
         suffix = suffix.replace('\\', '/').trim();
         int q = suffix.indexOf('?');
         if (q >= 0) {
             suffix = suffix.substring(0, q);
         }
-        while (suffix.startsWith("/") || suffix.startsWith("./")) {
-            suffix = suffix.replaceFirst("^\\.?/", "");
+        suffix = suffix.replaceFirst("(?i)^(classpath\\*?|file):", "");
+        while (suffix.startsWith("/") || suffix.startsWith("./") || suffix.startsWith("**/")) {
+            suffix = suffix.startsWith("**/") ? suffix.substring(3) : suffix.replaceFirst("^\\.?/", "");
         }
         final String want = suffix;
         if (want.isEmpty()) {

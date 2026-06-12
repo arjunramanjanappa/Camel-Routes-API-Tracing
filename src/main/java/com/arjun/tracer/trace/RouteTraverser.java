@@ -251,14 +251,20 @@ public class RouteTraverser {
         return active;
     }
 
-    /** A FreeMarker/Velocity template step (framework:/freemarker:/velocity: or a .ftl/.vm uri). */
+    /** Camel template-component schemes whose {@code <to>} carries a request body template. */
+    private static final Set<String> TEMPLATE_SCHEMES = Set.of(
+            "framework", "freemarker", "velocity", "mvel", "mustache",
+            "thymeleaf", "string-template", "stringtemplate", "chunk");
+
+    /** A template step: a template-component scheme, or a .ftl/.vm/… template file uri. */
     private static boolean isTemplateUri(String uri) {
         if (uri == null) {
             return false;
         }
         String u = uri.toLowerCase();
-        return u.startsWith("framework:") || u.startsWith("freemarker:") || u.startsWith("velocity:")
-                || u.matches(".*\\.(ftl|vm)(\\?.*)?$");
+        int colon = u.indexOf(':');
+        String scheme = colon > 0 ? u.substring(0, colon) : "";
+        return TEMPLATE_SCHEMES.contains(scheme) || u.matches(".*\\.(ftl|ftlh|vm|vtl|mustache|peb)(\\?.*)?$");
     }
 
     private void handleTo(String uri, String currentNodeId, String branch,

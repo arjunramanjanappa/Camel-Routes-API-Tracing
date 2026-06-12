@@ -261,3 +261,37 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .donut-num { fill: #e2e8f0; }
 [data-theme="dark"] .fchip.all { background: #1e293b; color: #cbd5e1; }
 [data-theme="dark"] .fchip.issues { background: #2a1a12; color: #fdba74; }
+
+/* ============================================================
+   Responsive — desktop-first, graceful degradation on narrow
+   screens (tablets, split-screen, phones). Shared by both apps.
+   ============================================================ */
+
+/* Tablet / small laptop / split-screen: stack the Trace sidebar
+   above the graph, and collapse the Impact two-column body. */
+@media (max-width: 900px) {
+  .layout { flex-direction: column; overflow-y: auto; }
+  .sidebar {
+    width: 100%;
+    overflow-y: visible;
+    border-right: none;
+    border-bottom: 1px solid #e4e7eb;
+  }
+  .main { height: 70vh; min-height: 420px; }
+  .impact-body { grid-template-columns: 1fr; }
+  /* let wide result tables scroll within their panel instead of
+     pushing the layout wider than the viewport */
+  .panel { overflow-x: auto; }
+}
+
+[data-theme="dark"] .sidebar { border-bottom-color: #1e293b; }
+
+/* Phone: single-column app cards, tighter header, smaller hero. */
+@media (max-width: 560px) {
+  header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .tabs { flex-wrap: wrap; }
+  .app-cards { grid-template-columns: 1fr; }
+  .app-picker-head { font-size: 34px; }
+  .app-picker-inner { padding: 24px 16px; }
+  .context-bar > div { min-width: 130px; }
+}

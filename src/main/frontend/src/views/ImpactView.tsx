@@ -14,7 +14,7 @@ function appKey(app: string | undefined, f: string) { return `tracer.${app || 'M
 export default function ImpactView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
-  const [version, setVersion] = useState(() => localStorage.getItem(appKey(app, 'version')) ?? '');
+  const [version, setVersion] = useState('');   // per-test: starts empty, never persisted
   const [idx, setIdx] = useState<ImpactIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     // Remember this app's context (source dir + country + version).
     localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
     localStorage.setItem(appKey(app, 'country'), country);
-    localStorage.setItem(appKey(app, 'version'), version);
+    localStorage.removeItem(appKey(app, 'version'));   // version is per-test, never persisted
     setLoading(true); setError(null);
     try {
       const data = await fetchImpactIndex(sourceDir, country, version);

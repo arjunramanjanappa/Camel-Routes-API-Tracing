@@ -8,10 +8,10 @@ import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 
-// The context (sourceDir + country + version) is remembered PER APPLICATION — Mighty
+// Only the app CONTEXT (sourceDir + country) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
-// The remaining "what" inputs (api/transferType) start empty each load.
-const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country', 'version'];
+// The "what" inputs (api/version/transferType) start EMPTY each load (per-test).
+const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country'];
 
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 
@@ -36,7 +36,10 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [search, setSearch] = useState('');
   const graphRef = useRef<GraphHandle>(null);
 
-  const persist = (p: TraceParams) => PERSIST.forEach((f) => localStorage.setItem(appKey(app, f), p[f] || ''));
+  const persist = (p: TraceParams) => {
+    PERSIST.forEach((f) => localStorage.setItem(appKey(app, f), p[f] || ''));
+    localStorage.removeItem(appKey(app, 'version'));   // clear any version persisted by an older build
+  };
   const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country));
 
   const runTrace = async (p: TraceParams) => {

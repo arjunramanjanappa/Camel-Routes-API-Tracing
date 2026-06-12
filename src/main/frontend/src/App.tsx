@@ -21,7 +21,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" data-app={app}>
       <header>
         <div className="brand">
           <h1>TraceGuard <span className="app-badge" title="selected application">{app}</span></h1>

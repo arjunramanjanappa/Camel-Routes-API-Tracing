@@ -427,6 +427,9 @@ public class LogAnalysisService {
         }
         boolean request = "Request".equalsIgnoreCase(m.group(5));
         String path = m.group(4);
+        if (path == null || path.indexOf('/') < 0) {
+            return null;   // not a real path (e.g. a "[jwt]: true, …" host line) — ignore it
+        }
         String json = m.group(6);
         // Parse the payload as a JSON object and search the tree (any depth, any shape,
         // numeric or quoted, case-insensitive key) so it works for any API regardless of

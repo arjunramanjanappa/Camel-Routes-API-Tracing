@@ -102,6 +102,12 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .check-hint { font-size: 11px; color: #8895a7; word-break: break-all; }
 .check-hint .hint-route { color: var(--accent); font-weight: 600; }
 .check-hint .hint-be { color: #64748b; }
+.sel-api { border: 1px solid #eef2f7; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+.sel-api-path { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.sel-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; margin: 3px 0; }
+.sel-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #94a3b8; min-width: 58px; }
+[data-theme="dark"] .sel-api { border-color: #334155; }
+[data-theme="dark"] .sel-label { color: #64748b; }
 
 table.grid { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
 table.grid th { text-align: left; color: #7b8794; font-weight: 600; border-bottom: 2px solid #e4e7eb; padding: 6px 8px; }

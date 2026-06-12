@@ -97,7 +97,10 @@ export default function ImpactView({ app }: { app?: string }) {
   const selectedApiList = useMemo(() => [...selectedApis], [selectedApis]);
   // The query covers every backend implied by the current selection.
   const splBackends = useMemo(() => [...effectiveBackends], [effectiveBackends]);
-  const selectedBackendList = splBackends;
+  // Log analysis: a backend that was pulled in by an API is reported *under* that API
+  // (its drill-down), not as a separate backend row — only a directly-ticked backend
+  // gets its own backend-only section. Avoids showing one API's backend twice.
+  const selectedBackendList = useMemo(() => [...manualBackends], [manualBackends]);
   // Backend URL → traced service version(s), merged across the release's APIs.
   const backendVersionMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -165,9 +168,34 @@ export default function ImpactView({ app }: { app?: string }) {
                          );
                        }} />
 
+            {selectedApis.size > 0 && (
+              <div className="panel">
+                <h2>Selected — routes &amp; backends <span className="muted">{selectedApis.size} API{selectedApis.size > 1 ? 's' : ''}</span></h2>
+                {selectedApiList.map((p) => {
+                  const a = apiByPath[p];
+                  if (!a) return null;
+                  return (
+                    <div className="sel-api" key={p}>
+                      <div className="sel-api-path"><code>{a.api}</code></div>
+                      <div className="sel-row">
+                        <span className="sel-label">routes</span>
+                        {a.routes.length ? a.routes.map((r) => <span key={r} className="tag route">{r}</span>) : <span className="muted">—</span>}
+                      </div>
+                      <div className="sel-row">
+                        <span className="sel-label">backends</span>
+                        {a.backends.length ? a.backends.map((b) => (
+                          <span key={b} className="tag backend">{backendPath(b)}{backendVersionMap[b] ? ` · svc ${backendVersionMap[b]}` : ''}</span>
+                        )) : <span className="muted">—</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="panel">
-              <h2>Routes &amp; backends <span className="muted">auto-filled</span></h2>
-              <div className="sub">Auto-selected from the API above (the route it resolves to and the backend it calls). You can also tick routes/backends directly — a route also pulls in the backend it calls.</div>
+              <h2>Routes &amp; backends <span className="muted">advanced — tick directly</span></h2>
+              <div className="sub">The lists below are auto-ticked from the selected API(s). You can also tick a route/backend directly to find other impacted APIs — a route also pulls in the backend it calls.</div>
             </div>
             <Checklist title="Changed routes" items={idx.allRoutes} selected={effectiveRoutes}
                        onToggle={(i) => toggle(manualRoutes, setManualRoutes, i)}
@@ -201,7 +229,11 @@ export default function ImpactView({ app }: { app?: string }) {
                         <td><code>{i.api.resolvedRoute || '—'}</code></td>
                         <td>
                           {i.viaRoutes.map((r) => <span key={r} className="tag route">{r}</span>)}
-                          {i.viaBackends.map((b) => <span key={b} className="tag backend">{backendPath(b)}</span>)}
+                          {i.viaBackends.map((b) => (
+                            <span key={b} className="tag backend">
+                              {backendPath(b)}{backendVersionMap[b] ? ` · svc ${backendVersionMap[b]}` : ''}
+                            </span>
+                          ))}
                         </td>
                       </tr>
                     ))}

@@ -111,6 +111,23 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void jwtHostLineWithoutARealPathIsIgnored() throws IOException {
+        // A "[jwt]: true, <url>" host line carries no real path and must be ignored —
+        // it must not be parsed nor create a spurious backend call. The genuine
+        // backend response (own/submit) on a normal line is still matched.
+        LogAnalysisReport r = analyze("analysis-jwt.log", "9.4");
+
+        assertThat(r.matchedLines()).isEqualTo(3);     // FE req + BE resp + FE resp; jwt line excluded
+        assertThat(r.unparsedLines()).isEqualTo(1);    // the jwt line
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
+    @Test
     void correlationIdMatchedByTraceIdShapeNotPosition() throws IOException {
         // The correlation id is a long-hex trace id. It's found by that shape (the only
         // hex field), and the front-end + host lines that share it pair into one txn.

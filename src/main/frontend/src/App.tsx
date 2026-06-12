@@ -25,7 +25,7 @@ export default function App() {
       <header>
         <div className="brand">
           <h1>TraceGuard <span className="app-badge" title="selected application">{app}</span></h1>
-          <span>API → Resolved Route → Sub-routes → Backend APIs</span>
+          <span>Trace the flow. Guard the release. <span className="header-ai">· ✨ Powered by AI</span></span>
         </div>
         <nav className="tabs">
           <button className={view === 'trace' ? 'tab active' : 'tab'} onClick={() => setView('trace')}>Trace</button>

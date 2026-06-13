@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeLog } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath, downloadText } from '../spl';
@@ -152,8 +152,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
   const [filter, setFilter] = useState<LogStatus | 'ALL' | 'ISSUES'>('ALL');
   const [sort, setSort] = useState<'severity' | 'api'>('severity');
   const fileRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   const hasSelection = selectedApis.length > 0 || selectedBackends.length > 0;
+
+  // When a report lands, bring the results into view — the panel sits far down the
+  // long Impact page, so otherwise the screen looks static after "Analyse".
+  useEffect(() => {
+    if (report) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [report]);
 
   const run = async () => {
     if (!file) return;
@@ -281,7 +288,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
       {error && <div className="err">Error: {error}</div>}
 
       {report && (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12, scrollMarginTop: 12 }} ref={resultsRef}>
           <div className="kv">
             <b>{report.transactions}</b> transactions · <b>{report.matchedLines}</b> matched / {report.linesScanned} lines
             {report.unparsedLines > 0 ? ` · ${report.unparsedLines} unparsed` : ''} · {report.uploadType}

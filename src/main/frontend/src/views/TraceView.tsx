@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { analyze, fetchMeta } from '../api';
 import type { AnalyzeResponse, Meta, TraceParams } from '../types';
 import { derive, opNamesOf } from '../graphModel';
@@ -62,10 +62,8 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     }
   };
 
-  useEffect(() => {
-    (async () => { await loadMeta(params); await runTrace(params); })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Do NOT auto-trace on mount — picking an app should not start the (long) scan.
+  // The user traces when ready by clicking Trace; meta (dropdowns) loads then too.
 
   const onChange = (patch: Partial<TraceParams>) => {
     const next = { ...params, ...patch };
@@ -108,6 +106,12 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
         {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="bulk source analysis" /></div>}
+        {!derived && !loading && !error && (
+          <div className="graph-empty"><div className="impact-empty">
+            <div className="impact-empty-title">Ready when you are</div>
+            <div className="sub">Enter an API path above (or leave it blank to catalog all), then click <b>Trace</b>.</div>
+          </div></div>
+        )}
         <Legend />
       </div>
     </div>

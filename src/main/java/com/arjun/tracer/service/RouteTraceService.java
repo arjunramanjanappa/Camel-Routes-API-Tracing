@@ -61,6 +61,9 @@ public class RouteTraceService {
     // Cache the scan per source dir for the JVM lifetime — restart the app to pick up
     // source changes.
     private final java.util.Map<String, SourceIndex> scanCache = new java.util.concurrent.ConcurrentHashMap<>();
+    // The impact index traces every API, so it's cached per (source dir, country, version,
+    // branch): the Load button, re-loads, and the log-analysis upload all reuse it.
+    private final java.util.Map<String, ImpactIndex> impactCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
         this.defaultSourceDir = defaultSourceDir;
@@ -116,8 +119,28 @@ public class RouteTraceService {
      * Impact catalog: every API's footprint (routes/backends/hosts) at the given
      * client version + country, scanned once. The UI intersects a selected change
      * (changed routes/backends) against each footprint to find impacted APIs.
+     *
+     * <p>Cached per (source dir, country, version, branch): building it traces every
+     * API, so the Load button, a re-load, and the log-analysis upload (which rebuilds
+     * the same index) all reuse one computation. Restart the app to pick up source
+     * changes.
      */
     public ImpactIndex impactIndex(TraceRequest request) {
+        String key;
+        try {
+            key = resolveRoot(request).toAbsolutePath().normalize()
+                    + "|" + nz(request.country()) + "|" + nz(request.version()) + "|" + nz(request.transferType());
+        } catch (RuntimeException e) {
+            return computeImpactIndex(request);   // no source dir → preserve the original error path
+        }
+        return impactCache.computeIfAbsent(key, k -> computeImpactIndex(request));
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s.trim();
+    }
+
+    private ImpactIndex computeImpactIndex(TraceRequest request) {
         Prepared prepared = prepare(request);
         ImpactIndex out = new ImpactIndex();
         out.setVersion(request.version());

@@ -56,9 +56,19 @@ public class RouteTraceService {
     private final String defaultSourceDir;
     private final SourceScanner scanner = new SourceScanner();
     private final VersionResolver versionResolver = new VersionResolver();
+    // Scanning + parsing a large framework is expensive and the same source dir is hit
+    // repeatedly (meta on every keystroke, then trace, then impact, then log analysis).
+    // Cache the scan per source dir for the JVM lifetime — restart the app to pick up
+    // source changes.
+    private final java.util.Map<String, SourceIndex> scanCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
         this.defaultSourceDir = defaultSourceDir;
+    }
+
+    /** The scan for a root, computed once and reused (see {@link #scanCache}). */
+    private SourceIndex scanCached(Path root) {
+        return scanCache.computeIfAbsent(root.toAbsolutePath().normalize().toString(), k -> scanner.scan(root));
     }
 
     /** Scan result plus the registry chosen for this request's country scope. */
@@ -79,7 +89,7 @@ public class RouteTraceService {
 
     /** The bootstrap scopes (countries) available in the source tree. */
     public List<String> listCountries(TraceRequest request) {
-        return scanner.scan(resolveRoot(request)).countries();
+        return scanCached(resolveRoot(request)).countries();
     }
 
     /**
@@ -88,7 +98,7 @@ public class RouteTraceService {
      * scope when one is given.
      */
     public Map<String, Object> meta(TraceRequest request) {
-        SourceIndex index = scanner.scan(resolveRoot(request));
+        SourceIndex index = scanCached(resolveRoot(request));
         String country = (request.country() != null && !request.country().isBlank())
                 ? request.country().trim() : null;
         RouteRegistry registry = country != null
@@ -256,7 +266,7 @@ public class RouteTraceService {
     // --- shared preparation ---
 
     private Prepared prepare(TraceRequest request) {
-        SourceIndex index = scanner.scan(resolveRoot(request));
+        SourceIndex index = scanCached(resolveRoot(request));
         List<String> warnings = new ArrayList<>(index.warnings());
         String country = (request.country() != null && !request.country().isBlank())
                 ? request.country().trim() : null;
@@ -432,23 +442,23 @@ public class RouteTraceService {
      * backend service version to send to the host.
      */
     private java.util.function.Function<String, String> templateVersionResolver(TraceRequest request) {
-        Path root;
+        List<Path> files;
         try {
-            root = resolveRoot(request);
+            files = scanCached(resolveRoot(request)).allFiles();   // reuse the cached scan — no per-template walk
         } catch (RuntimeException e) {
             return uri -> null;   // no source dir → nothing to resolve
         }
         Map<String, String> cache = new java.util.HashMap<>();
-        return uri -> cache.computeIfAbsent(uri, u -> resolveTemplateVersion(root, u));
+        return uri -> cache.computeIfAbsent(uri, u -> resolveTemplateVersion(files, u));
     }
 
     // Tolerant of single/double quotes around the key and value: "serviceVersionNumber":"2.0" or '...':'2.0'.
     private static final java.util.regex.Pattern SERVICE_VERSION =
             java.util.regex.Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)[\"']?");
 
-    private String resolveTemplateVersion(Path root, String uri) {
+    private String resolveTemplateVersion(List<Path> files, String uri) {
         // Strip the component scheme (velocity:/freemarker:/framework:…) and any nested
-        // classpath:/file: resource scheme, leaving the path to suffix-match under the root.
+        // classpath:/file: resource scheme, leaving the path to suffix-match in memory.
         String suffix = uri.contains(":") ? uri.substring(uri.indexOf(':') + 1) : uri;
         suffix = suffix.replace('\\', '/').trim();
         int q = suffix.indexOf('?');
@@ -463,18 +473,17 @@ public class RouteTraceService {
         if (want.isEmpty()) {
             return null;
         }
-        try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
-            java.util.Optional<Path> file = paths.filter(Files::isRegularFile)
-                    .filter(p -> p.toString().replace('\\', '/').endsWith(want))
-                    .findFirst();
-            if (file.isEmpty()) {
-                return null;
+        for (Path p : files) {
+            if (p.toString().replace('\\', '/').endsWith(want)) {
+                try {
+                    java.util.regex.Matcher m = SERVICE_VERSION.matcher(Files.readString(p));
+                    return m.find() ? m.group(1) : null;
+                } catch (java.io.IOException | RuntimeException e) {
+                    return null;
+                }
             }
-            java.util.regex.Matcher m = SERVICE_VERSION.matcher(Files.readString(file.get()));
-            return m.find() ? m.group(1) : null;
-        } catch (java.io.IOException | RuntimeException e) {
-            return null;
         }
+        return null;
     }
 
     private String resolveOperation(String api, OperationResolver resolver, TraceResponse response) {

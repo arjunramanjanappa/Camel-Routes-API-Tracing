@@ -36,15 +36,24 @@ public class SourceScanner {
     public SourceIndex scan(Path root) {
         OperationResolver operations = new OperationResolver();
         List<FileInfo> files = new ArrayList<>();
+        List<Path> allFiles = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !isUnderSkippedDir(root, p))
                     .forEach(p -> {
+                        allFiles.add(p);
                         String name = p.getFileName().toString();
                         if (name.endsWith(".java")) {
-                            readQuietly(p).ifPresent(operations::addSource);
+                            // Only a controller declares an @*Mapping; parsing the rest with
+                            // JavaParser (the dominant scan cost) yields nothing. Cheap substring
+                            // pre-filter skips DTOs/services/utils entirely.
+                            readQuietly(p).ifPresent(src -> {
+                                if (src.contains("Mapping")) {
+                                    operations.addSource(src);
+                                }
+                            });
                         } else if (name.endsWith(".xml")) {
                             readQuietly(p).ifPresent(xml ->
                                     files.add(toFileInfo(root, p, xml, warnings)));
@@ -53,7 +62,7 @@ public class SourceScanner {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to scan source directory: " + root, e);
         }
-        return new SourceIndex(operations, files, warnings);
+        return new SourceIndex(operations, files, allFiles, warnings);
     }
 
     private FileInfo toFileInfo(Path root, Path file, String xml, List<String> warnings) {

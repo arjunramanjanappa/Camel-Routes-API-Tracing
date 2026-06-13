@@ -23,6 +23,7 @@ public class SourceIndex {
 
     private final OperationResolver operations;
     private final List<FileInfo> files;
+    private final List<java.nio.file.Path> allFiles;
     private final List<String> warnings;
 
     /** routeContext id → the file that defines it. */
@@ -30,11 +31,18 @@ public class SourceIndex {
     /** bootstrap (country) name → its file. */
     private final Map<String, FileInfo> countryToFile = new LinkedHashMap<>();
 
-    public SourceIndex(OperationResolver operations, List<FileInfo> files, List<String> warnings) {
+    public SourceIndex(OperationResolver operations, List<FileInfo> files,
+                       List<java.nio.file.Path> allFiles, List<String> warnings) {
         this.operations = operations;
         this.files = files;
+        this.allFiles = allFiles;
         this.warnings = warnings;
         index();
+    }
+
+    /** Every regular source file found in the scan — for in-memory template lookups. */
+    public List<java.nio.file.Path> allFiles() {
+        return allFiles;
     }
 
     private void index() {

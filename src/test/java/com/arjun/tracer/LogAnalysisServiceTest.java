@@ -140,6 +140,24 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void realRemitFormatParsesAndBackendCorrelates() throws IOException {
+        // Arjun's exact masked lines: colon time, UUID-with-dashes field, non-hex masked
+        // correlation id, "[jwt]: true, -" before a dashed URL (/bfs-mng/...). All four
+        // lines must parse and the backend (traced tail /payee/remit/initiate) must match
+        // /bfs-mng/payee/remit/initiate by suffix.
+        LogAnalysisReport r = analyzeBackends("analysis-remit.log", "9.18",
+                List.of("{{dge.bfs.mng}}/payee/remit/initiate"));
+
+        assertThat(r.matchedLines()).isEqualTo(4);     // all 4 lines parsed
+        assertThat(r.unparsedLines()).isZero();
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.tested()).isTrue();
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(be.latencyMs()).isEqualTo(193);
+        assertThat(be.loggedServiceVersion()).isEqualTo("2.0");
+    }
+
+    @Test
     void jwtHostRequestIsParsedAndColonSeparatedResponseMatches() throws IOException {
         // The real MightyHostMessage shapes: the Request carries the backend URL after a
         // "[jwt]: true,  -" prefix, and the JSON follows the direction with a ":" (not a

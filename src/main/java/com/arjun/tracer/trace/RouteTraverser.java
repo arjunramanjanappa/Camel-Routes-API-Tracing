@@ -53,6 +53,7 @@ public class RouteTraverser {
     private final java.util.function.Function<String, String> templateVersion;
     /** Service version from the most recent template {@code <to>}, applied to the next backend. */
     private String currentServiceVersion;
+    private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
@@ -93,6 +94,7 @@ public class RouteTraverser {
         boolean firstVisit = expandedRoutes.add(identity);   // expand body once (loop guard)
         if (firstVisit) {
             currentServiceVersion = null;   // backend service version is scoped to this route's body
+            currentHosturl = null;          // so is the hosturl (the logged backend path)
         }
         if (route == null) {
             if (firstVisit) {
@@ -129,7 +131,7 @@ public class RouteTraverser {
     /** @param into true to draw backend → node (into a host barrel); false for node → backend. */
     private void attach(List<PendingApi> apis, String nodeId, boolean into) {
         for (PendingApi p : apis) {
-            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion());
+            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl());
         }
     }
 
@@ -151,7 +153,7 @@ public class RouteTraverser {
         List<PendingApi> all = new ArrayList<>(inherited);
         all.addAll(collectApis(route.elements(), null));   // the host's own api, if it sets one
         for (PendingApi p : all) {
-            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion());   // host instance → backend
+            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl());   // host instance → backend
         }
     }
 
@@ -194,9 +196,10 @@ public class RouteTraverser {
             if (el instanceof ToElement to && isTemplateUri(to.uri())) {
                 applyTemplateVersion(to.uri(), out);
             } else if (el instanceof SetPropertyElement sp) {
-                if (sp.name() != null && sp.name().equalsIgnoreCase("api")
-                        && sp.value() != null && !sp.value().isBlank()) {
-                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion));
+                if (isHosturl(sp)) {
+                    currentHosturl = sp.value().trim();
+                } else if (isApi(sp)) {
+                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
                 }
             } else if (el instanceof ChoiceElement choice) {
                 for (WhenElement when : choice.whens()) {
@@ -237,9 +240,10 @@ public class RouteTraverser {
             } else if (el instanceof RecipientListElement rl) {
                 handleRecipient(rl.expression(), currentNodeId, branch);
             } else if (el instanceof SetPropertyElement sp) {
-                if (sp.name() != null && sp.name().equalsIgnoreCase("api")
-                        && sp.value() != null && !sp.value().isBlank()) {
-                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion));
+                if (isHosturl(sp)) {
+                    currentHosturl = sp.value().trim();
+                } else if (isApi(sp)) {
+                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
                 }
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch, active, forward);
@@ -307,7 +311,7 @@ public class RouteTraverser {
                 visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch, false, currentServiceVersion); // external call is itself a backend
+            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
     }
@@ -374,10 +378,12 @@ public class RouteTraverser {
         // Each branch inherits the service version in scope before the choice, but a
         // template inside one branch must not leak to sibling branches or after the choice.
         String savedServiceVersion = currentServiceVersion;
+        String savedHosturl = currentHosturl;
         try {
             return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
         } finally {
             currentServiceVersion = savedServiceVersion;
+            currentHosturl = savedHosturl;
         }
     }
 
@@ -395,12 +401,23 @@ public class RouteTraverser {
         for (int i = 0; i < pending.size(); i++) {
             PendingApi p = pending.get(i);
             if (p.serviceVersion() == null) {
-                pending.set(i, new PendingApi(p.value(), p.branch(), sv));
+                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl()));
             }
         }
     }
 
-    private void addBackend(String value, String routeNodeId, String branch, boolean into, String serviceVersion) {
+    private static boolean isApi(SetPropertyElement sp) {
+        return sp.name() != null && sp.name().equalsIgnoreCase("api")
+                && sp.value() != null && !sp.value().isBlank();
+    }
+
+    private static boolean isHosturl(SetPropertyElement sp) {
+        return sp.name() != null && sp.name().equalsIgnoreCase("hosturl")
+                && sp.value() != null && !sp.value().isBlank();
+    }
+
+    private void addBackend(String value, String routeNodeId, String branch, boolean into,
+                            String serviceVersion, String hosturl) {
         String nodeId = "backend:" + value;
         graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
         if (into) {
@@ -411,6 +428,11 @@ public class RouteTraverser {
         if (!backendsSeen.contains(value)) {
             backendsSeen.add(value);
             response.getBackendApis().add(value);
+        }
+        if (hosturl != null && !hosturl.isBlank()) {
+            // The api is the backend identity (shown in the graph); the hosturl is what
+            // the host actually logs (MightyHostMessage), so the log analysis matches on it.
+            response.getBackendHosturls().putIfAbsent(value, hosturl.trim());
         }
         if (serviceVersion != null && !serviceVersion.isBlank()) {
             // A backend URL may be called with several versions (different branches /
@@ -482,6 +504,6 @@ public class RouteTraverser {
     }
 
     /** A deferred backend api value, tagged with the branch condition that set it. */
-    private record PendingApi(String value, String branch, String serviceVersion) {
+    private record PendingApi(String value, String branch, String serviceVersion, String hosturl) {
     }
 }

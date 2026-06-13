@@ -5,6 +5,10 @@
          (before the host call) and must apply to both backends. -->
     <route id="R9.4_limitInitiateApi">
         <from uri="direct:R9.4_limitInitiateApi"/>
+        <!-- the host logs THIS (hosturl), which differs from the api value below -->
+        <setProperty name="hosturl">
+            <simple>/host-mng/limit/initiate</simple>
+        </setProperty>
         <choice>
             <when>
                 <simple>${exchangeProperty[transferType]} == 'OWN'</simple>

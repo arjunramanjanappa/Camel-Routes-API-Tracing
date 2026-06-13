@@ -17,9 +17,10 @@ import java.util.Map;
  * @param backends        every backend API it calls
  * @param hosts           the host (CamelHttpUri) route ids it uses
  * @param backendVersions backend URL → service version number (from its framework template)
+ * @param backendHosturls backend api → its "hosturl" property (the path logged by the host)
  */
 public record ApiImpact(String api, String operation, String command,
                         String resolvedRoute, String resolvedVersion, boolean baseFallback,
                         List<String> routes, List<String> backends, List<String> hosts,
-                        Map<String, String> backendVersions) {
+                        Map<String, String> backendVersions, Map<String, String> backendHosturls) {
 }

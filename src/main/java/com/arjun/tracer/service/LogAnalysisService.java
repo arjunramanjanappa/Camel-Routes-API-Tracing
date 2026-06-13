@@ -187,10 +187,14 @@ public class LogAnalysisService {
         boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
 
         // Backend URL → expected service version(s), aggregated across the release.
+        // And backend api → its "hosturl" (what the host actually logs) — the log path is
+        // matched against the hosturl when present, since the api value isn't what's logged.
         Map<String, String> expectedVersions = new LinkedHashMap<>();
+        Map<String, String> hosturls = new LinkedHashMap<>();
         for (ApiImpact api : idx.getApis()) {
             api.backendVersions().forEach((url, ver) ->
                     expectedVersions.merge(url, ver, LogAnalysisService::joinVersions));
+            api.backendHosturls().forEach(hosturls::putIfAbsent);
         }
 
         // Front-end (MightyMessage) section: the whole release when all=true, the
@@ -201,7 +205,7 @@ public class LogAnalysisService {
                 if (!all && !selectedApis.contains(api.api())) {
                     continue;
                 }
-                apiResults.add(correlate(api, txns, version));
+                apiResults.add(correlate(api, txns, version, hosturls));
             }
         }
 
@@ -214,7 +218,7 @@ public class LogAnalysisService {
         Set<String> backendUniverse = new java.util.LinkedHashSet<>(idx.getAllBackends());
         backendUniverse.addAll(beTargets);
         for (String backend : beTargets) {
-            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse));
+            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse, hosturls));
         }
 
         return new LogAnalysisReport(detected, version, idx.getCountry(),
@@ -584,7 +588,7 @@ public class LogAnalysisService {
 
     // --- per-API correlation ---
 
-    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version) {
+    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version, Map<String, String> hosturls) {
         List<Txn> matched = new ArrayList<>();
         for (Txn t : txns) {
             if (t.fePath() != null && feMatches(t.fePath(), api.api())) {
@@ -624,11 +628,11 @@ public class LogAnalysisService {
         Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
         int success = 0;
         for (Txn t : forVersion) {
-            if (evaluate(t, api.backends(), api.backendVersions()).status() == LogStatus.SUCCESS) {
+            if (evaluate(t, api.backends(), api.backendVersions(), hosturls).status() == LogStatus.SUCCESS) {
                 success++;
             }
         }
-        Eval eval = evaluate(latest, api.backends(), api.backendVersions());
+        Eval eval = evaluate(latest, api.backends(), api.backendVersions(), hosturls);
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
@@ -641,7 +645,7 @@ public class LogAnalysisService {
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
     private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion,
-                                              Collection<String> candidates) {
+                                              Collection<String> candidates, Map<String, String> hosturls) {
         boolean versionScoped = version != null && !version.isBlank();
         List<BackendHit> hits = new ArrayList<>();
         Set<String> seen = new TreeSet<>();
@@ -649,7 +653,7 @@ public class LogAnalysisService {
         for (Txn t : txns) {
             // Match by URL AND service version together (prefer the svc-matching call),
             // letting "longest match wins" keep /bfs/… and /bp/bfs/… apart.
-            BackendCall c = pickCall(t.calls(), backend, expectedVersion, candidates);
+            BackendCall c = pickCall(t.calls(), backend, expectedVersion, candidates, hosturls);
             if (c == null) {
                 continue;
             }
@@ -664,7 +668,7 @@ public class LogAnalysisService {
             String note;
             if (!anyPathMatch) {
                 note = "No host-message (backend) line matched this backend — never tested. "
-                        + "Looked for a path ending with '" + backendPathPart(backend) + "'.";
+                        + "Looked for a path ending with '" + backendPathPart(matchPath(backend, hosturls)) + "'.";
             } else if (versionScoped) {
                 note = "Matched backend call(s), but none at client release " + version.trim()
                         + " — versions seen in the log: " + String.join(", ", seen) + ".";
@@ -775,13 +779,14 @@ public class LogAnalysisService {
      * confused). Falls back to the first path match (its svc, if different, is flagged).
      */
     private BackendCall pickCall(List<BackendCall> calls, String tracedBackend, String expectedVersion,
-                                 Collection<String> candidates) {
+                                 Collection<String> candidates, Map<String, String> hosturls) {
+        String matchKey = matchPath(tracedBackend, hosturls);
         BackendCall pathMatch = null;
         for (BackendCall c : calls) {
-            if (!backendMatches(tracedBackend, c.path())) {
+            if (!backendMatches(matchKey, c.path())) {
                 continue;
             }
-            if (moreSpecificMatch(candidates, tracedBackend, c.path())) {
+            if (moreSpecificMatch(candidates, tracedBackend, c.path(), hosturls)) {
                 continue;   // a longer traced backend also ends this path — it owns the call
             }
             if (expectedVersion != null && Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
@@ -795,20 +800,33 @@ public class LogAnalysisService {
     }
 
     /** True if some OTHER candidate backend has a longer path tail that also ends the observed path. */
-    private boolean moreSpecificMatch(Collection<String> candidates, String tracedBackend, String observedPath) {
+    private boolean moreSpecificMatch(Collection<String> candidates, String tracedBackend, String observedPath,
+                                      Map<String, String> hosturls) {
         if (candidates == null) {
             return false;
         }
-        int myLen = backendPathPart(tracedBackend).length();
+        int myLen = backendPathPart(matchPath(tracedBackend, hosturls)).length();
         for (String other : candidates) {
             if (other.equals(tracedBackend)) {
                 continue;
             }
-            if (backendPathPart(other).length() > myLen && backendMatches(other, observedPath)) {
+            String otherPath = matchPath(other, hosturls);
+            if (backendPathPart(otherPath).length() > myLen && backendMatches(otherPath, observedPath)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** The path to match a backend against the log: its "hosturl" (what the host logs) if known, else the api value. */
+    private static String matchPath(String tracedBackend, Map<String, String> hosturls) {
+        if (hosturls != null) {
+            String h = hosturls.get(tracedBackend);
+            if (h != null && !h.isBlank()) {
+                return h;
+            }
+        }
+        return tracedBackend;
     }
 
     /** The path tail of a backend: strip a leading {{...}} placeholder, scheme+host and query. */
@@ -833,8 +851,9 @@ public class LogAnalysisService {
         return s;
     }
 
-    private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions) {
-        List<BackendCallResult> backends = backendResults(t, tracedBackends, expectedVersions);
+    private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions,
+                          Map<String, String> hosturls) {
+        List<BackendCallResult> backends = backendResults(t, tracedBackends, expectedVersions, hosturls);
         // Front end is the source of truth for the end-to-end verdict.
         if (t.feResp() == null) {
             return new Eval(LogStatus.TIMEOUT,
@@ -872,11 +891,12 @@ public class LogAnalysisService {
         return new Eval(LogStatus.SUCCESS, null, backends);
     }
 
-    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions) {
+    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions,
+                                                   Map<String, String> hosturls) {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
             String expected = expectedVersions == null ? null : expectedVersions.get(tb);
-            BackendCall hit = pickCall(t.calls(), tb, expected, tracedBackends);
+            BackendCall hit = pickCall(t.calls(), tb, expected, tracedBackends, hosturls);
             if (hit == null) {
                 out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null));
                 continue;

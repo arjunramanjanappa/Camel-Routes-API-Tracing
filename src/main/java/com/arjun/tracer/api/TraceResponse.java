@@ -34,6 +34,8 @@ public class TraceResponse {
     private final List<String> backendApis = new ArrayList<>();
     /** Backend URL → service version number, read from the preceding framework template. */
     private final java.util.Map<String, String> backendVersions = new java.util.LinkedHashMap<>();
+    /** Backend api value → its "hosturl" property (the path the host logs in MightyHostMessage). */
+    private final java.util.Map<String, String> backendHosturls = new java.util.LinkedHashMap<>();
     /** Non-fatal notes: loader fallbacks, unresolved direct: targets, etc. */
     private final List<String> warnings = new ArrayList<>();
 
@@ -77,6 +79,7 @@ public class TraceResponse {
     public List<String> getFlow() { return flow; }
     public List<String> getBackendApis() { return backendApis; }
     public java.util.Map<String, String> getBackendVersions() { return backendVersions; }
+    public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public List<String> getWarnings() { return warnings; }
 
     public RouteGraph getGraph() { return graph; }

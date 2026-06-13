@@ -130,10 +130,14 @@ class LogAnalysisServiceTest {
 
         ApiLogResult limit = api(r, "/payment/v2/limit/initiate");
         assertThat(limit.status()).isEqualTo(LogStatus.PARTIAL);   // FE ok but its backend failed
+        // limit's traced api is /asv/transaction/limit/initiate, but the host LOGS its
+        // hosturl /host-mng/limit/initiate — so the match must be via the hosturl while the
+        // displayed backend stays the api value.
         BackendCallResult be = limit.backends().stream()
-                .filter(b -> b.backend().contains("/limit/initiate")).findFirst().orElseThrow();
+                .filter(b -> b.backend().contains("/asv/transaction/limit/initiate")).findFirst().orElseThrow();
         assertThat(be.status()).isEqualTo(LogStatus.FAILED);
         assertThat(be.responseCode()).isEqualTo("00911");
+        assertThat(be.observedPath()).contains("/host-mng/limit/initiate");   // matched via hosturl, not the api
         // No cross-contamination: limit's own/submit-type backends are not its concern.
         assertThat(limit.backends()).noneSatisfy(b ->
                 assertThat(b.observedPath()).contains("/bfs/ft/own/submit"));

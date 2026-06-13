@@ -64,13 +64,18 @@ public class LogAnalysisService {
     // The bracket fields after the marker are located by PATTERN, not by fixed
     // position — environments differ in how many/which fields they emit, so the
     // version is found by its 9.18 shape and the latency by its 500ms shape.
+    // ts [thread] LEVEL [marker][...fields...] -<path> - [Request|Response] (- OR :) json
+    // Bracket fields are located by PATTERN not position. A host line may carry a
+    // "[jwt]: true,  -" prefix before the backend URL, and the JSON may follow the
+    // direction with a ":" instead of a "-" — both shapes are tolerated, as is varying
+    // whitespace around every separator.
     private static final Pattern LINE = Pattern.compile(
             "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
                     + "\\[[^\\]]*\\]\\s+\\S+\\s+"
-                    + "\\[([A-Za-z0-9_]+Message)\\]"   // app marker, e.g. MightyMessage / SPLHostMessage
-                    // ] - /path - Request - {json}: tolerate optional whitespace around every
-                    // separator dash — environments differ in spacing (e.g. "[] -/path" vs "[]-/path").
-                    + "((?:\\[[^\\]]*\\])+?)\\s*-\\s*(\\S+)\\s*-\\s*\\[?(Request|Response)\\]?\\s*-\\s*(.*)$");
+                    + "\\[([A-Za-z0-9_]+Message)\\]"             // app marker, e.g. MightyMessage / SPLHostMessage
+                    + "((?:\\[[^\\]]*\\])+?)\\s*-\\s*"           // bracket meta fields, then a separator dash
+                    + "(?:\\[jwt\\][^-]*-\\s*)?"                 // optional "[jwt]: true,  -" prefix before the URL
+                    + "(\\S+)\\s*-\\s*\\[?(Request|Response)\\]?\\s*[-:]\\s*(.*)$");
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
     private static final Pattern TOOK = Pattern.compile("(\\d+)\\s*ms");
     // A client release version: 9.18, 9.4, R9.14, 9.4.1 — at least one dot so plain
@@ -433,7 +438,7 @@ public class LogAnalysisService {
         boolean request = "Request".equalsIgnoreCase(m.group(5));
         String path = m.group(4);
         if (path == null || path.indexOf('/') < 0) {
-            return null;   // not a real path (e.g. a "[jwt]: true, …" host line) — ignore it
+            return null;   // defensive: the URL token must look like a path
         }
         String json = m.group(6);
         // Parse the payload as a JSON object and search the tree (any depth, any shape,

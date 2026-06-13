@@ -111,19 +111,22 @@ class LogAnalysisServiceTest {
     }
 
     @Test
-    void jwtHostLineWithoutARealPathIsIgnored() throws IOException {
-        // A "[jwt]: true, <url>" host line carries no real path and must be ignored —
-        // it must not be parsed nor create a spurious backend call. The genuine
-        // backend response (own/submit) on a normal line is still matched.
+    void jwtHostRequestIsParsedAndColonSeparatedResponseMatches() throws IOException {
+        // The real MightyHostMessage shapes: the Request carries the backend URL after a
+        // "[jwt]: true,  -" prefix, and the JSON follows the direction with a ":" (not a
+        // "-"). Both must parse so the backend is correlated end-to-end — earlier these
+        // were dropped, which is why the backend always read "not tested".
         LogAnalysisReport r = analyze("analysis-jwt.log", "9.4");
 
-        assertThat(r.matchedLines()).isEqualTo(3);     // FE req + BE resp + FE resp; jwt line excluded
-        assertThat(r.unparsedLines()).isEqualTo(1);    // the jwt line
+        assertThat(r.matchedLines()).isEqualTo(4);     // FE req/resp + BE req(jwt)/resp(colon)
+        assertThat(r.unparsedLines()).isZero();
         ApiLogResult v2 = api(r, V2);
         assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+            assertThat(b.latencyMs()).isEqualTo(230);                 // from the colon-separated Response
+            assertThat(b.loggedServiceVersion()).isEqualTo("2.2");    // from the [jwt] Request
         });
     }
 

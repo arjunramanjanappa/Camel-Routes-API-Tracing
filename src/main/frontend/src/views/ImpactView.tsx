@@ -7,6 +7,7 @@ import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel from '../components/LogAnalysisPanel';
 import ApiFlowModal from '../components/ApiFlowModal';
 import Loader, { IMPACT_MESSAGES } from '../components/Loader';
+import Collapsible from '../components/Collapsible';
 
 // The context (sourceDir + country + version) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
@@ -209,16 +210,15 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
               </div>
             )}
 
-            <div className="panel">
-              <h2>Routes &amp; backends <span className="muted">advanced — tick directly</span></h2>
-              <div className="sub">The lists below are auto-ticked from the selected API(s). You can also tick a route/backend directly to find other impacted APIs — a route also pulls in the backend it calls.</div>
-            </div>
-            <Checklist title="Changed routes" items={idx.allRoutes} selected={effectiveRoutes}
-                       onToggle={(i) => toggle(manualRoutes, setManualRoutes, i)}
-                       onSetMany={(items, on) => setMany(manualRoutes, setManualRoutes, items, on)} />
-            <Checklist title="Changed backends" items={idx.allBackends} selected={effectiveBackends}
-                       onToggle={(i) => toggle(manualBackends, setManualBackends, i)}
-                       onSetMany={(items, on) => setMany(manualBackends, setManualBackends, items, on)} />
+            <Collapsible title="Routes & backends" hint="advanced — tick directly">
+              <div className="sub" style={{ padding: '0 2px 4px' }}>The lists are auto-ticked from the selected API(s). You can also tick a route/backend directly to find other impacted APIs — a route also pulls in the backend it calls.</div>
+              <Checklist title="Changed routes" items={idx.allRoutes} selected={effectiveRoutes}
+                         onToggle={(i) => toggle(manualRoutes, setManualRoutes, i)}
+                         onSetMany={(items, on) => setMany(manualRoutes, setManualRoutes, items, on)} />
+              <Checklist title="Changed backends" items={idx.allBackends} selected={effectiveBackends}
+                         onToggle={(i) => toggle(manualBackends, setManualBackends, i)}
+                         onSetMany={(items, on) => setMany(manualBackends, setManualBackends, items, on)} />
+            </Collapsible>
           </div>
 
           <div className="impact-right">
@@ -259,13 +259,15 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
               )}
             </div>
 
-            <SplunkPanel
-              title="Splunk query — selected APIs"
-              frontendApis={selectedApiList}
-              backendApis={splBackends}
-              backendVersions={backendVersionMap}
-              hint="Run this in Splunk, export the result (CSV/JSON), then upload it under “Verify with logs” below."
-            />
+            <Collapsible title="Splunk query" hint="generate &amp; copy — for running in Splunk">
+              <SplunkPanel
+                title="Splunk query — selected APIs"
+                frontendApis={selectedApiList}
+                backendApis={splBackends}
+                backendVersions={backendVersionMap}
+                hint="Run this in Splunk, export the result (CSV/JSON), then upload it under “Verify with logs” below."
+              />
+            </Collapsible>
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, ImpactIndex } from '../types';
 import { backendPath, downloadText } from '../spl';
@@ -46,7 +46,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Do NOT auto-load on mount — switching to this tab should not start the scan.
+  // The user loads when ready by clicking the Load button.
 
   const toggle = (s: Set<string>, fn: (n: Set<string>) => void, item: string) => {
     const next = new Set(s);
@@ -146,6 +147,13 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
       {loading && <div className="impact-loading"><Loader messages={IMPACT_MESSAGES} note="building the impact index" /></div>}
+
+      {!loading && !idx && !error && (
+        <div className="impact-empty">
+          <div className="impact-empty-title">Ready when you are</div>
+          <div className="sub">Set the source directory (and optional country / client version) above, then click <b>Load</b> to scan the framework and list this release&rsquo;s APIs.</div>
+        </div>
+      )}
 
       {!loading && idx && (
         <>

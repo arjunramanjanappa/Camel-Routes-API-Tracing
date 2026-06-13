@@ -111,6 +111,35 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void endToEndMixedFormatsCorrelateEachApiWithItsOwnBackend() throws IOException {
+        // One realistic log mixing every variant: a noise line, FE (MightyMessage, no
+        // brackets, "-" json) and BE (MightyHostMessage, "[Request]"/"[Response]", ":" json,
+        // one jwt-prefixed request, one plain). Two APIs with distinct correlation ids must
+        // be told apart and each tied to its OWN backend end-to-end.
+        LogAnalysisReport r = analyze("analysis-e2e.log", "9.4");
+
+        assertThat(r.transactions()).isEqualTo(2);     // two correlation ids; the noise line ignored
+
+        ApiLogResult fund = api(r, "/payment/v2/fund/submit");
+        assertThat(fund.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(fund.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+            assertThat(b.loggedServiceVersion()).isEqualTo("2.2");
+        });
+
+        ApiLogResult limit = api(r, "/payment/v2/limit/initiate");
+        assertThat(limit.status()).isEqualTo(LogStatus.PARTIAL);   // FE ok but its backend failed
+        BackendCallResult be = limit.backends().stream()
+                .filter(b -> b.backend().contains("/limit/initiate")).findFirst().orElseThrow();
+        assertThat(be.status()).isEqualTo(LogStatus.FAILED);
+        assertThat(be.responseCode()).isEqualTo("00911");
+        // No cross-contamination: limit's own/submit-type backends are not its concern.
+        assertThat(limit.backends()).noneSatisfy(b ->
+                assertThat(b.observedPath()).contains("/bfs/ft/own/submit"));
+    }
+
+    @Test
     void jwtHostRequestIsParsedAndColonSeparatedResponseMatches() throws IOException {
         // The real MightyHostMessage shapes: the Request carries the backend URL after a
         // "[jwt]: true,  -" prefix, and the JSON follows the direction with a ":" (not a

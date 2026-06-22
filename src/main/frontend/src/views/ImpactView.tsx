@@ -8,6 +8,7 @@ import LogAnalysisPanel from '../components/LogAnalysisPanel';
 import ApiFlowModal from '../components/ApiFlowModal';
 import Loader, { IMPACT_MESSAGES } from '../components/Loader';
 import Collapsible from '../components/Collapsible';
+import Steps, { type StepState } from '../components/Steps';
 
 // The context (sourceDir + country + version) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
@@ -27,6 +28,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   const [manualBackends, setManualBackends] = useState<Set<string>>(new Set());
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
   const [flowApi, setFlowApi] = useState<string | null>(null);   // which API's graph is open
+  const [analysed, setAnalysed] = useState(false);               // a log report has landed (drives the steps)
 
   const load = async () => {
     // Remember this app's context (source dir + country + version).
@@ -125,6 +127,15 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     downloadText('impacted-apis.csv', rows.map((r) => r.map((c) => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n'));
   };
 
+  const loaded = !!idx;
+  const picked = selectedApis.size > 0;
+  const steps: { label: string; state: StepState }[] = [
+    { label: 'Load', state: loaded ? 'done' : 'active' },
+    { label: 'Pick APIs', state: !loaded ? 'todo' : (picked ? 'done' : 'active') },
+    { label: 'Query / upload', state: !picked ? 'todo' : (analysed ? 'done' : 'active') },
+    { label: 'Results', state: analysed ? 'active' : 'todo' },
+  ];
+
   return (
     <div className="impact">
       <div className="context-bar">
@@ -144,6 +155,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           {loading ? 'Loading…' : 'Load'}
         </button>
       </div>
+
+      <Steps steps={steps} />
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
@@ -273,7 +286,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
         <div style={{ padding: '0 18px 18px' }}>
           <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} app={app}
-                            selectedApis={selectedApiList} selectedBackends={selectedBackendList} />
+                            selectedApis={selectedApiList} selectedBackends={selectedBackendList}
+                            onReport={setAnalysed} />
         </div>
         </>
       )}

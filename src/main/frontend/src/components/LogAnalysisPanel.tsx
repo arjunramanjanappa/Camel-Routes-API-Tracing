@@ -133,6 +133,7 @@ interface Props {
   app?: string;
   selectedApis?: string[];
   selectedBackends?: string[];
+  onReport?: (hasReport: boolean) => void;
 }
 
 /**
@@ -141,7 +142,7 @@ interface Props {
  * front-end APIs are read from front-end log lines, selected backends from backend
  * log lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, app, selectedApis = [], selectedBackends = [] }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, app, selectedApis = [], selectedBackends = [], onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
   const [limitToSelection, setLimitToSelection] = useState(true);
@@ -159,7 +160,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
   // When a report lands, bring the results into view — the panel sits far down the
   // long Impact page, so otherwise the screen looks static after "Analyse".
   useEffect(() => {
+    onReport?.(!!report);
     if (report) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
   const run = async () => {
@@ -289,6 +292,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
 
       {report && (
         <div style={{ marginTop: 12, scrollMarginTop: 12 }} ref={resultsRef}>
+          <div className="report-sticky">
           <div className="kv">
             <b>{report.transactions}</b> transactions · <b>{report.matchedLines}</b> matched / {report.linesScanned} lines
             {report.unparsedLines > 0 ? ` · ${report.unparsedLines} unparsed` : ''} · {report.uploadType}
@@ -310,6 +314,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
               </div>
               <div className="sub" style={{ marginTop: 2 }}>Click a status to filter the tables below.</div>
             </div>
+          </div>
           </div>
 
           {report.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}

@@ -277,6 +277,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
             <Collapsible title="Splunk query" hint="generate &amp; copy — for running in Splunk">
               <SplunkPanel
                 title="Splunk query — selected APIs"
+                app={app}
                 frontendApis={selectedApiList}
                 backendApis={splBackends}
                 backendVersions={backendVersionMap}

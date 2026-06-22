@@ -43,6 +43,8 @@ export function buildEventsSpl(
   beVersions: Record<string, string> = {},
   svcField = 'serviceVersionNumber',
   wildcard = true,
+  feMarker = '',
+  beMarker = '',
 ): string {
   const fe = [...new Set(feTerms.filter(Boolean))];
   const be = [...new Set(beTerms.filter(Boolean))];
@@ -50,8 +52,13 @@ export function buildEventsSpl(
   // A path field=value term. Wildcard prefixes the path with * so it matches even when
   // the logged uri carries a deployment context prefix (e.g. /mty-banking-01/...).
   const term = (field: string, t: string) => `${field}="${wildcard ? '*' + t : t}"`;
+  // Scope each path group to its log marker so the export only carries the lines the
+  // analyser reads: front-end paths from <App>Message, backends from <App>HostMessage.
+  const marked = (marker: string, inner: string) => (marker ? `("${marker}" ${inner})` : inner);
   const groups: string[] = [];
-  if (fe.length) groups.push('(' + fe.map((t) => term(feField, t)).join(' OR ') + ')');
+  if (fe.length) {
+    groups.push(marked(feMarker, '(' + fe.map((t) => term(feField, t)).join(' OR ') + ')'));
+  }
   if (be.length) {
     // Each backend is searched together with its traced service version(s) so the
     // query targets that api's version and ignores events at other versions.
@@ -62,7 +69,7 @@ export function buildEventsSpl(
       const verClause = vers.length > 1 ? '(' + vers.join(' OR ') + ')' : vers[0];
       return `(${term(beField, t)} ${verClause})`;
     });
-    groups.push('(' + clauses.join(' OR ') + ')');
+    groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   return `index=${index} ${win}(${groups.join(' OR ')})\n| table _time, _raw\n| sort 0 _time`;

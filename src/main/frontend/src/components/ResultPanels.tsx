@@ -5,6 +5,7 @@ interface Props {
   data: AnalyzeResponse;
   onBackToCatalog: () => void;
   onOpenApi: (api: string, version: string | undefined) => void;
+  app?: string;
 }
 
 function Warnings({ items }: { items: string[] }) {
@@ -17,7 +18,7 @@ function Warnings({ items }: { items: string[] }) {
   );
 }
 
-function Single({ d }: { d: TraceResponse }) {
+function Single({ d, app }: { d: TraceResponse; app?: string }) {
   return (
     <>
       <div className="panel">
@@ -41,6 +42,7 @@ function Single({ d }: { d: TraceResponse }) {
       )}
       {d.operationName && (
         <SplunkPanel
+          app={app}
           title="Splunk export — this API"
           frontendApis={[d.api || d.operationName || '']}
           backendApis={d.backendApis}
@@ -51,7 +53,7 @@ function Single({ d }: { d: TraceResponse }) {
   );
 }
 
-export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props) {
+export default function ResultPanels({ data, onBackToCatalog, onOpenApi, app }: Props) {
   if (data.mode === 'single') {
     return (
       <>
@@ -59,7 +61,7 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
           <span className="sub">Single trace</span>
           <button className="linkbtn" onClick={onBackToCatalog}>← Catalog</button>
         </div>
-        <Single d={data} />
+        <Single d={data} app={app} />
         <Warnings items={data.warnings} />
       </>
     );
@@ -117,6 +119,7 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
       })}
       {allFe.length > 0 && (
         <SplunkPanel
+          app={app}
           title="Splunk export — all APIs"
           frontendApis={allFe}
           backendApis={allBe}

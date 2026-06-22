@@ -9,6 +9,8 @@ interface Props {
   /** Backend URL → traced service version(s), e.g. "2.2" or "2.2 / 3.3". */
   backendVersions?: Record<string, string>;
   hint?: string;
+  /** Selected application — its markers (<app>Message / <app>HostMessage) scope the query. */
+  app?: string;
 }
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
@@ -19,7 +21,10 @@ function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k)
  * analyser reads back, so the exported report drives the correlation. Each backend
  * is searched together with its traced service version.
  */
-export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, hint }: Props) {
+export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, hint, app }: Props) {
+  const application = app && app.trim() ? app.trim() : 'Mighty';
+  const feMarker = application + 'Message';        // front-end log lines
+  const beMarker = application + 'HostMessage';    // backend log lines
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
   const [feField, setFeField] = useState(pref('splFeField', 'uri'));
   const [beField, setBeField] = useState(pref('splBeField', 'uri'));
@@ -35,7 +40,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const beVer: Record<string, string> = {};
   backendApis.forEach((url) => { const p = backendPath(url); if (p && backendVersions[url]) beVer[p] = backendVersions[url]; });
   const versioned = be.filter((p) => beVer[p]).length;
-  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard);
+  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard, feMarker, beMarker);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
 
   return (
@@ -65,6 +70,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
       <div className="sub" style={{ marginTop: 8 }}>
         Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_time, _raw</code>) for <b>{fe.length}</b> front-end
         + <b>{be.length}</b> backend path(s){versioned > 0 ? <> — each backend is filtered to its traced <b>service version</b> ({versioned} of {be.length} known)</> : null}.
+        Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends to <code>{beMarker}</code>, so the export carries only the lines the analyser reads.
         Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

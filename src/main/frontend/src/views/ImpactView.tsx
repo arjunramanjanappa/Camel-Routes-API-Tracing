@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, ImpactIndex } from '../types';
 import { backendPath, downloadText } from '../spl';
@@ -264,8 +264,12 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 <table className="grid">
                   <thead><tr><th>API</th><th>Operation</th><th>Resolves to</th><th>Impacted via</th><th></th></tr></thead>
                   <tbody>
-                    {sortedImpacted.map((i) => (
-                      <tr key={i.api.api + i.api.operation} className={selectedApis.has(i.api.api) ? 'impacted-selected' : ''}>
+                    {sortedImpacted.map((i, idx) => (
+                      <Fragment key={i.api.api + i.api.operation}>
+                        {idx === selectedImpactedCount && selectedImpactedCount > 0 && selectedImpactedCount < sortedImpacted.length && (
+                          <tr className="impacted-divider"><td colSpan={5}>↳ Blast radius — {sortedImpacted.length - selectedImpactedCount} API(s) that share a backend or route with your selection</td></tr>
+                        )}
+                        <tr className={selectedApis.has(i.api.api) ? 'impacted-selected' : 'impacted-indirect'}>
                         <td><code>{i.api.api}</code>{selectedApis.has(i.api.api) && <span className="sel-badge">selected</span>}</td>
                         <td>{i.api.operation}</td>
                         <td><code>{i.api.resolvedRoute || '—'}</code></td>
@@ -279,6 +283,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                         </td>
                         <td><button className="linkbtn" onClick={() => setFlowApi(i.api.api)} title="Show this API's route graph">flow ▸</button></td>
                       </tr>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

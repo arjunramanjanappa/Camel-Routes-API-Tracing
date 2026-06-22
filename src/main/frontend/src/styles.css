@@ -118,6 +118,9 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .sel-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: var(--accent); color: #fff; padding: 1px 7px; border-radius: 999px; margin-left: 7px; vertical-align: middle; }
 .grid tr.impacted-selected td { background: var(--accent-soft); }
 .grid tr.impacted-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.grid tr.impacted-divider td { background: #f7f9fb; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #94a3b8; padding: 6px 8px; }
+.grid tr.impacted-indirect td:first-child code { color: #64748b; }
+[data-theme="dark"] .grid tr.impacted-divider td { background: #0f172a; color: #64748b; }
 
 .impact-empty { max-width: 540px; margin: 52px auto; text-align: center; padding: 0 20px; }
 .graph-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }

@@ -125,6 +125,12 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     }));
     return m;
   }, [idx]);
+  // Backend api → its hosturl (what the host logs) — so the Splunk query searches the hosturl.
+  const backendHosturlMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    idx?.apis.forEach((a) => a.backendHosturls && Object.entries(a.backendHosturls).forEach(([url, h]) => { if (!m[url]) m[url] = h; }));
+    return m;
+  }, [idx]);
 
   const exportCsv = () => {
     const rows = [['api', 'operation', 'resolvedRoute', 'impactedViaRoutes', 'impactedViaBackends', 'backends']];
@@ -297,6 +303,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 frontendApis={selectedApiList}
                 backendApis={splBackends}
                 backendVersions={backendVersionMap}
+                backendHosturls={backendHosturlMap}
                 hint="Run this in Splunk, export the result (CSV/JSON), then upload it under “Verify with logs” below."
               />
             </Collapsible>

@@ -73,6 +73,7 @@ export interface ApiImpact {
   backends: string[];
   hosts: string[];
   backendVersions?: Record<string, string>;
+  backendHosturls?: Record<string, string>;
 }
 
 export interface ImpactIndex {

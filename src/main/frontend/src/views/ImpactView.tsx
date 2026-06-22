@@ -174,9 +174,11 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         <div className="impact-body">
           <div className="impact-left">
             <div className="panel">
-              <h2>APIs to analyse</h2>
-              <div className="sub">Pick an API to build a Splunk query and scope the log analysis. Selecting an API auto-selects the route(s) it uses and the backend(s) it calls below — no need to dig through the source.</div>
-              <div className="kv"><b>{selectedApis.size}</b> of {allApiPaths.length} selected · version {idx.version || 'BASE'}{idx.country ? ', ' + idx.country : ''}</div>
+              <div className="row between">
+                <h2 style={{ margin: 0 }}>APIs to analyse</h2>
+                <span className="muted">{selectedApis.size}/{allApiPaths.length} selected · {idx.version || 'BASE'}{idx.country ? ', ' + idx.country : ''}</span>
+              </div>
+              <div className="sub">Selecting an API scopes the Splunk query + log check and auto‑ticks its routes/backends — no need to dig through the source.</div>
             </div>
             <Checklist title="APIs" items={allApiPaths} selected={selectedApis}
                        onToggle={(i) => toggle(selectedApis, setSelectedApis, i)}

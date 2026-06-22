@@ -111,6 +111,11 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .report-sticky { position: sticky; top: 0; z-index: 5; background: #fff; margin: 0 -12px 2px; padding: 6px 12px 6px; border-bottom: 1px solid #e4e7eb; }
 [data-theme="dark"] .report-sticky { background: #1e293b; border-bottom-color: #334155; }
 
+/* Calmer vertical rhythm in the dense Impact tab. */
+.impact .panel, .impact .collapse-head { margin-top: 12px; }
+.impact .impact-left > :first-child, .impact .impact-right > :first-child { margin-top: 0; }
+.impact .checklist h2, .impact .panel h2 { margin-bottom: 6px; }
+
 .impact-empty { max-width: 540px; margin: 52px auto; text-align: center; padding: 0 20px; }
 .graph-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .graph-empty .impact-empty { margin: 0; }

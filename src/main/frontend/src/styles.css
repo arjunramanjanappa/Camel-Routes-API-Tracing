@@ -115,6 +115,9 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .impact .panel, .impact .collapse-head { margin-top: 12px; }
 .impact .impact-left > :first-child, .impact .impact-right > :first-child { margin-top: 0; }
 .impact .checklist h2, .impact .panel h2 { margin-bottom: 6px; }
+.sel-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: var(--accent); color: #fff; padding: 1px 7px; border-radius: 999px; margin-left: 7px; vertical-align: middle; }
+.grid tr.impacted-selected td { background: var(--accent-soft); }
+.grid tr.impacted-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 .impact-empty { max-width: 540px; margin: 52px auto; text-align: center; padding: 0 20px; }
 .graph-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }

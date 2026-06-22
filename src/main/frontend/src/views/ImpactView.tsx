@@ -98,6 +98,14 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
   const hasChange = effectiveRoutes.size > 0 || effectiveBackends.size > 0;
   const feApis = useMemo(() => impacted.map((i) => i.api.api).filter(Boolean), [impacted]);
+  // Show the API(s) the user actually picked first, then the ones merely sharing a
+  // backend/route — so "8 of 36" reads as "your 1 + 7 that share its dependencies".
+  const selectedImpactedCount = useMemo(
+    () => impacted.filter((i) => selectedApis.has(i.api.api)).length, [impacted, selectedApis]);
+  const sortedImpacted = useMemo(
+    () => [...impacted].sort((a, b) =>
+      (selectedApis.has(a.api.api) ? 0 : 1) - (selectedApis.has(b.api.api) ? 0 : 1)),
+    [impacted, selectedApis]);
 
   // Direct API selection drives the Splunk query and scopes the log analysis.
   const allApiPaths = useMemo(() => (idx ? [...new Set(idx.apis.map((a) => a.api).filter(Boolean))] : []), [idx]);
@@ -249,13 +257,16 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
               </div>
               {!hasChange && <div className="sub">Select an API (or a route/backend) on the left to see impacted APIs.</div>}
               {hasChange && impacted.length === 0 && <div className="sub">No APIs are impacted by the selected change.</div>}
+              {impacted.length > 0 && selectedImpactedCount > 0 && impacted.length > selectedImpactedCount && (
+                <div className="sub"><b>{selectedImpactedCount}</b> you selected · <b>{impacted.length - selectedImpactedCount}</b> more share a backend or route with it.</div>
+              )}
               {impacted.length > 0 && (
                 <table className="grid">
                   <thead><tr><th>API</th><th>Operation</th><th>Resolves to</th><th>Impacted via</th><th></th></tr></thead>
                   <tbody>
-                    {impacted.map((i) => (
-                      <tr key={i.api.api + i.api.operation}>
-                        <td><code>{i.api.api}</code></td>
+                    {sortedImpacted.map((i) => (
+                      <tr key={i.api.api + i.api.operation} className={selectedApis.has(i.api.api) ? 'impacted-selected' : ''}>
+                        <td><code>{i.api.api}</code>{selectedApis.has(i.api.api) && <span className="sel-badge">selected</span>}</td>
                         <td>{i.api.operation}</td>
                         <td><code>{i.api.resolvedRoute || '—'}</code></td>
                         <td>

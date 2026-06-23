@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, ImpactIndex } from '../types';
 import { backendPath, downloadText } from '../spl';
+import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel from '../components/LogAnalysisPanel';
@@ -141,6 +142,21 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     downloadText('impacted-apis.csv', rows.map((r) => r.map((c) => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n'));
   };
 
+  const exportPdf = () => {
+    if (!idx) return;
+    exportImpactPdf({
+      app, version, country,
+      totalApis: idx.apis.length,
+      changedRoutes: [...effectiveRoutes],
+      changedBackends: [...effectiveBackends],
+      rows: sortedImpacted.map((i) => ({
+        api: i.api.api, operation: i.api.operation, resolvedRoute: i.api.resolvedRoute,
+        selected: selectedApis.has(i.api.api), viaRoutes: i.viaRoutes, viaBackends: i.viaBackends,
+      })),
+      backendVersions: backendVersionMap,
+    }).catch(() => {});
+  };
+
   const loaded = !!idx;
   const picked = selectedApis.size > 0;
   const steps: { label: string; state: StepState }[] = [
@@ -257,7 +273,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 {impacted.length > 0 && (
                   <span className="row" style={{ gap: 6 }}>
                     <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}>+ select for analysis</button>
-                    <button className="minibtn" onClick={exportCsv}>Export CSV</button>
+                    <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ PDF</button>
+                    <button className="minibtn" onClick={exportCsv}>CSV</button>
                   </span>
                 )}
               </div>

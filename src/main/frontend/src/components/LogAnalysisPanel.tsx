@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeLog } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath, downloadText } from '../spl';
+import { exportLogPdf } from '../logPdf';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
 
@@ -241,6 +242,11 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
     downloadText('log-analysis.csv', rows.map((r) => r.map((c) => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n'));
   };
 
+  const exportPdf = () => {
+    if (!report) return;
+    exportLogPdf(report, app, version).catch(() => {});
+  };
+
   return (
     <div className="panel">
       <div className="row between">
@@ -326,7 +332,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
                 <option value="severity">Sort: worst first</option>
                 <option value="api">Sort: name</option>
               </select>
-              <button className="minibtn" onClick={exportCsv}>Export CSV</button>
+              <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ PDF</button>
+              <button className="minibtn" onClick={exportCsv}>CSV</button>
             </span>
           </div>
 

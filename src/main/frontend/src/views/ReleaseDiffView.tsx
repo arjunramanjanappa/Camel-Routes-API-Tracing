@@ -160,6 +160,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
 }
 
 const ALL_STATUSES: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
+const GROUP_LABEL: Record<DiffStatus, string> = { CHANGED: 'Changed', NEW: 'New', UNCHANGED: 'Unchanged' };
 
 export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
@@ -168,8 +169,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [report, setReport] = useState<VersionDiffReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Changed + new shown by default; unchanged is opt-in. The counts double as filters.
-  const [filters, setFilters] = useState<Record<DiffStatus, boolean>>({ CHANGED: true, NEW: true, UNCHANGED: false });
+  // One group is shown at a time, picked from the left-hand nav. Defaults to Changed.
+  const [activeGroup, setActiveGroup] = useState<DiffStatus>('CHANGED');
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [flowApi, setFlowApi] = useState<{ api: string; version?: string } | null>(null);
@@ -184,7 +185,10 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       setReport(data);
       setExpanded(new Set());
       setQuery('');
-      setFilters({ CHANGED: true, NEW: true, UNCHANGED: false });
+      // Preselect Changed; fall back to the first non-empty group so we don't land on an empty one.
+      setActiveGroup(data.changedCount > 0 ? 'CHANGED'
+        : data.newCount > 0 ? 'NEW'
+          : data.unchangedCount > 0 ? 'UNCHANGED' : 'CHANGED');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -197,15 +201,13 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     NEW: report?.newCount ?? 0,
     UNCHANGED: report?.unchangedCount ?? 0,
   };
-  const countLabel: Record<DiffStatus, string> = { CHANGED: 'changed', NEW: 'new', UNCHANGED: 'unchanged' };
-
   const visible = useMemo(() => {
     if (!report) return [];
     const q = query.trim().toLowerCase();
     return report.apis
-      .filter((a) => filters[a.status])
+      .filter((a) => a.status === activeGroup)
       .filter((a) => !q || searchHaystack(a).includes(q));
-  }, [report, filters, query]);
+  }, [report, activeGroup, query]);
 
   const expandableKeys = useMemo(
     () => visible.filter((d) => d.routeDiffs?.length > 0).map(cardKey), [visible]);
@@ -217,7 +219,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     return next;
   });
   const toggleAll = () => setExpanded(allOpen ? new Set() : new Set(expandableKeys));
-  const toggleFilter = (s: DiffStatus) => setFilters((prev) => ({ ...prev, [s]: !prev[s] }));
 
   const copyOne = (d: ApiDiff) => {
     const text = apiDiffText(d);
@@ -241,15 +242,15 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     }
   };
 
-  // The PDF reflects the current view (filters + search) — what you see is what you get.
-  const filtered = !!report && visible.length !== report.apis.length;
+  // The PDF is the full release report (Changed + New), independent of which group is
+  // on screen — the left-hand nav is for browsing, not for scoping the export.
+  const exportApis = useMemo(
+    () => (report ? report.apis.filter((a) => a.status !== 'UNCHANGED') : []), [report]);
 
   const exportPdf = () => {
     if (!report) return;
-    exportDiffPdf(report, visible, filtered, app).catch(() => {});
+    exportDiffPdf(report, exportApis, false, app).catch(() => {});
   };
-
-  const showUnchanged = () => setFilters((prev) => ({ ...prev, UNCHANGED: true }));
 
   return (
     <div className="impact">
@@ -284,57 +285,53 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       )}
 
       {!loading && report && (
-        <div className="impact-body single">
-          <div className="diff-head row between">
-            <h2 style={{ margin: 0 }}>Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</h2>
+        <div className="impact-body diff-layout">
+          <div className="diff-nav">
+            <div className="diff-nav-head">Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</div>
+            {ALL_STATUSES.map((s) => (
+              <button key={s} className={'diff-nav-item ' + s.toLowerCase() + (activeGroup === s ? ' active' : '')}
+                      aria-pressed={activeGroup === s} onClick={() => setActiveGroup(s)}>
+                <span className="diff-nav-label">{GROUP_LABEL[s]}</span>
+                <span className="diff-nav-count">{counts[s]}</span>
+              </button>
+            ))}
             {report.apis.length > 0 && (
-              <button className="minibtn" onClick={exportPdf} title="Download the report as a PDF">⤓ Export PDF</button>
+              <button className="minibtn diff-nav-export" onClick={exportPdf} title="Download the full report as a PDF">⤓ Export PDF</button>
             )}
           </div>
 
-          {report.apis.length > 0 && (
-            <div className="diff-toolbar">
-              <div className="diff-filters">
-                {ALL_STATUSES.map((s) => (
-                  <button key={s} className={'diff-count ' + s.toLowerCase() + (filters[s] ? '' : ' off')}
-                          aria-pressed={filters[s]} onClick={() => toggleFilter(s)}>
-                    {counts[s]} {countLabel[s]}
-                  </button>
-                ))}
-              </div>
-              <input className="diff-search" placeholder="🔍 filter by path, route or backend"
-                     value={query} onChange={(e) => setQuery(e.target.value)} />
-            </div>
-          )}
+          <div className="diff-main">
+            {report.warnings.length > 0 && (
+              <div className="warnbox">{report.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
+            )}
 
-          {report.warnings.length > 0 && (
-            <div className="warnbox">{report.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
-          )}
-
-          {visible.length === 0 ? (
-            <div className="impact-empty">
-              <div className="impact-empty-title">
-                {report.apis.length === 0 ? 'Nothing to compare'
-                  : query.trim() ? 'No matches'
-                    : 'No changed or new APIs'}
-              </div>
-              <div className="sub">
-                {report.apis.length === 0
-                  ? 'No API resolves to this version in the selected scope.'
-                  : query.trim()
-                    ? <>Nothing matches “{query.trim()}”. Clear the search or turn a filter back on.</>
-                    : <>This release didn’t add or change any API here.{counts.UNCHANGED > 0 && !filters.UNCHANGED
-                        ? <> <button className="linkbtn" onClick={showUnchanged}>Show {counts.UNCHANGED} unchanged ▸</button></> : null}</>}
-              </div>
-            </div>
-          ) : (
-            <>
-              {expandableKeys.length > 0 && (
-                <div className="diff-list-head">
-                  <span className="muted">{visible.length} API{visible.length > 1 ? 's' : ''}</span>
+            <div className="diff-main-head row between">
+              <h2 style={{ margin: 0 }}>{GROUP_LABEL[activeGroup]} APIs <span className="muted">{visible.length}</span></h2>
+              <span className="row" style={{ gap: 8 }}>
+                <input className="diff-search" placeholder="🔍 filter by path, route or backend"
+                       value={query} onChange={(e) => setQuery(e.target.value)} />
+                {expandableKeys.length > 0 && (
                   <button className="linkbtn" onClick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</button>
+                )}
+              </span>
+            </div>
+
+            {visible.length === 0 ? (
+              <div className="impact-empty">
+                <div className="impact-empty-title">
+                  {report.apis.length === 0 ? 'Nothing to compare'
+                    : query.trim() ? 'No matches'
+                      : `No ${GROUP_LABEL[activeGroup].toLowerCase()} APIs`}
                 </div>
-              )}
+                <div className="sub">
+                  {report.apis.length === 0
+                    ? 'No API resolves to this version in the selected scope.'
+                    : query.trim()
+                      ? <>Nothing matches “{query.trim()}” in this group. Clear the search or pick another group.</>
+                      : `This release has no ${GROUP_LABEL[activeGroup].toLowerCase()} APIs.`}
+                </div>
+              </div>
+            ) : (
               <div className="diff-list">
                 {visible.map((d) => (
                   <ApiDiffCard key={cardKey(d)} d={d}
@@ -343,8 +340,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                                onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
                 ))}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
       )}
 

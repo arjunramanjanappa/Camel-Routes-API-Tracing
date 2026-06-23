@@ -369,6 +369,11 @@ tr.lsub code { background: transparent; }
   }
   .main { height: 70vh; min-height: 420px; }
   .impact-body { grid-template-columns: 1fr; }
+  .diff-layout { grid-template-columns: 1fr; }
+  .diff-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .diff-nav-head { width: 100%; }
+  .diff-nav-item { width: auto; flex: 1; min-width: 120px; }
+  .diff-nav-export { width: auto; margin-top: 0; }
   /* let wide result tables scroll within their panel instead of
      pushing the layout wider than the viewport */
   .panel { overflow-x: auto; }
@@ -392,6 +397,30 @@ tr.lsub code { background: transparent; }
    ============================================================ */
 .impact-body.single { display: block; max-width: 920px; margin: 0 auto; }
 .diff-head { margin-top: 4px; }
+
+/* Two-column layout: left group nav (Changed / New / Unchanged) + the active group's cards. */
+.diff-layout { display: grid; grid-template-columns: 210px 1fr; gap: 16px; padding: 16px 18px; align-items: start; }
+.diff-nav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 12px; }
+.diff-nav-head { font-size: 13px; font-weight: 700; color: #475569; padding: 2px 4px 6px; }
+.diff-nav-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left;
+  border: 1px solid #e4e7eb; border-left-width: 4px; border-left-color: #cbd5e1; border-radius: 8px; padding: 10px 12px;
+  background: #fff; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: #334155; }
+.diff-nav-item:hover { background: #f3f6fb; }
+.diff-nav-item.changed { border-left-color: #f59e0b; }
+.diff-nav-item.new { border-left-color: #22c55e; }
+.diff-nav-item.unchanged { border-left-color: #cbd5e1; }
+.diff-nav-item.active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent-num); }
+.diff-nav-count { font-size: 12px; font-weight: 700; background: #f1f5f9; color: #64748b; border-radius: 999px; padding: 1px 9px; min-width: 22px; text-align: center; }
+.diff-nav-item.active .diff-nav-count { background: var(--accent); color: #fff; }
+.diff-nav-export { margin-top: 10px; width: 100%; }
+.diff-main { min-width: 0; }
+.diff-main-head { margin-bottom: 12px; }
+.diff-main-head h2 { font-size: 15px; }
+[data-theme="dark"] .diff-nav-head { color: #cbd5e1; }
+[data-theme="dark"] .diff-nav-item { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+[data-theme="dark"] .diff-nav-item:hover { background: #0f172a; }
+[data-theme="dark"] .diff-nav-item.active { background: var(--accent-soft); color: var(--accent-num); }
+[data-theme="dark"] .diff-nav-count { background: #0f172a; color: #94a3b8; }
 
 /* Sticky filter bar: status counts double as filters, plus a search box. */
 .diff-toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between;

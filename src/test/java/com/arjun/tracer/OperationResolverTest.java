@@ -39,4 +39,62 @@ class OperationResolverTest {
         assertThat(r.all()).extracting(OperationInfo::path).containsExactly("/services/sg/fx/getFxRate");
         assertThat(r.all().get(0).operationName()).isEqualTo("getFxRate");
     }
+
+    @Test
+    void legacyBauEndpointIsDroppedWhenAUfwCommandHandlerTwinExistsAtTheSamePath() {
+        OperationResolver r = new OperationResolver();
+        // OLD BAU controller — JAX-RS markers + Spring mapping, but NO @CommandHandler.
+        r.addSource("""
+            import org.springframework.web.bind.annotation.*;
+            import javax.ws.rs.*;
+            @RestController
+            @RequestMapping("services/sg")
+            @Path("services/sg")
+            @Produces("application/json")
+            public class ProductEndpoint {
+                @POST
+                @Path("/getProduct")
+                @Consumes("application/json")
+                @PostMapping("/getProduct")
+                public Object getProduct(Object body) { return null; }
+            }
+            """);
+        // NEW UFW controller — implements an interface, carries a bare @CommandHandler marker.
+        r.addSource("""
+            import org.springframework.web.bind.annotation.*;
+            @RestController
+            @RequestMapping("services/sg")
+            public class ProductApiController implements ProductApi {
+                @CommandHandler
+                @PostMapping("/getProduct")
+                public Object getProduct(Object body) { return null; }
+            }
+            """);
+
+        // Both declare /services/sg/getProduct; only the UFW (@CommandHandler) one survives.
+        assertThat(r.all()).hasSize(1);
+        OperationInfo op = r.all().get(0);
+        assertThat(op.path()).isEqualTo("/services/sg/getProduct");
+        assertThat(op.commandHandler()).isTrue();
+        assertThat(op.controllerType()).isEqualTo("ProductApiController");
+    }
+
+    @Test
+    void aLegacyEndpointWithNoUfwTwinIsKept() {
+        OperationResolver r = new OperationResolver();
+        // No @CommandHandler anywhere for this path → Option A keeps it (don't over-drop).
+        r.addSource("""
+            import org.springframework.web.bind.annotation.*;
+            @RestController
+            @RequestMapping("services/sg")
+            public class ReportEndpoint {
+                @GetMapping("/report")
+                public Object report(Object body) { return null; }
+            }
+            """);
+
+        assertThat(r.all()).hasSize(1);
+        assertThat(r.all().get(0).path()).isEqualTo("/services/sg/report");
+        assertThat(r.all().get(0).commandHandler()).isFalse();
+    }
 }

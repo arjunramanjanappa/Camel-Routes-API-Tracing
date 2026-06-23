@@ -105,6 +105,7 @@ export interface RouteStepDiff {
   lowerRoute?: string | null;
   added: string[];
   removed: string[];
+  changedBy?: string[];
 }
 
 export interface BackendVersionChange {

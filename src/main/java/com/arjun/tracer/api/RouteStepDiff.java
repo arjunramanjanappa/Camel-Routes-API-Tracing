@@ -17,7 +17,10 @@ import java.util.List;
  * @param lowerRoute   the route id in the lower flow (e.g. {@code R9.14_xApi}), or null if the route only exists in the target flow
  * @param added        canonical lines present in the target but not the lower version (added by the release)
  * @param removed      canonical lines present in the lower version but not the target (removed by the release)
+ * @param changedBy    distinct {@code git blame} authors of the TARGET route's lines (who authored this
+ *                     release's version of the route); empty when the source dir is not a git work tree.
+ *                     The lower/BAU version's authors are intentionally excluded.
  */
 public record RouteStepDiff(String routeBase, String targetRoute, String lowerRoute,
-                            List<String> added, List<String> removed) {
+                            List<String> added, List<String> removed, List<String> changedBy) {
 }

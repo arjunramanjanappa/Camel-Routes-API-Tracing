@@ -76,6 +76,9 @@ public class RouteTraceService {
     // button and re-loads reuse it. Plus the raw route-XML bodies indexed per source dir.
     private final java.util.Map<String, VersionDiffReport> versionDiffCache = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<String, Map<String, List<String>>> routeBodyCache = new java.util.concurrent.ConcurrentHashMap<>();
+    // Route id -> source file + line range, per source dir, for git-blame attribution of changed routes.
+    private final java.util.Map<String, Map<String, RouteXmlDiff.RouteLocation>> routeLocationCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final GitBlameService gitBlame = new GitBlameService();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
         this.defaultSourceDir = defaultSourceDir;
@@ -260,6 +263,7 @@ public class RouteTraceService {
         }
 
         Map<String, List<String>> bodies = routeBodiesCached(resolveRoot(request));
+        Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(resolveRoot(request));
         var templateVersion = templateVersionResolver(request);
         RouteRegistry registry = prepared.registry();
 
@@ -310,7 +314,7 @@ public class RouteTraceService {
 
             TraceResponse lowerTrace = traceFor(prepared, op, lowerResolved, templateVersion);
             ApiDiff diff = buildApiDiff(op, targetResolved, target, lowerResolved, lowerLabel,
-                    targetTrace, lowerTrace, bodies);
+                    targetTrace, lowerTrace, bodies, locations);
             report.getApis().add(diff);
             if (ApiDiff.CHANGED.equals(diff.status())) {
                 changed++;
@@ -355,7 +359,8 @@ public class RouteTraceService {
     private ApiDiff buildApiDiff(OperationInfo op, ResolvedRoute targetResolved, String target,
                                  ResolvedRoute lowerResolved, String lowerLabel,
                                  TraceResponse targetTrace, TraceResponse lowerTrace,
-                                 Map<String, List<String>> bodies) {
+                                 Map<String, List<String>> bodies,
+                                 Map<String, RouteXmlDiff.RouteLocation> locations) {
         Map<String, String> targetByBase = new LinkedHashMap<>();
         for (String id : targetTrace.getFlow()) {
             targetByBase.putIfAbsent(baseName(id), id);
@@ -386,7 +391,11 @@ public class RouteTraceService {
             List<String> lBody = bodies.getOrDefault(lId, List.of());
             RouteXmlDiff.Diff d = RouteXmlDiff.diff(lBody, tBody);
             if (!d.isEmpty()) {
-                routeDiffs.add(new RouteStepDiff(base, tId, lId, d.added(), d.removed()));
+                // Attribute the change to whoever authored the TARGET (latest) route's
+                // lines — the lower/BAU version is in production, so its authors are not
+                // who made this change. Empty unless the source dir is a git work tree.
+                List<String> changedBy = blameAuthors(locations.get(tId));
+                routeDiffs.add(new RouteStepDiff(base, tId, lId, d.added(), d.removed(), changedBy));
             }
         }
 
@@ -443,6 +452,20 @@ public class RouteTraceService {
     private Map<String, List<String>> routeBodiesCached(Path root) {
         return routeBodyCache.computeIfAbsent(root.toAbsolutePath().normalize().toString(),
                 k -> RouteXmlDiff.indexRouteBodies(scanCached(root).allFiles()));
+    }
+
+    /** Route id → source file + line range for a root, computed once. */
+    private Map<String, RouteXmlDiff.RouteLocation> routeLocationsCached(Path root) {
+        return routeLocationCache.computeIfAbsent(root.toAbsolutePath().normalize().toString(),
+                k -> RouteXmlDiff.indexRouteLocations(scanCached(root).allFiles()));
+    }
+
+    /** git-blame authors of a route's lines, or empty when the location/repo is unknown. */
+    private List<String> blameAuthors(RouteXmlDiff.RouteLocation loc) {
+        if (loc == null) {
+            return List.of();
+        }
+        return gitBlame.authors(loc.file(), loc.startLine(), loc.endLine());
     }
 
     /**

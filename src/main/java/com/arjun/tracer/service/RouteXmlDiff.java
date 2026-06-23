@@ -69,6 +69,61 @@ final class RouteXmlDiff {
         return out;
     }
 
+    /** Where a route is defined: its file and 1-based inclusive line range (for git blame). */
+    record RouteLocation(java.nio.file.Path file, int startLine, int endLine) {
+    }
+
+    private static final Pattern ROUTE_OPEN = Pattern.compile("<route(\\s|>)");
+    private static final Pattern ROUTE_ID = Pattern.compile("id=\"([^\"]+)\"");
+
+    /**
+     * Map each {@code <route id>} to its source file + line range, by a light line scan
+     * (routes don't nest). Used to blame the exact lines of a route. The first
+     * {@code id="..."} after {@code <route} is the route id ({@code <from>} uses {@code uri=}).
+     */
+    static Map<String, RouteLocation> indexRouteLocations(List<Path> files) {
+        Map<String, RouteLocation> out = new LinkedHashMap<>();
+        for (Path p : files) {
+            String name = p.getFileName() != null ? p.getFileName().toString().toLowerCase() : "";
+            if (!name.endsWith(".xml")) {
+                continue;
+            }
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(p);
+            } catch (Exception e) {
+                continue;
+            }
+            int start = -1;
+            String id = null;
+            for (int i = 0; i < lines.size(); i++) {
+                String l = lines.get(i);
+                if (start < 0) {
+                    if (ROUTE_OPEN.matcher(l).find()) {
+                        start = i;
+                        var m = ROUTE_ID.matcher(l);
+                        id = m.find() ? m.group(1) : null;
+                    }
+                } else {
+                    if (id == null) {
+                        var m = ROUTE_ID.matcher(l);
+                        if (m.find()) {
+                            id = m.group(1);
+                        }
+                    }
+                    if (l.contains("</route>")) {
+                        if (id != null) {
+                            out.putIfAbsent(id, new RouteLocation(p, start + 1, i + 1));
+                        }
+                        start = -1;
+                        id = null;
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     /** The canonical body lines of a route element (its steps, excluding {@code <from>}). */
     static List<String> canonicalize(Element route) {
         List<String> lines = new ArrayList<>();

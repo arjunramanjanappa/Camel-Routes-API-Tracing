@@ -85,6 +85,9 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   (a.routeDiffs || []).forEach((rd) => {
     r.ensure(18);
     r.text(`${rd.routeBase}   (+${rd.added.length}  -${rd.removed.length})`, M + 4, 'bold', 9, PAL.ink); r.y += 12;
+    if (rd.changedBy && rd.changedBy.length) {
+      r.para('Changed by: ' + rd.changedBy.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.accent, 11);
+    }
     r.diffLines(rd.removed, rd.added);
     r.y += 3;
   });

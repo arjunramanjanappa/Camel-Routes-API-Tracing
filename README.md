@@ -351,7 +351,11 @@ source dir ──► scan ──► OperationResolver (JavaParser over controlle
 Controllers are parsed with **JavaParser**; an API path maps to the handler
 **method name**, which is the operation name the framework routes on. Source is
 parsed (not reflection) because the tracer analyses a directory, not a running
-classpath.
+classpath. Because the framework is now **UFW**, only endpoints carrying
+**`@CommandHandler`** are considered — the legacy / JAX-RS controllers a migrated API
+was converted from (no `@CommandHandler`) are ignored, so the same API never shows
+twice. A source tree with **no** `@CommandHandler` anywhere (a pre-UFW codebase) keeps
+every endpoint, so the tool still works there.
 
 ### Version resolution
 `R<version>_<operation>` exact match → otherwise the **highest available lower**

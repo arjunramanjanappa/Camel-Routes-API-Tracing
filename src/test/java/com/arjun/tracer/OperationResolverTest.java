@@ -41,9 +41,9 @@ class OperationResolverTest {
     }
 
     @Test
-    void legacyBauEndpointIsDroppedWhenAUfwCommandHandlerTwinExistsAtTheSamePath() {
+    void onlyUfwCommandHandlerEndpointsAreKeptWhenTheCodebaseHasThem() {
         OperationResolver r = new OperationResolver();
-        // OLD BAU controller — JAX-RS markers + Spring mapping, but NO @CommandHandler.
+        // OLD BAU controller (JAX-RS markers + Spring mapping, NO @CommandHandler) — ignored.
         r.addSource("""
             import org.springframework.web.bind.annotation.*;
             import javax.ws.rs.*;
@@ -59,7 +59,17 @@ class OperationResolverTest {
                 public Object getProduct(Object body) { return null; }
             }
             """);
-        // NEW UFW controller — implements an interface, carries a bare @CommandHandler marker.
+        // An UNRELATED legacy endpoint (different api, no @CommandHandler) — also ignored.
+        r.addSource("""
+            import org.springframework.web.bind.annotation.*;
+            @RestController
+            @RequestMapping("legacy")
+            public class StatusEndpoint {
+                @GetMapping("/status")
+                public Object legacyStatus(Object body) { return null; }
+            }
+            """);
+        // The migrated UFW controller (implements an interface, bare @CommandHandler marker).
         r.addSource("""
             import org.springframework.web.bind.annotation.*;
             @RestController
@@ -71,54 +81,19 @@ class OperationResolverTest {
             }
             """);
 
-        // Both declare /services/sg/getProduct; only the UFW (@CommandHandler) one survives.
+        // Every non-@CommandHandler endpoint is ignored once any UFW endpoint exists.
         assertThat(r.all()).hasSize(1);
         OperationInfo op = r.all().get(0);
+        assertThat(op.operationName()).isEqualTo("getProduct");
         assertThat(op.path()).isEqualTo("/services/sg/getProduct");
         assertThat(op.commandHandler()).isTrue();
         assertThat(op.controllerType()).isEqualTo("ProductApiController");
     }
 
     @Test
-    void legacyBauEndpointIsDroppedWhenAUfwTwinSharesTheOperationEvenAtADifferentPath() {
+    void withNoCommandHandlerAnywhereEveryEndpointIsKept() {
         OperationResolver r = new OperationResolver();
-        // OLD BAU controller — its JAX-RS-side prefix puts it at a DIFFERENT url, but it's
-        // the same handler/operation (getProduct) and has no @CommandHandler.
-        r.addSource("""
-            import org.springframework.web.bind.annotation.*;
-            import javax.ws.rs.*;
-            @RestController
-            @RequestMapping("legacy/product")
-            public class ProductEndpoint {
-                @POST
-                @PostMapping("/getProduct")
-                public Object getProduct(Object body) { return null; }
-            }
-            """);
-        // NEW UFW controller — same operation, @CommandHandler, different url prefix.
-        r.addSource("""
-            import org.springframework.web.bind.annotation.*;
-            @RestController
-            @RequestMapping("services/sg")
-            public class ProductApiController implements ProductApi {
-                @CommandHandler
-                @PostMapping("/getProduct")
-                public Object getProduct(Object body) { return null; }
-            }
-            """);
-
-        // Different paths, same operation → the legacy one is still dropped.
-        assertThat(r.all()).hasSize(1);
-        OperationInfo op = r.all().get(0);
-        assertThat(op.operationName()).isEqualTo("getProduct");
-        assertThat(op.path()).isEqualTo("/services/sg/getProduct");
-        assertThat(op.commandHandler()).isTrue();
-    }
-
-    @Test
-    void aLegacyEndpointWithNoUfwTwinIsKept() {
-        OperationResolver r = new OperationResolver();
-        // No @CommandHandler anywhere for this path → Option A keeps it (don't over-drop).
+        // A pre-UFW codebase (no @CommandHandler at all) must still list its APIs.
         r.addSource("""
             import org.springframework.web.bind.annotation.*;
             @RestController

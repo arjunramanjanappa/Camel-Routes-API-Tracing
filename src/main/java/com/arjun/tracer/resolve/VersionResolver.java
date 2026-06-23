@@ -50,6 +50,26 @@ public class VersionResolver {
         return new ResolvedRoute(operationName, null, true);
     }
 
+    /**
+     * The highest available release version strictly BELOW {@code target} for this
+     * operation (versioned routes only — a BASE baseline is handled by the caller),
+     * or null if there is none. Used by the release-diff to pick the immediate predecessor.
+     */
+    public String immediateLowerVersion(RouteRegistry registry, String operationName, String target) {
+        if (target == null || target.isBlank()) {
+            return null;
+        }
+        Version t = Version.parse(target.trim());
+        Version best = null;
+        for (String v : registry.availableVersionsFor(operationName)) {
+            Version c = Version.parse(v);
+            if (c.compareTo(t) < 0 && (best == null || c.compareTo(best) > 0)) {
+                best = c;
+            }
+        }
+        return best != null ? best.text() : null;
+    }
+
     /** A dotted numeric version, compared component-by-component. */
     record Version(int[] parts, String text) implements Comparable<Version> {
 

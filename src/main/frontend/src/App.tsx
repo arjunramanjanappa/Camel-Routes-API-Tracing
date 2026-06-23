@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import TraceView from './views/TraceView';
 import ImpactView from './views/ImpactView';
+import ReleaseDiffView from './views/ReleaseDiffView';
 import AppPicker from './components/AppPicker';
 
-type View = 'trace' | 'impact';
+type View = 'trace' | 'impact' | 'diff';
 type Theme = 'light' | 'dark';
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
         <nav className="tabs">
           <button className={view === 'trace' ? 'tab active' : 'tab'} onClick={() => setView('trace')}>Trace</button>
           <button className={view === 'impact' ? 'tab active' : 'tab'} onClick={() => setView('impact')}>Impact analysis</button>
+          <button className={view === 'diff' ? 'tab active' : 'tab'} onClick={() => setView('diff')}>Release Diff</button>
           <button className="tab" title="Switch application" onClick={() => setApp(null)}>⇄ App</button>
           <button className="tab theme-toggle" title="Toggle theme"
                   onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
@@ -37,7 +39,9 @@ export default function App() {
           </button>
         </nav>
       </header>
-      {view === 'trace' ? <TraceView app={app} colorMode={theme} /> : <ImpactView app={app} colorMode={theme} />}
+      {view === 'trace' && <TraceView app={app} colorMode={theme} />}
+      {view === 'impact' && <ImpactView app={app} colorMode={theme} />}
+      {view === 'diff' && <ReleaseDiffView app={app} colorMode={theme} />}
     </div>
   );
 }

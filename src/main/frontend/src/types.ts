@@ -95,6 +95,42 @@ export interface TraceParams {
   sourceDir?: string;
 }
 
+// --- release diff (version comparison) ---
+
+export type DiffStatus = 'NEW' | 'CHANGED' | 'UNCHANGED';
+
+export interface RouteStepDiff {
+  routeBase: string;
+  targetRoute?: string | null;
+  lowerRoute?: string | null;
+  added: string[];
+  removed: string[];
+}
+
+export interface ApiDiff {
+  api: string;
+  operation: string;
+  targetRoute?: string | null;
+  targetVersion?: string | null;
+  lowerRoute?: string | null;
+  lowerVersion?: string | null;
+  status: DiffStatus;
+  routeDiffs: RouteStepDiff[];
+  addedRoutes: string[];
+  removedRoutes: string[];
+}
+
+export interface VersionDiffReport {
+  mode: 'version-diff';
+  version?: string | null;
+  country?: string | null;
+  changedCount: number;
+  newCount: number;
+  unchangedCount: number;
+  apis: ApiDiff[];
+  warnings: string[];
+}
+
 // --- log / Splunk correlation ---
 
 export type LogStatus =

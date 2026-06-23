@@ -385,3 +385,63 @@ tr.lsub code { background: transparent; }
   .app-picker-inner { padding: 24px 16px; }
   .context-bar > div { min-width: 130px; }
 }
+
+/* ============================================================
+   Release Diff — compare a release against its immediate-lower
+   version, highlighting what each API changed.
+   ============================================================ */
+.impact-body.single { display: block; max-width: 920px; margin: 0 auto; }
+.diff-summary .diff-counts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.diff-count { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 1px solid transparent; }
+.diff-count.changed { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.diff-count.new { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.diff-count.unchanged { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+.diff-toggle { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 12px; color: #64748b; cursor: pointer; }
+.diff-toggle input { width: auto; }
+
+.warnbox { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 8px; padding: 8px 12px; margin-top: 12px; font-size: 12px; }
+.warnbox > div { margin: 2px 0; }
+
+.diff-list { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+.diff-card { background: #fff; border: 1px solid #e4e7eb; border-left: 4px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; }
+.diff-card.changed { border-left-color: #f59e0b; }
+.diff-card.new { border-left-color: #22c55e; }
+.diff-card.unchanged { border-left-color: #cbd5e1; opacity: .85; }
+.diff-card-id { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.diff-card-id code { font-size: 13px; font-weight: 700; word-break: break-all; }
+.diff-card-id .op { font-size: 11px; }
+.diff-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.diff-badge.changed { background: #fef3c7; color: #92400e; }
+.diff-badge.new { background: #dcfce7; color: #166534; }
+.diff-badge.unchanged { background: #f1f5f9; color: #64748b; }
+
+.diff-verdict { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 9px; font-size: 12px; }
+.diff-arrow { color: #94a3b8; font-weight: 700; }
+.tag.route.lower { background: #e2e8f0; color: #475569; }
+.diff-routes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.tag.route.added { background: #dcfce7; color: #166534; }
+.tag.route.removed { background: #fee2e2; color: #991b1b; }
+
+.rdiff { margin-top: 8px; border: 1px solid #eef2f7; border-radius: 6px; overflow: hidden; }
+.rdiff-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; background: #f8fafc; font-size: 12px; }
+.rdiff-head code { font-weight: 700; }
+.rdiff-body { margin: 0; padding: 8px 10px; font-size: 12px; line-height: 1.5; overflow-x: auto; background: #fff; }
+.rdiff-body .dl { white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.rdiff-body .dl.add { background: #f0fdf4; color: #166534; }
+.rdiff-body .dl.del { background: #fef2f2; color: #991b1b; }
+
+[data-theme="dark"] .diff-card { background: #1e293b; border-color: #334155; border-left-color: #475569; }
+[data-theme="dark"] .diff-card.changed { border-left-color: #f59e0b; }
+[data-theme="dark"] .diff-card.new { border-left-color: #22c55e; }
+[data-theme="dark"] .diff-count.changed, [data-theme="dark"] .diff-badge.changed { background: #422006; color: #fbbf24; border-color: #713f12; }
+[data-theme="dark"] .diff-count.new, [data-theme="dark"] .diff-badge.new { background: #052e16; color: #86efac; border-color: #166534; }
+[data-theme="dark"] .diff-count.unchanged, [data-theme="dark"] .diff-badge.unchanged { background: #0f172a; color: #94a3b8; border-color: #334155; }
+[data-theme="dark"] .warnbox { background: #1c1505; border-color: #713f12; color: #fbbf24; }
+[data-theme="dark"] .tag.route.lower { background: #334155; color: #cbd5e1; }
+[data-theme="dark"] .tag.route.added { background: #052e16; color: #86efac; }
+[data-theme="dark"] .tag.route.removed { background: #2a1416; color: #fca5a5; }
+[data-theme="dark"] .rdiff { border-color: #334155; }
+[data-theme="dark"] .rdiff-head { background: #0f172a; }
+[data-theme="dark"] .rdiff-body { background: #0b1220; }
+[data-theme="dark"] .rdiff-body .dl.add { background: #052e16; color: #86efac; }
+[data-theme="dark"] .rdiff-body .dl.del { background: #2a1416; color: #fca5a5; }

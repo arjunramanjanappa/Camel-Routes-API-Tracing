@@ -81,6 +81,19 @@ public class RouteGraphController {
     }
 
     /**
+     * Release diff: for a target client version, what each impacted API changed
+     * relative to its immediate-lower version (per-route structural diff of the
+     * whole resolved flow). Pure static analysis — no logs.
+     */
+    @GetMapping("/internal/version-diff")
+    public com.arjun.tracer.api.VersionDiffReport versionDiff(
+            @RequestParam(required = false) String sourceDir,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String version) {
+        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country));
+    }
+
+    /**
      * Correlate an uploaded output log against the traced APIs for a client
      * release: which APIs were exercised and whether they passed end-to-end.
      * Multipart upload ({@code file}); {@code apis} optionally narrows to a

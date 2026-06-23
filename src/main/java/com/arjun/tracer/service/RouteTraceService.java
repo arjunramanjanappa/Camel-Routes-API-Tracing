@@ -1,13 +1,16 @@
 package com.arjun.tracer.service;
 
+import com.arjun.tracer.api.ApiDiff;
 import com.arjun.tracer.api.ApiImpact;
 import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.GraphEdge;
 import com.arjun.tracer.api.GraphNode;
 import com.arjun.tracer.api.ImpactIndex;
 import com.arjun.tracer.api.RouteGraph;
+import com.arjun.tracer.api.RouteStepDiff;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
+import com.arjun.tracer.api.VersionDiffReport;
 import com.arjun.tracer.api.VersionGroup;
 import com.arjun.tracer.loader.RouteRegistry;
 import com.arjun.tracer.resolve.OperationInfo;
@@ -24,15 +27,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Orchestrates analysis. Input modes:
@@ -64,6 +71,10 @@ public class RouteTraceService {
     // The impact index traces every API, so it's cached per (source dir, country, version,
     // branch): the Load button, re-loads, and the log-analysis upload all reuse it.
     private final java.util.Map<String, ImpactIndex> impactCache = new java.util.concurrent.ConcurrentHashMap<>();
+    // Release-diff report, cached per (source dir, country, target version): the Load
+    // button and re-loads reuse it. Plus the raw route-XML bodies indexed per source dir.
+    private final java.util.Map<String, VersionDiffReport> versionDiffCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, Map<String, List<String>>> routeBodyCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
         this.defaultSourceDir = defaultSourceDir;
@@ -205,6 +216,188 @@ public class RouteTraceService {
                     + " (they resolve to a lower version or BASE) and were excluded.");
         }
         return out;
+    }
+
+    // --- mode: release diff ---
+
+    private static final Pattern VERSIONED_ID = Pattern.compile("^R(\\d+(?:\\.\\d+)*)_(.+)$");
+
+    /**
+     * Release-diff report: for a target client version, what each impacted API
+     * changed relative to its <em>immediate-lower</em> version. For every API whose
+     * entry route resolves to exactly the target version, the whole resolved flow is
+     * traced at the target and again at the immediate-lower version (the highest
+     * versioned route below the target, else BASE, else the API is NEW); the routes
+     * are paired by base name and their raw XML bodies are structurally diffed.
+     *
+     * <p>Read-only and additive — it reuses the cached scan, the version resolver and
+     * the existing traversal without touching trace / impact behaviour. Cached per
+     * (source dir, country, target version).
+     */
+    public VersionDiffReport versionDiff(TraceRequest request) {
+        String key;
+        try {
+            key = resolveRoot(request).toAbsolutePath().normalize()
+                    + "|" + nz(request.country()) + "|" + nz(request.version());
+        } catch (RuntimeException e) {
+            return computeVersionDiff(request);   // no source dir → preserve the original error path
+        }
+        return versionDiffCache.computeIfAbsent(key, k -> computeVersionDiff(request));
+    }
+
+    private VersionDiffReport computeVersionDiff(TraceRequest request) {
+        Prepared prepared = prepare(request);
+        VersionDiffReport report = new VersionDiffReport();
+        report.setCountry(prepared.country());
+        report.getWarnings().addAll(prepared.warnings());
+
+        String target = nz(request.version());
+        report.setVersion(target);
+        if (target.isEmpty()) {
+            report.getWarnings().add("Select a target version to compare (e.g. 9.18).");
+            return report;
+        }
+
+        Map<String, List<String>> bodies = routeBodiesCached(resolveRoot(request));
+        var templateVersion = templateVersionResolver(request);
+        RouteRegistry registry = prepared.registry();
+
+        int changed = 0;
+        int added = 0;
+        int unchanged = 0;
+        for (OperationInfo op : prepared.index().operations().all()) {
+            ResolvedRoute targetResolved = versionResolver.resolve(registry, op.operationName(), target);
+            if (!target.equals(targetResolved.version())) {
+                continue;   // no route at the target version for this API — not part of this release
+            }
+            List<String> targetFlow = flowOf(prepared, op, targetResolved, templateVersion);
+
+            // Immediate-lower baseline: highest versioned route below target, else BASE, else NEW.
+            String lowerVer = versionResolver.immediateLowerVersion(registry, op.operationName(), target);
+            ResolvedRoute lowerResolved;
+            String lowerLabel;
+            if (lowerVer != null) {
+                lowerResolved = new ResolvedRoute("R" + lowerVer + "_" + op.operationName(), lowerVer, false);
+                lowerLabel = lowerVer;
+            } else if (registry.contains(op.operationName())) {
+                lowerResolved = new ResolvedRoute(op.operationName(), null, true);   // BASE baseline
+                lowerLabel = BASE_GROUP;
+            } else {
+                report.getApis().add(new ApiDiff(op.path(), op.operationName(),
+                        targetResolved.routeName(), target, null, null,
+                        ApiDiff.NEW, List.of(), List.of(), List.of()));
+                added++;
+                continue;
+            }
+
+            List<String> lowerFlow = flowOf(prepared, op, lowerResolved, templateVersion);
+            ApiDiff diff = buildApiDiff(op, targetResolved, target, lowerResolved, lowerLabel,
+                    targetFlow, lowerFlow, bodies);
+            report.getApis().add(diff);
+            if (ApiDiff.CHANGED.equals(diff.status())) {
+                changed++;
+            } else {
+                unchanged++;
+            }
+        }
+
+        report.setChangedCount(changed);
+        report.setNewCount(added);
+        report.setUnchangedCount(unchanged);
+        if (changed + added + unchanged == 0) {
+            report.getWarnings().add("No API resolves to version " + target
+                    + " in this scope — nothing was introduced or changed by this release here.");
+        }
+        // Changed first, then new, then version-bumped-no-change; alphabetical within each.
+        report.getApis().sort(Comparator
+                .comparingInt((ApiDiff a) -> statusRank(a.status()))
+                .thenComparing(ApiDiff::api));
+        return report;
+    }
+
+    private static int statusRank(String status) {
+        if (ApiDiff.CHANGED.equals(status)) {
+            return 0;
+        }
+        return ApiDiff.NEW.equals(status) ? 1 : 2;
+    }
+
+    /** Trace one API at a resolved entry and return just its ordered route flow. */
+    private List<String> flowOf(Prepared prepared, OperationInfo op, ResolvedRoute resolved,
+                                java.util.function.Function<String, String> templateVersion) {
+        TraceResponse r = new TraceResponse();
+        RouteGraph graph = new RouteGraph();
+        // transferType left null on purpose: walk every branch so the flow includes
+        // all sub-routes either version could reach, for a complete structural compare.
+        traverseInto(r, op.path(), op.operationName(), resolved, null,
+                prepared.registry(), graph, templateVersion);
+        return r.getFlow();
+    }
+
+    private ApiDiff buildApiDiff(OperationInfo op, ResolvedRoute targetResolved, String target,
+                                 ResolvedRoute lowerResolved, String lowerLabel,
+                                 List<String> targetFlow, List<String> lowerFlow,
+                                 Map<String, List<String>> bodies) {
+        Map<String, String> targetByBase = new LinkedHashMap<>();
+        for (String id : targetFlow) {
+            targetByBase.putIfAbsent(baseName(id), id);
+        }
+        Map<String, String> lowerByBase = new LinkedHashMap<>();
+        for (String id : lowerFlow) {
+            lowerByBase.putIfAbsent(baseName(id), id);
+        }
+
+        List<RouteStepDiff> routeDiffs = new ArrayList<>();
+        List<String> addedRoutes = new ArrayList<>();
+        List<String> removedRoutes = new ArrayList<>();
+
+        LinkedHashSet<String> bases = new LinkedHashSet<>(targetByBase.keySet());
+        bases.addAll(lowerByBase.keySet());
+        for (String base : bases) {
+            String tId = targetByBase.get(base);
+            String lId = lowerByBase.get(base);
+            if (tId != null && lId == null) {
+                addedRoutes.add(base);   // a sub-route the target flow calls that the lower flow did not
+                continue;
+            }
+            if (tId == null) {
+                removedRoutes.add(base); // a sub-route the lower flow called that the target flow dropped
+                continue;
+            }
+            List<String> tBody = bodies.getOrDefault(tId, List.of());
+            List<String> lBody = bodies.getOrDefault(lId, List.of());
+            RouteXmlDiff.Diff d = RouteXmlDiff.diff(lBody, tBody);
+            if (!d.isEmpty()) {
+                routeDiffs.add(new RouteStepDiff(base, tId, lId, d.added(), d.removed()));
+            }
+        }
+
+        String status = (routeDiffs.isEmpty() && addedRoutes.isEmpty() && removedRoutes.isEmpty())
+                ? ApiDiff.UNCHANGED : ApiDiff.CHANGED;
+        return new ApiDiff(op.path(), op.operationName(),
+                targetResolved.routeName(), target,
+                lowerResolved.routeName(), lowerLabel,
+                status, routeDiffs, addedRoutes, removedRoutes);
+    }
+
+    /** The version-stripped route name: {@code R9.18_xApi} → {@code xApi}; BASE ids unchanged. */
+    private static String baseName(String routeId) {
+        if (routeId == null) {
+            return "";
+        }
+        String id = routeId;
+        int hash = id.indexOf('#');     // drop any per-call instance suffix the traverser adds
+        if (hash >= 0) {
+            id = id.substring(0, hash);
+        }
+        Matcher m = VERSIONED_ID.matcher(id);
+        return m.matches() ? m.group(2) : id;
+    }
+
+    /** Raw route-XML bodies (route id → canonical lines) for a root, computed once. */
+    private Map<String, List<String>> routeBodiesCached(Path root) {
+        return routeBodyCache.computeIfAbsent(root.toAbsolutePath().normalize().toString(),
+                k -> RouteXmlDiff.indexRouteBodies(scanCached(root).allFiles()));
     }
 
     /**

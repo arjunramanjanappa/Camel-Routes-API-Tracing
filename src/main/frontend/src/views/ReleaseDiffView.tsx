@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { fetchVersionDiff } from '../api';
 import type { ApiDiff, DiffStatus, RouteStepDiff, VersionDiffReport } from '../types';
 import { downloadText } from '../spl';
+import { exportDiffPdf } from '../diffPdf';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
 
@@ -241,12 +242,21 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     }
   };
 
-  const exportReport = () => {
+  // Exports reflect the current view (filters + search) — what you see is what you get.
+  const filtered = !!report && visible.length !== report.apis.length;
+
+  const exportText = () => {
     if (!report) return;
+    const scope = filtered ? ` (${visible.length} of ${report.apis.length} shown)` : '';
     const lines: string[] = [`Release diff — version ${report.version}${report.country ? ', ' + report.country : ''}`,
-      `${report.changedCount} changed · ${report.newCount} new · ${report.unchangedCount} unchanged`, ''];
-    for (const a of report.apis) { lines.push(apiDiffText(a), ''); }
+      `${report.changedCount} changed · ${report.newCount} new · ${report.unchangedCount} unchanged${scope}`, ''];
+    for (const a of visible) { lines.push(apiDiffText(a), ''); }
     downloadText(`release-diff-${report.version || 'base'}.txt`, lines.join('\n'));
+  };
+
+  const exportPdf = () => {
+    if (!report) return;
+    exportDiffPdf(report, visible, filtered).catch(() => {});
   };
 
   const showUnchanged = () => setFilters((prev) => ({ ...prev, UNCHANGED: true }));
@@ -287,7 +297,12 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         <div className="impact-body single">
           <div className="diff-head row between">
             <h2 style={{ margin: 0 }}>Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</h2>
-            {report.apis.length > 0 && <button className="minibtn" onClick={exportReport}>⤓ Export</button>}
+            {report.apis.length > 0 && (
+              <span className="row" style={{ gap: 6 }}>
+                <button className="minibtn" onClick={exportPdf} title="Download as PDF">⤓ PDF</button>
+                <button className="minibtn" onClick={exportText} title="Download as text">⤓ Text</button>
+              </span>
+            )}
           </div>
 
           {report.apis.length > 0 && (

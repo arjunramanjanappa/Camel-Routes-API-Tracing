@@ -80,6 +80,42 @@ class OperationResolverTest {
     }
 
     @Test
+    void legacyBauEndpointIsDroppedWhenAUfwTwinSharesTheOperationEvenAtADifferentPath() {
+        OperationResolver r = new OperationResolver();
+        // OLD BAU controller — its JAX-RS-side prefix puts it at a DIFFERENT url, but it's
+        // the same handler/operation (getProduct) and has no @CommandHandler.
+        r.addSource("""
+            import org.springframework.web.bind.annotation.*;
+            import javax.ws.rs.*;
+            @RestController
+            @RequestMapping("legacy/product")
+            public class ProductEndpoint {
+                @POST
+                @PostMapping("/getProduct")
+                public Object getProduct(Object body) { return null; }
+            }
+            """);
+        // NEW UFW controller — same operation, @CommandHandler, different url prefix.
+        r.addSource("""
+            import org.springframework.web.bind.annotation.*;
+            @RestController
+            @RequestMapping("services/sg")
+            public class ProductApiController implements ProductApi {
+                @CommandHandler
+                @PostMapping("/getProduct")
+                public Object getProduct(Object body) { return null; }
+            }
+            """);
+
+        // Different paths, same operation → the legacy one is still dropped.
+        assertThat(r.all()).hasSize(1);
+        OperationInfo op = r.all().get(0);
+        assertThat(op.operationName()).isEqualTo("getProduct");
+        assertThat(op.path()).isEqualTo("/services/sg/getProduct");
+        assertThat(op.commandHandler()).isTrue();
+    }
+
+    @Test
     void aLegacyEndpointWithNoUfwTwinIsKept() {
         OperationResolver r = new OperationResolver();
         // No @CommandHandler anywhere for this path → Option A keeps it (don't over-drop).

@@ -13,4 +13,10 @@ public class BumpController {
     public Object bumpApi(Object body) {
         return null;
     }
+
+    // Only an un-versioned (base) route exists for this one — no R<ver>_ variant.
+    @PostMapping("/base-only")
+    public Object baseOnlyApi(Object body) {
+        return null;
+    }
 }

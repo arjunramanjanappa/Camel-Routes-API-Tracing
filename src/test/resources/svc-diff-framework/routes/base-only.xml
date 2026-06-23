@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- An un-versioned (base) route: no R<ver>_ prefix. It serves as both the base
+         and the latest for baseOnlyApi, since no versioned route exists. A 9.5 client
+         still resolves here. -->
+    <route id="baseOnlyApi">
+        <from uri="direct:baseOnlyApi"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/base-only</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

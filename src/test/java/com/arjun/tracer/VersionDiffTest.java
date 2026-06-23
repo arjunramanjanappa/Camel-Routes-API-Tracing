@@ -112,6 +112,21 @@ class VersionDiffTest {
     }
 
     @Test
+    void anUnversionedBaseOnlyApiResolvesToItsBaseRouteAndReadsAsUnchanged() {
+        // baseOnlyApi has only an un-versioned route (no R<ver>_ variant). At 9.5 it is
+        // not part of the release — a 9.5 client still resolves to the base route — so it
+        // is surfaced as UNCHANGED (behind the toggle) with a note, not dropped.
+        RouteTraceService svc = new RouteTraceService("src/test/resources/svc-diff-framework");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.5", null, null));
+
+        ApiDiff base = diffFor(report, "baseOnlyApi");
+        assertThat(base.status()).isEqualTo(ApiDiff.UNCHANGED);
+        assertThat(base.targetRoute()).isEqualTo("baseOnlyApi");   // the un-versioned base route
+        assertThat(base.lowerRoute()).isNull();
+        assertThat(base.note()).contains("No 9.5 route");
+    }
+
+    @Test
     void countsAndOrdersChangedFirstThenNew() {
         VersionDiffReport report = service.versionDiff(new TraceRequest(null, "9.4", null, null));
 

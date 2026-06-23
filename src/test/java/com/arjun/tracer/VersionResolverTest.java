@@ -43,6 +43,33 @@ class VersionResolverTest {
     }
 
     @Test
+    void anUnversionedRouteIsBothBaseAndLatest() {
+        // Only an un-versioned route exists (no R<ver>_ prefix), e.g. getFundTransfer.
+        RouteRegistry reg = registryWith("getFundTransfer");
+
+        // Any requested version falls back to it (it is the floor)…
+        assertThat(resolver.resolve(reg, "getFundTransfer", "9.18").routeName()).isEqualTo("getFundTransfer");
+        assertThat(resolver.resolve(reg, "getFundTransfer", "9.18").baseFallback()).isTrue();
+        // …a blank version yields it too, and there is no lower version below it. So the
+        // single un-versioned route serves as both the base AND the latest for every client.
+        assertThat(resolver.resolve(reg, "getFundTransfer", "").routeName()).isEqualTo("getFundTransfer");
+        assertThat(resolver.immediateLowerVersion(reg, "getFundTransfer", "9.18")).isNull();
+    }
+
+    @Test
+    void anUnversionedBaseSitsBelowEveryVersionedRoute() {
+        // A base route alongside versioned ones is the baseline under the lowest release.
+        RouteRegistry reg = registryWith("getFundTransfer", "R9.4_getFundTransfer", "R9.18_getFundTransfer");
+
+        assertThat(resolver.resolve(reg, "getFundTransfer", "9.18").version()).isEqualTo("9.18");
+        // immediate-lower of the lowest versioned release is null (the base is handled by
+        // the caller via registry.contains, not returned here).
+        assertThat(resolver.immediateLowerVersion(reg, "getFundTransfer", "9.4")).isNull();
+        // A request below the lowest versioned route falls back to the un-versioned base.
+        assertThat(resolver.resolve(reg, "getFundTransfer", "9.0").baseFallback()).isTrue();
+    }
+
+    @Test
     void treatsTrailingZeroAsEqual() {
         // 9.18 == 9.18.0: a 9.18 client resolves to an R9.18.0 route, and a 9.18.1
         // request still sees 9.18.0 as its immediate-lower.

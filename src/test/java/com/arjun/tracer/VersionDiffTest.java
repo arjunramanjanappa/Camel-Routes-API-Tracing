@@ -98,6 +98,8 @@ class VersionDiffTest {
         // bumpApi at 9.5 vs 9.4: identical flow, but the request template carries a
         // bumped backend serviceVersionNumber (2.2 → 2.3). That lives in the template,
         // not the route XML, so it must be detected by comparing traced backend versions.
+        // 9.4 uses a freemarker .ftl, 9.5 a velocity .vm — proving both template
+        // engines are resolved, not just freemarker.
         RouteTraceService svc = new RouteTraceService("src/test/resources/svc-diff-framework");
         VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.5", null, null));
 

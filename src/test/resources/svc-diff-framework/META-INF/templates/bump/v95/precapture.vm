@@ -1,0 +1,7 @@
+## 9.5 velocity template (single-quoted fields) — proves .vm svc resolution in the diff
+{
+  'ServiceContext': {
+    'channelId': 'MTY',
+    'serviceVersionNumber': '2.3'
+  }
+}

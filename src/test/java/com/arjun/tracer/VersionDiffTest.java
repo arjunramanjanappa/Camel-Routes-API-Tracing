@@ -74,6 +74,42 @@ class VersionDiffTest {
     }
 
     @Test
+    void apisWithNoRouteAtTargetFallBackToTheirLatestLowerAsUnchanged() {
+        // At 9.5 no API has a route, so each still resolves to its latest lower route
+        // (R9.4 / R9.3). They are not part of 9.5 — shown as UNCHANGED with a note,
+        // behind the toggle — rather than dropped.
+        VersionDiffReport report = service.versionDiff(new TraceRequest(null, "9.5", null, null));
+
+        assertThat(report.getChangedCount()).isZero();
+        assertThat(report.getNewCount()).isZero();
+        assertThat(report.getUnchangedCount()).isGreaterThanOrEqualTo(4);
+
+        ApiDiff ft = diffFor(report, "fundTransferSubmitV2Api");
+        assertThat(ft.status()).isEqualTo(ApiDiff.UNCHANGED);
+        assertThat(ft.targetRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");  // latest lower
+        assertThat(ft.note()).contains("No 9.5 route");
+
+        // An operation with no route anywhere (the v1 endpoint) is not surfaced at all.
+        assertThat(report.getApis()).noneMatch(a -> a.operation().equals("fundTransferSubmitApi"));
+    }
+
+    @Test
+    void surfacesABackendServiceVersionBumpEvenWhenTheRouteStructureMatches() {
+        // bumpApi at 9.5 vs 9.4: identical flow, but the request template carries a
+        // bumped backend serviceVersionNumber (2.2 → 2.3). That lives in the template,
+        // not the route XML, so it must be detected by comparing traced backend versions.
+        RouteTraceService svc = new RouteTraceService("src/test/resources/svc-diff-framework");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.5", null, null));
+
+        ApiDiff bump = diffFor(report, "bumpApi");
+        assertThat(bump.status()).isEqualTo(ApiDiff.CHANGED);
+        assertThat(bump.backendVersionChanges()).hasSize(1);
+        assertThat(bump.backendVersionChanges().get(0).backend()).contains("/svc/bump");
+        assertThat(bump.backendVersionChanges().get(0).fromVersion()).isEqualTo("2.2");
+        assertThat(bump.backendVersionChanges().get(0).toVersion()).isEqualTo("2.3");
+    }
+
+    @Test
     void countsAndOrdersChangedFirstThenNew() {
         VersionDiffReport report = service.versionDiff(new TraceRequest(null, "9.4", null, null));
 

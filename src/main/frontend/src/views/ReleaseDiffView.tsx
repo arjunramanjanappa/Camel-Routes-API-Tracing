@@ -37,7 +37,11 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
 }
 
 function ApiDiffCard({ d }: { d: ApiDiff }) {
-  const changes = (d.routeDiffs?.length || 0) + (d.addedRoutes?.length || 0) + (d.removedRoutes?.length || 0);
+  const svc = d.backendVersionChanges || [];
+  const changes = (d.routeDiffs?.length || 0) + (d.addedRoutes?.length || 0)
+    + (d.removedRoutes?.length || 0) + svc.length;
+  // An UNCHANGED card with a note is a fallback API (no route at the target version).
+  const fallback = d.status === 'UNCHANGED' && !!d.note;
   return (
     <div className={'diff-card ' + d.status.toLowerCase()}>
       <div className="diff-card-head row between">
@@ -51,6 +55,8 @@ function ApiDiffCard({ d }: { d: ApiDiff }) {
       <div className="diff-verdict">
         {d.status === 'NEW' ? (
           <>Added in <b>{d.targetVersion}</b> — no earlier version to compare against. <span className="tag route">{d.targetRoute}</span></>
+        ) : fallback ? (
+          <><span className="tag route lower">{d.targetRoute}</span><span className="muted"> · {d.note}</span></>
         ) : (
           <>
             <span className="tag route">{d.targetRoute}</span>
@@ -58,7 +64,7 @@ function ApiDiffCard({ d }: { d: ApiDiff }) {
             <span className="tag route lower">{d.lowerRoute}</span>
             <span className="muted">
               {d.status === 'CHANGED'
-                ? ` · ${changes} route change${changes > 1 ? 's' : ''}`
+                ? ` · ${changes} change${changes > 1 ? 's' : ''}`
                 : ' · version bumped, identical flow'}
             </span>
           </>
@@ -69,6 +75,20 @@ function ApiDiffCard({ d }: { d: ApiDiff }) {
         <div className="diff-routes">
           {d.addedRoutes.map((r) => <span key={'+' + r} className="tag route added" title="sub-route added by this release">+ {r}</span>)}
           {d.removedRoutes.map((r) => <span key={'-' + r} className="tag route removed" title="sub-route removed by this release">− {r}</span>)}
+        </div>
+      )}
+
+      {svc.length > 0 && (
+        <div className="diff-svc">
+          {svc.map((s) => (
+            <div key={s.backend} className="diff-svc-row">
+              <span className="diff-svc-label">backend svc version</span>
+              <code>{s.backend}</code>
+              <span className="svc-from">{s.fromVersion}</span>
+              <span className="diff-arrow">→</span>
+              <span className="svc-to">{s.toVersion}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -116,9 +136,11 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
       `${report.changedCount} changed · ${report.newCount} new · ${report.unchangedCount} unchanged`, ''];
     for (const a of report.apis) {
       lines.push(`[${statusLabel(a.status).toUpperCase()}] ${a.api}  (${a.operation})`);
-      if (a.status !== 'NEW') lines.push(`    ${a.targetRoute} <- ${a.lowerRoute}`);
+      if (a.note) lines.push(`    ${a.note}`);
+      else if (a.status !== 'NEW') lines.push(`    ${a.targetRoute} <- ${a.lowerRoute}`);
       a.addedRoutes.forEach((r) => lines.push(`    + route ${r}`));
       a.removedRoutes.forEach((r) => lines.push(`    - route ${r}`));
+      (a.backendVersionChanges || []).forEach((s) => lines.push(`    ~ svc ${s.backend}: ${s.fromVersion} -> ${s.toVersion}`));
       a.routeDiffs.forEach((rd) => {
         lines.push(`    ~ ${rd.routeBase}`);
         rd.removed.forEach((l) => lines.push(`        - ${l}`));
@@ -180,7 +202,7 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
             {report.unchangedCount > 0 && (
               <label className="diff-toggle">
                 <input type="checkbox" checked={showUnchanged} onChange={(e) => setShowUnchanged(e.target.checked)} />
-                Show version-bumped APIs with no change
+                Show unchanged APIs ({report.unchangedCount}) — version bumps &amp; APIs not touched by this release
               </label>
             )}
           </div>

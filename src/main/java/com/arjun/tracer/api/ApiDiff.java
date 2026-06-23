@@ -21,17 +21,21 @@ import java.util.List;
  * @param targetVersion the target version actually used for the entry route (e.g. {@code 9.18})
  * @param lowerRoute    the entry route at the immediate-lower version, or null when NEW
  * @param lowerVersion  the immediate-lower version compared against ({@code 9.14}, or {@code BASE}), null when NEW
- * @param status        NEW · CHANGED · UNCHANGED
- * @param routeDiffs    per-route structural diffs for routes present in both flows
- * @param addedRoutes   base names of sub-routes the target flow calls that the lower flow did not
- * @param removedRoutes base names of sub-routes the lower flow called that the target flow does not
+ * @param status                NEW · CHANGED · UNCHANGED
+ * @param routeDiffs            per-route structural diffs for routes present in both flows
+ * @param addedRoutes           base names of sub-routes the target flow calls that the lower flow did not
+ * @param removedRoutes         base names of sub-routes the lower flow called that the target flow does not
+ * @param backendVersionChanges backends whose resolved service version changed (e.g. 2.2 → 2.3), even when the route XML is otherwise unchanged
+ * @param note                  optional explanation, e.g. when the API has no route at the target version and still resolves to a lower one
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
                       String lowerRoute, String lowerVersion,
                       String status,
                       List<RouteStepDiff> routeDiffs,
-                      List<String> addedRoutes, List<String> removedRoutes) {
+                      List<String> addedRoutes, List<String> removedRoutes,
+                      List<BackendVersionChange> backendVersionChanges,
+                      String note) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- 9.5: identical flow to 9.4 except the request template carries a bumped
+         backend serviceVersionNumber (2.3 vs 2.4's 2.2). The release diff must
+         surface this svc bump even though the route structure is the same. -->
+    <route id="R9.5_bumpApi">
+        <from uri="direct:R9.5_bumpApi"/>
+        <to uri="framework:META-INF/templates/bump/v95/precapture.ftl"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/bump</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

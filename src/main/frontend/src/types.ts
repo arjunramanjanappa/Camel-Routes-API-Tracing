@@ -107,6 +107,12 @@ export interface RouteStepDiff {
   removed: string[];
 }
 
+export interface BackendVersionChange {
+  backend: string;
+  fromVersion?: string | null;
+  toVersion?: string | null;
+}
+
 export interface ApiDiff {
   api: string;
   operation: string;
@@ -118,6 +124,8 @@ export interface ApiDiff {
   routeDiffs: RouteStepDiff[];
   addedRoutes: string[];
   removedRoutes: string[];
+  backendVersionChanges: BackendVersionChange[];
+  note?: string | null;
 }
 
 export interface VersionDiffReport {

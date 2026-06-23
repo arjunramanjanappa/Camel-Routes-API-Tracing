@@ -2,6 +2,7 @@ package com.arjun.tracer.service;
 
 import com.arjun.tracer.api.ApiDiff;
 import com.arjun.tracer.api.ApiImpact;
+import com.arjun.tracer.api.BackendVersionChange;
 import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.GraphEdge;
 import com.arjun.tracer.api.GraphNode;
@@ -268,9 +269,26 @@ public class RouteTraceService {
         for (OperationInfo op : prepared.index().operations().all()) {
             ResolvedRoute targetResolved = versionResolver.resolve(registry, op.operationName(), target);
             if (!target.equals(targetResolved.version())) {
-                continue;   // no route at the target version for this API — not part of this release
+                // No route at the target version. If the API still resolves to a REAL
+                // lower route (a versioned one, or a BASE route), a client on the target
+                // release uses that — the release left this API untouched, so surface it
+                // as UNCHANGED (behind the toggle) with a note. If there's no route at all
+                // for the API, there is nothing to show — skip it.
+                boolean hasRealResolution = targetResolved.version() != null
+                        || registry.contains(op.operationName());
+                if (!hasRealResolution) {
+                    continue;
+                }
+                String resolvedLabel = targetResolved.version() != null ? targetResolved.version() : BASE_GROUP;
+                report.getApis().add(new ApiDiff(op.path(), op.operationName(),
+                        targetResolved.routeName(), resolvedLabel, null, null,
+                        ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(),
+                        "No " + target + " route — a " + target + " client still resolves to "
+                                + targetResolved.routeName() + "."));
+                unchanged++;
+                continue;
             }
-            List<String> targetFlow = flowOf(prepared, op, targetResolved, templateVersion);
+            TraceResponse targetTrace = traceFor(prepared, op, targetResolved, templateVersion);
 
             // Immediate-lower baseline: highest versioned route below target, else BASE, else NEW.
             String lowerVer = versionResolver.immediateLowerVersion(registry, op.operationName(), target);
@@ -285,14 +303,14 @@ public class RouteTraceService {
             } else {
                 report.getApis().add(new ApiDiff(op.path(), op.operationName(),
                         targetResolved.routeName(), target, null, null,
-                        ApiDiff.NEW, List.of(), List.of(), List.of()));
+                        ApiDiff.NEW, List.of(), List.of(), List.of(), List.of(), null));
                 added++;
                 continue;
             }
 
-            List<String> lowerFlow = flowOf(prepared, op, lowerResolved, templateVersion);
+            TraceResponse lowerTrace = traceFor(prepared, op, lowerResolved, templateVersion);
             ApiDiff diff = buildApiDiff(op, targetResolved, target, lowerResolved, lowerLabel,
-                    targetFlow, lowerFlow, bodies);
+                    targetTrace, lowerTrace, bodies);
             report.getApis().add(diff);
             if (ApiDiff.CHANGED.equals(diff.status())) {
                 changed++;
@@ -322,28 +340,28 @@ public class RouteTraceService {
         return ApiDiff.NEW.equals(status) ? 1 : 2;
     }
 
-    /** Trace one API at a resolved entry and return just its ordered route flow. */
-    private List<String> flowOf(Prepared prepared, OperationInfo op, ResolvedRoute resolved,
-                                java.util.function.Function<String, String> templateVersion) {
+    /** Trace one API at a resolved entry; the response carries the flow + backend versions. */
+    private TraceResponse traceFor(Prepared prepared, OperationInfo op, ResolvedRoute resolved,
+                                   java.util.function.Function<String, String> templateVersion) {
         TraceResponse r = new TraceResponse();
         RouteGraph graph = new RouteGraph();
         // transferType left null on purpose: walk every branch so the flow includes
         // all sub-routes either version could reach, for a complete structural compare.
         traverseInto(r, op.path(), op.operationName(), resolved, null,
                 prepared.registry(), graph, templateVersion);
-        return r.getFlow();
+        return r;
     }
 
     private ApiDiff buildApiDiff(OperationInfo op, ResolvedRoute targetResolved, String target,
                                  ResolvedRoute lowerResolved, String lowerLabel,
-                                 List<String> targetFlow, List<String> lowerFlow,
+                                 TraceResponse targetTrace, TraceResponse lowerTrace,
                                  Map<String, List<String>> bodies) {
         Map<String, String> targetByBase = new LinkedHashMap<>();
-        for (String id : targetFlow) {
+        for (String id : targetTrace.getFlow()) {
             targetByBase.putIfAbsent(baseName(id), id);
         }
         Map<String, String> lowerByBase = new LinkedHashMap<>();
-        for (String id : lowerFlow) {
+        for (String id : lowerTrace.getFlow()) {
             lowerByBase.putIfAbsent(baseName(id), id);
         }
 
@@ -372,12 +390,39 @@ public class RouteTraceService {
             }
         }
 
-        String status = (routeDiffs.isEmpty() && addedRoutes.isEmpty() && removedRoutes.isEmpty())
-                ? ApiDiff.UNCHANGED : ApiDiff.CHANGED;
+        // Backend service-version changes (e.g. 2.2 → 2.3) live in the framework
+        // request template, NOT the route XML, so the structural diff above can't see
+        // them. Compare the traced backend versions of the two flows for backends
+        // present in both — a bump shows as a change even if the route body is otherwise equal.
+        List<BackendVersionChange> svcChanges = backendVersionChanges(
+                lowerTrace.getBackendVersions(), targetTrace.getBackendVersions());
+
+        boolean anyChange = !routeDiffs.isEmpty() || !addedRoutes.isEmpty()
+                || !removedRoutes.isEmpty() || !svcChanges.isEmpty();
         return new ApiDiff(op.path(), op.operationName(),
                 targetResolved.routeName(), target,
                 lowerResolved.routeName(), lowerLabel,
-                status, routeDiffs, addedRoutes, removedRoutes);
+                anyChange ? ApiDiff.CHANGED : ApiDiff.UNCHANGED,
+                routeDiffs, addedRoutes, removedRoutes, svcChanges, null);
+    }
+
+    /**
+     * Backends whose resolved service version differs between the lower and target
+     * flows. Only backends present in BOTH flows with two concrete, differing
+     * versions are reported — a missing/unresolved version (null) is treated as
+     * "unknown", not a change, to avoid false positives from template-resolution gaps.
+     */
+    private List<BackendVersionChange> backendVersionChanges(Map<String, String> lower,
+                                                             Map<String, String> targetVersions) {
+        List<BackendVersionChange> out = new ArrayList<>();
+        for (Map.Entry<String, String> e : targetVersions.entrySet()) {
+            String to = e.getValue();
+            String from = lower.get(e.getKey());
+            if (from != null && to != null && !from.equals(to)) {
+                out.add(new BackendVersionChange(e.getKey(), from, to));
+            }
+        }
+        return out;
     }
 
     /** The version-stripped route name: {@code R9.18_xApi} → {@code xApi}; BASE ids unchanged. */

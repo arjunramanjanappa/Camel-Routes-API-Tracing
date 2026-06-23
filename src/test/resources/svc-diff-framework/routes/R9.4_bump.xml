@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- 9.4: same structure as 9.5; only the request template (and thus the backend
+         serviceVersionNumber it carries) differs — 2.2 here vs 2.3 in 9.5. -->
+    <route id="R9.4_bumpApi">
+        <from uri="direct:R9.4_bumpApi"/>
+        <to uri="framework:META-INF/templates/bump/v94/precapture.ftl"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/bump</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <route id="callUFWDGE">
+        <from uri="direct:callUFWDGE"/>
+        <to uri="https://host/ufw/dispatch"/>
+    </route>
+
+</routes>

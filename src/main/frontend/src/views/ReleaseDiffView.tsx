@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { fetchVersionDiff } from '../api';
-import type { ApiDiff, RouteStepDiff, VersionDiffReport } from '../types';
+import type { ApiDiff, DiffStatus, RouteStepDiff, VersionDiffReport } from '../types';
 import { downloadText } from '../spl';
 import Loader from '../components/Loader';
+import ApiFlowModal from '../components/ApiFlowModal';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
@@ -16,8 +17,33 @@ const DIFF_MESSAGES = [
   'Diffing the route bodies…',
 ];
 
-function statusLabel(s: ApiDiff['status']): string {
-  return s === 'NEW' ? 'NEW' : s === 'CHANGED' ? 'CHANGED' : 'no change';
+function statusLabel(s: DiffStatus): string {
+  return s === 'NEW' ? 'New' : s === 'CHANGED' ? 'Changed' : 'No change';
+}
+
+/** Everything an API diff matches against in the search box. */
+function searchHaystack(a: ApiDiff): string {
+  return [a.api, a.operation, a.targetRoute, a.lowerRoute,
+    ...(a.addedRoutes || []), ...(a.removedRoutes || []),
+    ...(a.routeDiffs || []).map((r) => r.routeBase),
+    ...(a.backendVersionChanges || []).map((s) => s.backend)]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+
+/** A plain-text rendering of one API's diff (for copy + export). */
+function apiDiffText(a: ApiDiff): string {
+  const lines = [`[${a.status}] ${a.api}  (${a.operation})`];
+  if (a.note) lines.push(`    ${a.note}`);
+  else if (a.status !== 'NEW') lines.push(`    ${a.targetRoute} <- ${a.lowerRoute}`);
+  a.addedRoutes.forEach((r) => lines.push(`    + route ${r}`));
+  a.removedRoutes.forEach((r) => lines.push(`    - route ${r}`));
+  (a.backendVersionChanges || []).forEach((s) => lines.push(`    ~ svc ${s.backend}: ${s.fromVersion} -> ${s.toVersion}`));
+  a.routeDiffs.forEach((rd) => {
+    lines.push(`    ~ ${rd.routeBase}`);
+    rd.removed.forEach((l) => lines.push(`        - ${l}`));
+    rd.added.forEach((l) => lines.push(`        + ${l}`));
+  });
+  return lines.join('\n');
 }
 
 /** At-a-glance change chips: which routes were edited / added / removed. */
@@ -51,7 +77,10 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   );
 }
 
-function ApiDiffCard({ d, open, onToggle }: { d: ApiDiff; open: boolean; onToggle: () => void }) {
+function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
+  d: ApiDiff; open: boolean; onToggle: () => void;
+  onViewFlow: () => void; onCopy: () => void; copied: boolean;
+}) {
   const svc = d.backendVersionChanges || [];
   // An UNCHANGED card with a note is a fallback API (no route at the target version).
   const fallback = d.status === 'UNCHANGED' && !!d.note;
@@ -101,7 +130,7 @@ function ApiDiffCard({ d, open, onToggle }: { d: ApiDiff; open: boolean; onToggl
         <div className="diff-svc">
           {svc.map((s) => (
             <div key={s.backend} className="diff-svc-row">
-              <span className="diff-svc-label">backend svc version</span>
+              <span className="diff-svc-label">backend service version</span>
               <code>{s.backend}</code>
               <span className="svc-from">{s.fromVersion}</span>
               <span className="diff-arrow">→</span>
@@ -115,25 +144,36 @@ function ApiDiffCard({ d, open, onToggle }: { d: ApiDiff; open: boolean; onToggl
         <>
           <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
             <span className="collapse-caret">{open ? '▾' : '▸'}</span>
-            <span className="collapse-title">What changed ({d.routeDiffs.length} route{d.routeDiffs.length > 1 ? 's' : ''})</span>
+            <span className="rdiff-toggle-title">What changed ({d.routeDiffs.length} route{d.routeDiffs.length > 1 ? 's' : ''})</span>
             <span className="muted">element-level diff</span>
           </button>
           {open && d.routeDiffs.map((rd) => <RouteDiffBlock key={rd.routeBase} d={rd} />)}
         </>
       )}
+
+      <div className="diff-actions">
+        <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
+        <button className="linkbtn" onClick={onCopy}>{copied ? 'Copied ✓' : 'Copy'}</button>
+      </div>
     </div>
   );
 }
 
-export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'light' | 'dark' }) {
+const ALL_STATUSES: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
+
+export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('');
   const [report, setReport] = useState<VersionDiffReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showUnchanged, setShowUnchanged] = useState(false);
+  // Changed + new shown by default; unchanged is opt-in. The counts double as filters.
+  const [filters, setFilters] = useState<Record<DiffStatus, boolean>>({ CHANGED: true, NEW: true, UNCHANGED: false });
+  const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [flowApi, setFlowApi] = useState<{ api: string; version?: string } | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const load = async () => {
     localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
@@ -143,6 +183,8 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
       const data = await fetchVersionDiff(sourceDir, country, version);
       setReport(data);
       setExpanded(new Set());
+      setQuery('');
+      setFilters({ CHANGED: true, NEW: true, UNCHANGED: false });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -150,13 +192,21 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
     }
   };
 
-  // Changed + new are always shown; unchanged (version bump, no change) is behind a toggle.
+  const counts: Record<DiffStatus, number> = {
+    CHANGED: report?.changedCount ?? 0,
+    NEW: report?.newCount ?? 0,
+    UNCHANGED: report?.unchangedCount ?? 0,
+  };
+  const countLabel: Record<DiffStatus, string> = { CHANGED: 'changed', NEW: 'new', UNCHANGED: 'unchanged' };
+
   const visible = useMemo(() => {
     if (!report) return [];
-    return report.apis.filter((a) => showUnchanged || a.status !== 'UNCHANGED');
-  }, [report, showUnchanged]);
+    const q = query.trim().toLowerCase();
+    return report.apis
+      .filter((a) => filters[a.status])
+      .filter((a) => !q || searchHaystack(a).includes(q));
+  }, [report, filters, query]);
 
-  // Cards whose element-level diff can be expanded (drives expand-all / collapse-all).
   const expandableKeys = useMemo(
     () => visible.filter((d) => d.routeDiffs?.length > 0).map(cardKey), [visible]);
   const allOpen = expandableKeys.length > 0 && expandableKeys.every((k) => expanded.has(k));
@@ -167,27 +217,39 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
     return next;
   });
   const toggleAll = () => setExpanded(allOpen ? new Set() : new Set(expandableKeys));
+  const toggleFilter = (s: DiffStatus) => setFilters((prev) => ({ ...prev, [s]: !prev[s] }));
+
+  const copyOne = (d: ApiDiff) => {
+    const text = apiDiffText(d);
+    const done = () => {
+      setCopiedKey(cardKey(d));
+      window.setTimeout(() => setCopiedKey((k) => (k === cardKey(d) ? null : k)), 1400);
+    };
+    const fallback = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        done();
+      } catch { /* clipboard unavailable — silently ignore */ }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else {
+      fallback();
+    }
+  };
 
   const exportReport = () => {
     if (!report) return;
     const lines: string[] = [`Release diff — version ${report.version}${report.country ? ', ' + report.country : ''}`,
       `${report.changedCount} changed · ${report.newCount} new · ${report.unchangedCount} unchanged`, ''];
-    for (const a of report.apis) {
-      lines.push(`[${statusLabel(a.status).toUpperCase()}] ${a.api}  (${a.operation})`);
-      if (a.note) lines.push(`    ${a.note}`);
-      else if (a.status !== 'NEW') lines.push(`    ${a.targetRoute} <- ${a.lowerRoute}`);
-      a.addedRoutes.forEach((r) => lines.push(`    + route ${r}`));
-      a.removedRoutes.forEach((r) => lines.push(`    - route ${r}`));
-      (a.backendVersionChanges || []).forEach((s) => lines.push(`    ~ svc ${s.backend}: ${s.fromVersion} -> ${s.toVersion}`));
-      a.routeDiffs.forEach((rd) => {
-        lines.push(`    ~ ${rd.routeBase}`);
-        rd.removed.forEach((l) => lines.push(`        - ${l}`));
-        rd.added.forEach((l) => lines.push(`        + ${l}`));
-      });
-      lines.push('');
-    }
+    for (const a of report.apis) { lines.push(apiDiffText(a), ''); }
     downloadText(`release-diff-${report.version || 'base'}.txt`, lines.join('\n'));
   };
+
+  const showUnchanged = () => setFilters((prev) => ({ ...prev, UNCHANGED: true }));
 
   return (
     <div className="impact">
@@ -223,27 +285,25 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
 
       {!loading && report && (
         <div className="impact-body single">
-          <div className="panel diff-summary">
-            <div className="row between">
-              <h2 style={{ margin: 0 }}>
-                Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}
-              </h2>
-              {report.apis.length > 0 && (
-                <button className="minibtn" onClick={exportReport}>⤓ Export</button>
-              )}
-            </div>
-            <div className="diff-counts">
-              <span className="diff-count changed">{report.changedCount} changed</span>
-              <span className="diff-count new">{report.newCount} new</span>
-              <span className="diff-count unchanged">{report.unchangedCount} unchanged</span>
-            </div>
-            {report.unchangedCount > 0 && (
-              <label className="diff-toggle">
-                <input type="checkbox" checked={showUnchanged} onChange={(e) => setShowUnchanged(e.target.checked)} />
-                Show unchanged APIs ({report.unchangedCount}) — version bumps &amp; APIs not touched by this release
-              </label>
-            )}
+          <div className="diff-head row between">
+            <h2 style={{ margin: 0 }}>Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</h2>
+            {report.apis.length > 0 && <button className="minibtn" onClick={exportReport}>⤓ Export</button>}
           </div>
+
+          {report.apis.length > 0 && (
+            <div className="diff-toolbar">
+              <div className="diff-filters">
+                {ALL_STATUSES.map((s) => (
+                  <button key={s} className={'diff-count ' + s.toLowerCase() + (filters[s] ? '' : ' off')}
+                          aria-pressed={filters[s]} onClick={() => toggleFilter(s)}>
+                    {counts[s]} {countLabel[s]}
+                  </button>
+                ))}
+              </div>
+              <input className="diff-search" placeholder="🔍 filter by path, route or backend"
+                     value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+          )}
 
           {report.warnings.length > 0 && (
             <div className="warnbox">{report.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
@@ -251,11 +311,18 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
 
           {visible.length === 0 ? (
             <div className="impact-empty">
-              <div className="impact-empty-title">Nothing to show</div>
+              <div className="impact-empty-title">
+                {report.apis.length === 0 ? 'Nothing to compare'
+                  : query.trim() ? 'No matches'
+                    : 'No changed or new APIs'}
+              </div>
               <div className="sub">
                 {report.apis.length === 0
                   ? 'No API resolves to this version in the selected scope.'
-                  : 'No changed or new APIs. Tick “Show unchanged APIs” to see the rest.'}
+                  : query.trim()
+                    ? <>Nothing matches “{query.trim()}”. Clear the search or turn a filter back on.</>
+                    : <>This release didn’t add or change any API here.{counts.UNCHANGED > 0 && !filters.UNCHANGED
+                        ? <> <button className="linkbtn" onClick={showUnchanged}>Show {counts.UNCHANGED} unchanged ▸</button></> : null}</>}
               </div>
             </div>
           ) : (
@@ -269,12 +336,19 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
               <div className="diff-list">
                 {visible.map((d) => (
                   <ApiDiffCard key={cardKey(d)} d={d}
-                               open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))} />
+                               open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
+                               onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
+                               onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
                 ))}
               </div>
             </>
           )}
         </div>
+      )}
+
+      {flowApi && (
+        <ApiFlowModal api={flowApi.api} version={flowApi.version} sourceDir={sourceDir} country={country}
+                      colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>
   );

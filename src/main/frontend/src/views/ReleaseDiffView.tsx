@@ -3,10 +3,10 @@ import { fetchVersionDiff } from '../api';
 import type { ApiDiff, RouteStepDiff, VersionDiffReport } from '../types';
 import { downloadText } from '../spl';
 import Loader from '../components/Loader';
-import Collapsible from '../components/Collapsible';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
+function cardKey(d: ApiDiff) { return d.api + '|' + d.operation; }
 
 const DIFF_MESSAGES = [
   'Scanning the framework source…',
@@ -20,13 +20,28 @@ function statusLabel(s: ApiDiff['status']): string {
   return s === 'NEW' ? 'NEW' : s === 'CHANGED' ? 'CHANGED' : 'no change';
 }
 
-/** One route's +added / −removed canonical lines. */
+/** At-a-glance change chips: which routes were edited / added / removed. */
+function changeChips(d: ApiDiff) {
+  const chips: { key: string; cls: string; sym: string; text: string; title: string }[] = [];
+  (d.routeDiffs || []).forEach((rd) =>
+    chips.push({ key: 'e' + rd.routeBase, cls: 'edited', sym: '✎', text: rd.routeBase, title: 'route body changed' }));
+  (d.addedRoutes || []).forEach((r) =>
+    chips.push({ key: '+' + r, cls: 'added', sym: '+', text: r, title: 'sub-route added by this release' }));
+  (d.removedRoutes || []).forEach((r) =>
+    chips.push({ key: '-' + r, cls: 'removed', sym: '−', text: r, title: 'sub-route removed by this release' }));
+  return chips;
+}
+
+/** One route's +added / −removed canonical lines, with a per-route line tally. */
 function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   return (
     <div className="rdiff">
       <div className="rdiff-head">
         <code>{d.routeBase}</code>
-        <span className="muted">{d.targetRoute} ⟵ {d.lowerRoute}</span>
+        <span className="row" style={{ gap: 8 }}>
+          <span className="rdiff-tally"><span className="add">+{d.added.length}</span> <span className="del">−{d.removed.length}</span></span>
+          <span className="muted">{d.targetRoute} ⟵ {d.lowerRoute}</span>
+        </span>
       </div>
       <pre className="rdiff-body">
         {d.removed.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
@@ -36,12 +51,12 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   );
 }
 
-function ApiDiffCard({ d }: { d: ApiDiff }) {
+function ApiDiffCard({ d, open, onToggle }: { d: ApiDiff; open: boolean; onToggle: () => void }) {
   const svc = d.backendVersionChanges || [];
-  const changes = (d.routeDiffs?.length || 0) + (d.addedRoutes?.length || 0)
-    + (d.removedRoutes?.length || 0) + svc.length;
   // An UNCHANGED card with a note is a fallback API (no route at the target version).
   const fallback = d.status === 'UNCHANGED' && !!d.note;
+  const showPill = !!d.lowerVersion && (d.status === 'CHANGED' || (d.status === 'UNCHANGED' && !fallback));
+  const chips = changeChips(d);
   return (
     <div className={'diff-card ' + d.status.toLowerCase()}>
       <div className="diff-card-head row between">
@@ -49,7 +64,12 @@ function ApiDiffCard({ d }: { d: ApiDiff }) {
           <code>{d.api}</code>
           <span className="muted op">{d.operation}</span>
         </div>
-        <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status)}</span>
+        <span className="row" style={{ gap: 6 }}>
+          {showPill && (
+            <span className="ver-pill"><b>{d.lowerVersion}</b><span className="ver-arrow">→</span><b>{d.targetVersion}</b></span>
+          )}
+          <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status)}</span>
+        </span>
       </div>
 
       <div className="diff-verdict">
@@ -62,19 +82,18 @@ function ApiDiffCard({ d }: { d: ApiDiff }) {
             <span className="tag route">{d.targetRoute}</span>
             <span className="diff-arrow">⟵</span>
             <span className="tag route lower">{d.lowerRoute}</span>
-            <span className="muted">
-              {d.status === 'CHANGED'
-                ? ` · ${changes} change${changes > 1 ? 's' : ''}`
-                : ' · version bumped, identical flow'}
-            </span>
+            {d.status === 'UNCHANGED' && <span className="muted"> · version bumped, identical flow</span>}
           </>
         )}
       </div>
 
-      {(d.addedRoutes?.length > 0 || d.removedRoutes?.length > 0) && (
-        <div className="diff-routes">
-          {d.addedRoutes.map((r) => <span key={'+' + r} className="tag route added" title="sub-route added by this release">+ {r}</span>)}
-          {d.removedRoutes.map((r) => <span key={'-' + r} className="tag route removed" title="sub-route removed by this release">− {r}</span>)}
+      {chips.length > 0 && (
+        <div className="diff-changes">
+          {chips.map((c) => (
+            <span key={c.key} className={'chg ' + c.cls} title={c.title}>
+              <span className="chg-sym">{c.sym}</span> {c.text}
+            </span>
+          ))}
         </div>
       )}
 
@@ -93,9 +112,14 @@ function ApiDiffCard({ d }: { d: ApiDiff }) {
       )}
 
       {d.routeDiffs?.length > 0 && (
-        <Collapsible title={`What changed (${d.routeDiffs.length} route${d.routeDiffs.length > 1 ? 's' : ''})`} hint="element-level diff">
-          {d.routeDiffs.map((rd) => <RouteDiffBlock key={rd.routeBase} d={rd} />)}
-        </Collapsible>
+        <>
+          <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
+            <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+            <span className="collapse-title">What changed ({d.routeDiffs.length} route{d.routeDiffs.length > 1 ? 's' : ''})</span>
+            <span className="muted">element-level diff</span>
+          </button>
+          {open && d.routeDiffs.map((rd) => <RouteDiffBlock key={rd.routeBase} d={rd} />)}
+        </>
       )}
     </div>
   );
@@ -109,6 +133,7 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUnchanged, setShowUnchanged] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = async () => {
     localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
@@ -117,6 +142,7 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
     try {
       const data = await fetchVersionDiff(sourceDir, country, version);
       setReport(data);
+      setExpanded(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -129,6 +155,18 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
     if (!report) return [];
     return report.apis.filter((a) => showUnchanged || a.status !== 'UNCHANGED');
   }, [report, showUnchanged]);
+
+  // Cards whose element-level diff can be expanded (drives expand-all / collapse-all).
+  const expandableKeys = useMemo(
+    () => visible.filter((d) => d.routeDiffs?.length > 0).map(cardKey), [visible]);
+  const allOpen = expandableKeys.length > 0 && expandableKeys.every((k) => expanded.has(k));
+
+  const toggleOne = (k: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
+  const toggleAll = () => setExpanded(allOpen ? new Set() : new Set(expandableKeys));
 
   const exportReport = () => {
     if (!report) return;
@@ -217,13 +255,24 @@ export default function ReleaseDiffView({ app }: { app?: string; colorMode?: 'li
               <div className="sub">
                 {report.apis.length === 0
                   ? 'No API resolves to this version in the selected scope.'
-                  : 'No changed or new APIs. Tick “Show version-bumped APIs” to see the rest.'}
+                  : 'No changed or new APIs. Tick “Show unchanged APIs” to see the rest.'}
               </div>
             </div>
           ) : (
-            <div className="diff-list">
-              {visible.map((d) => <ApiDiffCard key={d.api + d.operation} d={d} />)}
-            </div>
+            <>
+              {expandableKeys.length > 0 && (
+                <div className="diff-list-head">
+                  <span className="muted">{visible.length} API{visible.length > 1 ? 's' : ''}</span>
+                  <button className="linkbtn" onClick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</button>
+                </div>
+              )}
+              <div className="diff-list">
+                {visible.map((d) => (
+                  <ApiDiffCard key={cardKey(d)} d={d}
+                               open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))} />
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}

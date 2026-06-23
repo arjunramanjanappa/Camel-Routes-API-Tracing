@@ -422,6 +422,33 @@ tr.lsub code { background: transparent; }
 .tag.route.added { background: #dcfce7; color: #166534; }
 .tag.route.removed { background: #fee2e2; color: #991b1b; }
 
+.ver-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; background: #f1f5f9; color: #334155; padding: 2px 9px; border-radius: 999px; }
+.ver-pill .ver-arrow { color: #94a3b8; }
+[data-theme="dark"] .ver-pill { background: #0f172a; color: #cbd5e1; }
+[data-theme="dark"] .ver-pill .ver-arrow { color: #64748b; }
+
+.diff-list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 -2px; }
+
+.diff-changes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.chg { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 5px; max-width: 100%; }
+.chg code, .chg { word-break: break-all; }
+.chg-sym { font-weight: 800; }
+.chg.edited { background: #fef3c7; color: #92400e; }
+.chg.added { background: #dcfce7; color: #166534; }
+.chg.removed { background: #fee2e2; color: #991b1b; }
+[data-theme="dark"] .chg.edited { background: #422006; color: #fbbf24; }
+[data-theme="dark"] .chg.added { background: #052e16; color: #86efac; }
+[data-theme="dark"] .chg.removed { background: #2a1416; color: #fca5a5; }
+
+.rdiff-toggle { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer; font-family: inherit; background: none; border: 0; padding: 9px 2px 4px; color: inherit; }
+.rdiff-toggle .collapse-title { font-size: 12px; font-weight: 700; }
+.rdiff-toggle .collapse-caret { color: #94a3b8; }
+.rdiff-tally { font-size: 11px; font-weight: 700; white-space: nowrap; }
+.rdiff-tally .add { color: #166534; }
+.rdiff-tally .del { color: #991b1b; }
+[data-theme="dark"] .rdiff-tally .add { color: #86efac; }
+[data-theme="dark"] .rdiff-tally .del { color: #fca5a5; }
+
 .diff-svc { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .diff-svc-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 5px 9px; }
 .diff-svc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #92400e; }

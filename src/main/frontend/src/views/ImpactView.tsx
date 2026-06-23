@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, ImpactIndex } from '../types';
-import { backendPath, downloadText } from '../spl';
+import { backendPath } from '../spl';
 import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
@@ -132,15 +132,6 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     idx?.apis.forEach((a) => a.backendHosturls && Object.entries(a.backendHosturls).forEach(([url, h]) => { if (!m[url]) m[url] = h; }));
     return m;
   }, [idx]);
-
-  const exportCsv = () => {
-    const rows = [['api', 'operation', 'resolvedRoute', 'impactedViaRoutes', 'impactedViaBackends', 'backends']];
-    impacted.forEach((i) => rows.push([
-      i.api.api, i.api.operation, i.api.resolvedRoute || '',
-      i.viaRoutes.join('; '), i.viaBackends.join('; '), i.api.backends.join('; '),
-    ]));
-    downloadText('impacted-apis.csv', rows.map((r) => r.map((c) => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n'));
-  };
 
   const exportPdf = () => {
     if (!idx) return;
@@ -273,8 +264,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 {impacted.length > 0 && (
                   <span className="row" style={{ gap: 6 }}>
                     <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}>+ select for analysis</button>
-                    <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ PDF</button>
-                    <button className="minibtn" onClick={exportCsv}>CSV</button>
+                    <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ Export PDF</button>
                   </span>
                 )}
               </div>

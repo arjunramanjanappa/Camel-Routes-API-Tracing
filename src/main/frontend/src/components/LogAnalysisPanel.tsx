@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeLog } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
-import { backendPath, downloadText } from '../spl';
+import { backendPath } from '../spl';
 import { exportLogPdf } from '../logPdf';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
@@ -225,23 +225,6 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
   };
   const pick = (f: LogStatus | 'ALL' | 'ISSUES') => setFilter((cur) => (cur === f ? 'ALL' : f));
 
-  const exportCsv = () => {
-    if (!report) return;
-    const rows = [['kind', 'name', 'status', 'tested', 'responseCode', 'responseDescription',
-      'latencyMs', 'attempts', 'success', 'failure', 'latestAt', 'correlationId', 'note']];
-    shownApis.forEach((a) => rows.push([
-      'api', a.api, a.status, String(a.tested), a.responseCode || '', a.responseDescription || '',
-      a.feLatencyMs == null ? '' : String(a.feLatencyMs), String(a.attempts), String(a.successCount),
-      String(a.failureCount), a.latestAt || '', a.correlationId || '', a.note || '',
-    ]));
-    shownBackends.forEach((b) => rows.push([
-      'backend', b.backend, b.status, String(b.tested), b.responseCode || '', b.responseDescription || '',
-      b.latencyMs == null ? '' : String(b.latencyMs), String(b.attempts), String(b.successCount),
-      String(b.failureCount), b.latestAt || '', b.correlationId || '', b.note || '',
-    ]));
-    downloadText('log-analysis.csv', rows.map((r) => r.map((c) => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n'));
-  };
-
   const exportPdf = () => {
     if (!report) return;
     exportLogPdf(report, app, version).catch(() => {});
@@ -332,8 +315,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
                 <option value="severity">Sort: worst first</option>
                 <option value="api">Sort: name</option>
               </select>
-              <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ PDF</button>
-              <button className="minibtn" onClick={exportCsv}>CSV</button>
+              <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ Export PDF</button>
             </span>
           </div>
 

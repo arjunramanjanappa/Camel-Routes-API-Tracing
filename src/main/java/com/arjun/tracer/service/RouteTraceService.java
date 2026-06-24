@@ -590,10 +590,12 @@ public class RouteTraceService {
         if (prepared.country() == null) {
             return all;
         }
-        RouteRegistry reg = prepared.registry();
+        // One pass over the scoped routes → the set of operations they cover; then an O(1)
+        // membership test per operation (instead of re-scanning every route per operation).
+        Set<String> covered = prepared.registry().operationNames();
         List<OperationInfo> out = new ArrayList<>();
         for (OperationInfo op : all) {
-            if (!reg.availableVersionsFor(op.operationName()).isEmpty() || reg.contains(op.operationName())) {
+            if (covered.contains(op.operationName())) {
                 out.add(op);
             }
         }

@@ -89,6 +89,25 @@ public class RouteRegistry {
         return versions;
     }
 
+    /**
+     * The set of operation names that have a route here — the version-stripped name of every
+     * route ({@code R9.4_xApi} → {@code xApi}; a BASE/un-versioned route keeps its own name).
+     * Computed in one pass so callers can test "does this operation have a route?" in O(1)
+     * instead of re-scanning every route per operation.
+     */
+    public Set<String> operationNames() {
+        Set<String> ops = new LinkedHashSet<>();
+        for (RouteModel route : all) {
+            String key = route.fromName() != null ? route.fromName() : route.routeId();
+            if (key == null) {
+                continue;
+            }
+            Matcher m = VERSIONED.matcher(key);
+            ops.add(m.matches() ? m.group(2) : key);
+        }
+        return ops;
+    }
+
     /** All distinct release versions present across every route (for UI suggestions). */
     public List<String> allVersions() {
         Set<String> versions = new LinkedHashSet<>();

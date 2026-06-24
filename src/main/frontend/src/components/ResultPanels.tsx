@@ -73,7 +73,10 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi, app }: 
   // Impacted APIs = those that actually resolve to a route (the catalog is
   // already scoped to the requested release, so every routed API is impacted).
   const impacted = cat.groups.filter((g) => g.version !== '(no route found)').reduce((n, g) => n + g.traces.length, 0);
-  const noRoute = cat.operationCount - impacted;
+  // "No route found" = ONLY the genuinely route-less APIs (that group). With a client
+  // version the backend excludes APIs that resolve to a lower version / BASE — they DO
+  // have routes, just not in this release — so they must not be counted as "no route".
+  const noRoute = cat.groups.find((g) => g.version === '(no route found)')?.traces.length ?? 0;
   const reqVer = cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion.trim() : '';
   return (
     <>

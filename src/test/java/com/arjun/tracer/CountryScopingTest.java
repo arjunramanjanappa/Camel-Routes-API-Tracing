@@ -1,5 +1,6 @@
 package com.arjun.tracer;
 
+import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
 import com.arjun.tracer.service.RouteTraceService;
@@ -56,6 +57,18 @@ class CountryScopingTest {
         Files.writeString(dir.resolve("routes/common.xml"),
                 routeContext("commonContext", "commonRoute", "{{baseUrl}}/common"));
 
+        // A UFW controller whose handler method names match the route names above, so the
+        // catalog can map APIs to routes per country.
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @CommandHandler @PostMapping("/sg")     public Object sgOnlyRoute(Object b){ return null; }
+                    @CommandHandler @PostMapping("/my")     public Object myOnlyRoute(Object b){ return null; }
+                    @CommandHandler @PostMapping("/common") public Object commonRoute(Object b){ return null; }
+                }
+                """);
+
         service = new RouteTraceService(dir.toString());
     }
 
@@ -97,5 +110,36 @@ class CountryScopingTest {
         assertThat(trace(null, "sgOnlyRoute").getFlow()).contains("sgOnlyRoute");
         assertThat(trace(null, "myOnlyRoute").getFlow()).contains("myOnlyRoute");
         assertThat(trace(null, "commonRoute").getFlow()).contains("commonRoute");
+    }
+
+    @Test
+    void catalogUnderACountryListsOnlyThatCountrysWiredApis() {
+        // SG is wired for sgOnlyRoute (its routeContextRef) and commonRoute (its import);
+        // myOnlyRoute is MY-only, so it must NOT appear in the SG catalog.
+        CatalogResponse sg = (CatalogResponse) service.analyze(new TraceRequest(null, null, null, null, "SG"));
+        java.util.List<String> sgOps = sg.getGroups().stream()
+                .flatMap(g -> g.traces().stream())
+                .map(TraceResponse::getOperationName)
+                .toList();
+        assertThat(sgOps).contains("sgOnlyRoute", "commonRoute");
+        assertThat(sgOps).doesNotContain("myOnlyRoute");
+        assertThat(sg.getWarnings()).anyMatch(w -> w.contains("not wired into SG"));
+
+        // MY sees only myOnlyRoute; sg/common are omitted from the MY view.
+        CatalogResponse my = (CatalogResponse) service.analyze(new TraceRequest(null, null, null, null, "MY"));
+        java.util.List<String> myOps = my.getGroups().stream()
+                .flatMap(g -> g.traces().stream())
+                .map(TraceResponse::getOperationName)
+                .toList();
+        assertThat(myOps).contains("myOnlyRoute");
+        assertThat(myOps).doesNotContain("sgOnlyRoute", "commonRoute");
+
+        // With NO country, every API is listed.
+        CatalogResponse allC = (CatalogResponse) service.analyze(new TraceRequest(null, null, null, null, null));
+        java.util.List<String> allOps = allC.getGroups().stream()
+                .flatMap(g -> g.traces().stream())
+                .map(TraceResponse::getOperationName)
+                .toList();
+        assertThat(allOps).contains("sgOnlyRoute", "myOnlyRoute", "commonRoute");
     }
 }

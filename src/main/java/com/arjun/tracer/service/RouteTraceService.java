@@ -177,7 +177,7 @@ public class RouteTraceService {
         int excluded = 0;
         var templateVersion = templateVersionResolver(request);
 
-        for (OperationInfo op : prepared.index().operations().all()) {
+        for (OperationInfo op : operationsInScope(prepared)) {
             ResolvedRoute resolved =
                     versionResolver.resolve(prepared.registry(), op.operationName(), request.version());
             if (wantedVersion != null && !wantedVersion.equals(resolved.version())) {
@@ -270,7 +270,7 @@ public class RouteTraceService {
         int changed = 0;
         int added = 0;
         int unchanged = 0;
-        for (OperationInfo op : prepared.index().operations().all()) {
+        for (OperationInfo op : operationsInScope(prepared)) {
             ResolvedRoute targetResolved = versionResolver.resolve(registry, op.operationName(), target);
             if (!target.equals(targetResolved.version())) {
                 // No route at the target version. If the API still resolves to a REAL
@@ -560,6 +560,28 @@ public class RouteTraceService {
         return new Prepared(index, registry, warnings, country);
     }
 
+    /**
+     * The operations to list / analyse for a request. Without a country, every discovered
+     * operation. With a country, ONLY those wired into that country's bootstrap closure —
+     * i.e. that have a route in the scoped registry — so a country view shows that country's
+     * APIs and is not padded with endpoints whose routes live in another country (which would
+     * otherwise show up as a large, misleading "(no route found)" bucket).
+     */
+    private List<OperationInfo> operationsInScope(Prepared prepared) {
+        List<OperationInfo> all = prepared.index().operations().all();
+        if (prepared.country() == null) {
+            return all;
+        }
+        RouteRegistry reg = prepared.registry();
+        List<OperationInfo> out = new ArrayList<>();
+        for (OperationInfo op : all) {
+            if (!reg.availableVersionsFor(op.operationName()).isEmpty() || reg.contains(op.operationName())) {
+                out.add(op);
+            }
+        }
+        return out;
+    }
+
     private Path resolveRoot(TraceRequest request) {
         String sourceDir = (request.sourceDir() != null && !request.sourceDir().isBlank())
                 ? request.sourceDir().trim()
@@ -621,10 +643,15 @@ public class RouteTraceService {
         RouteGraph graph = new RouteGraph();
         boolean versionGiven = request.version() != null && !request.version().isBlank();
 
-        List<OperationInfo> operations = prepared.index().operations().all();
+        List<OperationInfo> operations = operationsInScope(prepared);
         cat.setOperationCount(operations.size());
         if (operations.isEmpty()) {
             cat.getWarnings().add("No controller endpoints discovered in the source directory.");
+        }
+        int notInCountry = prepared.index().operations().all().size() - operations.size();
+        if (notInCountry > 0) {
+            cat.getWarnings().add(notInCountry + " API(s) are not wired into " + prepared.country()
+                    + "'s bootstrap and were omitted from this country view.");
         }
 
         // With a specific client version, the catalog shows only the APIs actually

@@ -1,5 +1,5 @@
 import type { ApiLogResult, BackendCallResult, BackendLogResult, LogAnalysisReport, LogStatus } from './types';
-import { ReportDoc, PAL, M, CONTENT_W, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, stamp, type Ramp } from './pdfReport';
 import { backendPath } from './spl';
 
 const ST: Record<LogStatus, { label: string; ramp: Ramp }> = {
@@ -127,4 +127,4 @@ function backendEntry(r: ReportDoc, b: BackendLogResult) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `verification-${ver === 'BASE' ? 'base' : ver}.pdf`; }
+function file(ver: string): string { return `verification-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }

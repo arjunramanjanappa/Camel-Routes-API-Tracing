@@ -1,5 +1,5 @@
 import type { ApiDiff, DiffStatus, VersionDiffReport } from './types';
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, type Ramp } from './pdfReport';
 
 const STATUS_ORDER: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
@@ -98,5 +98,5 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
 }
 
 function fileName(report: VersionDiffReport): string {
-  return `release-diff-${report.version || 'base'}.pdf`;
+  return `release-diff-${report.version || 'base'}-${stamp()}.pdf`;
 }

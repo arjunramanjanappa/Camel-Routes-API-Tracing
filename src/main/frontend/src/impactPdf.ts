@@ -1,4 +1,4 @@
-import { ReportDoc, PAL, M, CONTENT_W } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, stamp } from './pdfReport';
 import { backendPath } from './spl';
 
 export interface ImpactRow {
@@ -90,4 +90,4 @@ function apiRow(r: ReportDoc, row: ImpactRow, svc: Record<string, string>) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `impact-analysis-${ver === 'BASE' ? 'base' : ver}.pdf`; }
+function file(ver: string): string { return `impact-analysis-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }

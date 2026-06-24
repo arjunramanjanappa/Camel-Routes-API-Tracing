@@ -28,6 +28,13 @@ export const PAL = {
   delFill: [254, 242, 242] as RGB, delText: [153, 27, 27] as RGB,
 };
 
+/** A filename-safe local timestamp, e.g. 2026-06-24_153045 — appended to export filenames. */
+export function stamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
 // jsPDF's built-in fonts are Latin-1 only — map the UI's unicode glyphs to ASCII.
 export function ascii(s: string): string {
   return (s || '')

@@ -67,6 +67,9 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   if (status === 'NEW') {
     r.para(`Introduced in ${a.targetVersion}. Entry route ${a.targetRoute}. No earlier version to compare against.`,
       M, CONTENT_W, 'normal', 9, PAL.body, 12);
+    if (a.authors && a.authors.length) {
+      r.para('Added by: ' + a.authors.join(', '), M, CONTENT_W, 'normal', 9, PAL.accent, 12);
+    }
   } else if (a.note) {
     r.para(a.note, M, CONTENT_W, 'normal', 9, PAL.body, 12);
   } else {

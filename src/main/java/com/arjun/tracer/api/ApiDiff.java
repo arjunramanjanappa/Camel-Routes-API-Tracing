@@ -27,6 +27,7 @@ import java.util.List;
  * @param removedRoutes         base names of sub-routes the lower flow called that the target flow does not
  * @param backendVersionChanges backends whose resolved service version changed (e.g. 2.2 → 2.3), even when the route XML is otherwise unchanged
  * @param note                  optional explanation, e.g. when the API has no route at the target version and still resolves to a lower one
+ * @param authors               for a NEW API, the git-blame authors who added its routes (empty otherwise / when not a git work tree)
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -35,7 +36,8 @@ public record ApiDiff(String api, String operation,
                       List<RouteStepDiff> routeDiffs,
                       List<String> addedRoutes, List<String> removedRoutes,
                       List<BackendVersionChange> backendVersionChanges,
-                      String note) {
+                      String note,
+                      List<String> authors) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";

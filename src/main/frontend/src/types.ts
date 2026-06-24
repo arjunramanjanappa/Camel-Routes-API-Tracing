@@ -127,6 +127,7 @@ export interface ApiDiff {
   removedRoutes: string[];
   backendVersionChanges: BackendVersionChange[];
   note?: string | null;
+  authors?: string[];
 }
 
 export interface VersionDiffReport {

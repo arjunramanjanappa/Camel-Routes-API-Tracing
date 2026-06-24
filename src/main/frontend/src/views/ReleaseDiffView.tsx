@@ -69,6 +69,9 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
           <span className="muted">{d.targetRoute} ⟵ {d.lowerRoute}</span>
         </span>
       </div>
+      {d.changedBy && d.changedBy.length > 0 && (
+        <div className="rdiff-by"><span className="rdiff-by-label">Changed by</span> {d.changedBy.join(', ')}</div>
+      )}
       <pre className="rdiff-body">
         {d.removed.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
         {d.added.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
@@ -103,7 +106,10 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
 
       <div className="diff-verdict">
         {d.status === 'NEW' ? (
-          <>Added in <b>{d.targetVersion}</b> — no earlier version to compare against. <span className="tag route">{d.targetRoute}</span></>
+          <>Added in <b>{d.targetVersion}</b> — no earlier version to compare against. <span className="tag route">{d.targetRoute}</span>
+            {d.authors && d.authors.length > 0 && (
+              <span className="diff-added-by"><span className="rdiff-by-label">Added by</span> {d.authors.join(', ')}</span>
+            )}</>
         ) : fallback ? (
           <><span className="tag route lower">{d.targetRoute}</span><span className="muted"> · {d.note}</span></>
         ) : (

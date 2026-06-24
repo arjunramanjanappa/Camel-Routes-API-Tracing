@@ -504,6 +504,11 @@ tr.lsub code { background: transparent; }
 .rdiff { margin-top: 8px; border: 1px solid #eef2f7; border-radius: 6px; overflow: hidden; }
 .rdiff-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; background: #f8fafc; font-size: 12px; }
 .rdiff-head code { font-weight: 700; }
+.rdiff-by { padding: 5px 10px 0; font-size: 11px; color: var(--accent); }
+.rdiff-by-label { font-weight: 700; }
+[data-theme="dark"] .rdiff-by { color: var(--accent-num); }
+.diff-added-by { flex-basis: 100%; margin-top: 3px; font-size: 11px; color: var(--accent); }
+[data-theme="dark"] .diff-added-by { color: var(--accent-num); }
 .rdiff-body { margin: 0; padding: 8px 10px; font-size: 12px; line-height: 1.5; overflow-x: auto; background: #fff; }
 .rdiff-body .dl { white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .rdiff-body .dl.add { background: #f0fdf4; color: #166534; }

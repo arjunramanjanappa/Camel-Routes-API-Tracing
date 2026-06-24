@@ -288,7 +288,7 @@ public class RouteTraceService {
                         targetResolved.routeName(), resolvedLabel, null, null,
                         ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(),
                         "No " + target + " route — a " + target + " client still resolves to "
-                                + targetResolved.routeName() + "."));
+                                + targetResolved.routeName() + ".", List.of()));
                 unchanged++;
                 continue;
             }
@@ -305,9 +305,11 @@ public class RouteTraceService {
                 lowerResolved = new ResolvedRoute(op.operationName(), null, true);   // BASE baseline
                 lowerLabel = BASE_GROUP;
             } else {
+                // New API: blame the new release's routes in its flow to attribute who added it.
+                List<String> addedBy = flowAuthors(targetTrace.getFlow(), target, locations);
                 report.getApis().add(new ApiDiff(op.path(), op.operationName(),
                         targetResolved.routeName(), target, null, null,
-                        ApiDiff.NEW, List.of(), List.of(), List.of(), List.of(), null));
+                        ApiDiff.NEW, List.of(), List.of(), List.of(), List.of(), null, addedBy));
                 added++;
                 continue;
             }
@@ -412,7 +414,7 @@ public class RouteTraceService {
                 targetResolved.routeName(), target,
                 lowerResolved.routeName(), lowerLabel,
                 anyChange ? ApiDiff.CHANGED : ApiDiff.UNCHANGED,
-                routeDiffs, addedRoutes, removedRoutes, svcChanges, null);
+                routeDiffs, addedRoutes, removedRoutes, svcChanges, null, List.of());
     }
 
     /**
@@ -466,6 +468,22 @@ public class RouteTraceService {
             return List.of();
         }
         return gitBlame.authors(loc.file(), loc.startLine(), loc.endLine());
+    }
+
+    /**
+     * Distinct git-blame authors across the target release's routes in a flow — for a NEW
+     * API, "who added it". Only this release's own routes ({@code R<target>_…}) are blamed;
+     * shared infrastructure (e.g. callUFWDGE) is skipped so its authors don't dilute the list.
+     */
+    private List<String> flowAuthors(List<String> flow, String target, Map<String, RouteXmlDiff.RouteLocation> locations) {
+        String prefix = "R" + target + "_";
+        Set<String> authors = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (String routeId : flow) {
+            if (routeId != null && routeId.startsWith(prefix)) {
+                authors.addAll(blameAuthors(locations.get(routeId)));
+            }
+        }
+        return new ArrayList<>(authors);
     }
 
     /**

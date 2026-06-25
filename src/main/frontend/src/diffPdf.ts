@@ -15,7 +15,7 @@ function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string 
 export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], filtered: boolean, app?: string) {
   const r = await ReportDoc.create();
 
-  r.header('Release Diff Report',
+  r.header('Release Impact Report',
     `${app ? app + '  -  ' : ''}Release ${report.version || 'BASE'}${report.country ? '  -  ' + report.country : ''}`,
     `Each API is compared against its immediately-preceding version. Generated ${new Date().toLocaleString()}.`);
 

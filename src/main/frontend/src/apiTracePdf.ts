@@ -30,7 +30,7 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
   allTraces.forEach((t) => (t.backendApis || []).forEach((b) => backends.add(b)));
   const noRoute = noRouteGroup?.traces.length ?? 0;
 
-  r.header('API Trace Report',
+  r.header('Release Scope Report',
     `${app ? app + '  -  ' : ''}Release ${verLabel}${cat.country ? '  -  ' + cat.country : ''}`,
     `The APIs a release implements and how each one flows to its backends. Generated ${new Date().toLocaleString()}.`);
 

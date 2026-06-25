@@ -29,9 +29,9 @@ export default function App() {
           <span>Trace the flow. Guard the release. <span className="header-ai">· ✨ Powered by AI</span></span>
         </div>
         <nav className="tabs">
-          <button className={view === 'trace' ? 'tab active' : 'tab'} onClick={() => setView('trace')}>API Trace</button>
-          <button className={view === 'impact' ? 'tab active' : 'tab'} onClick={() => setView('impact')}>Release Impact</button>
-          <button className={view === 'diff' ? 'tab active' : 'tab'} onClick={() => setView('diff')}>Release Diff</button>
+          <button className={view === 'trace' ? 'tab active' : 'tab'} onClick={() => setView('trace')}>Release Scope</button>
+          <button className={view === 'impact' ? 'tab active' : 'tab'} onClick={() => setView('impact')}>Release Test</button>
+          <button className={view === 'diff' ? 'tab active' : 'tab'} onClick={() => setView('diff')}>Release Impact</button>
           <button className="tab" title="Switch application" onClick={() => setApp(null)}>⇄ App</button>
           <button className="tab theme-toggle" title="Toggle theme"
                   onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>

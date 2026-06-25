@@ -28,7 +28,7 @@ export async function exportImpactPdf(input: ImpactPdfInput) {
   const selected = input.rows.filter((x) => x.selected);
   const blast = input.rows.filter((x) => !x.selected);
 
-  r.header('Release Impact Report',
+  r.header('Release Test Report',
     `${input.app ? input.app + '  -  ' : ''}Release ${ver}${input.country ? '  -  ' + input.country : ''}`,
     `The blast radius of a change across the release's APIs. Generated ${new Date().toLocaleString()}.`);
 

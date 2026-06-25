@@ -8,6 +8,7 @@ import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 import Loader, { SCAN_MESSAGES } from '../components/Loader';
+import { exportApiTracePdf } from '../apiTracePdf';
 
 // Only the app CONTEXT (sourceDir + country) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
@@ -35,6 +36,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
   const graphRef = useRef<GraphHandle>(null);
 
   const persist = (p: TraceParams) => {
@@ -87,6 +89,22 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const selectedNode = selectedId && derived ? derived.byId.get(selectedId) || null : null;
   const copyJson = async () => { if (data) await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); };
 
+  // PDF export is always the WHOLE release catalog (every impacted API), even when
+  // the current view is a single API — re-fetch the catalog so the report can't
+  // silently under-report what a release touches.
+  const exportPdf = async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      const cat = await analyze({ ...params, api: '' });
+      if (cat.mode === 'catalog') await exportApiTracePdf(cat, app);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -102,6 +120,10 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph">Fit</button>
           <button className="minibtn" onClick={() => graphRef.current?.exportPng()}>PNG</button>
+          <button className="minibtn" onClick={exportPdf} disabled={exporting || !data}
+                  title="Export every impacted API for this release as a PDF report">
+            {exporting ? 'PDF…' : 'PDF'}
+          </button>
           <button className="minibtn" onClick={copyJson}>JSON</button>
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>

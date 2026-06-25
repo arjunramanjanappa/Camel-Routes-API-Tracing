@@ -87,8 +87,6 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     [data, clientVersion]
   );
   const selectedNode = selectedId && derived ? derived.byId.get(selectedId) || null : null;
-  const copyJson = async () => { if (data) await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); };
-
   // PDF export is always the WHOLE release catalog (every impacted API), even when
   // the current view is a single API — re-fetch the catalog so the report can't
   // silently under-report what a release touches.
@@ -124,7 +122,6 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
                   title="Export every impacted API for this release as a PDF report">
             {exporting ? 'PDF…' : 'PDF'}
           </button>
-          <button className="minibtn" onClick={copyJson}>JSON</button>
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
         {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="bulk source analysis" /></div>}

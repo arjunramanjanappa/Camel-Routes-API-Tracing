@@ -51,7 +51,7 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
     'No route found = a discovered API with no route in this release - listed, not counted as impacted.',
   ]);
 
-  const footer = `TraceGuard - API trace ${verLabel}${app ? ' - ' + app : ''}`;
+  const footer = `TraceGuard - Release scope ${verLabel}${app ? ' - ' + app : ''}`;
   if (impacted === 0 && noRoute === 0) {
     r.emptyNote('No APIs resolve to this release in the current scope.');
     r.save(file(ver), footer);
@@ -96,4 +96,4 @@ function apiRow(r: ReportDoc, t: TraceResponse, svc: Record<string, string>) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `api-trace-${ver || 'all'}-${stamp()}.pdf`; }
+function file(ver: string): string { return `release-scope-${ver || 'all'}-${stamp()}.pdf`; }

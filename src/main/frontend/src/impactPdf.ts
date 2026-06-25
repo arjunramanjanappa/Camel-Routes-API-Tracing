@@ -58,7 +58,7 @@ export async function exportImpactPdf(input: ImpactPdfInput) {
     'svc = the backend service version the API sends (where known).',
   ]);
 
-  const footer = `TraceGuard - Release impact ${ver}${input.app ? ' - ' + input.app : ''}`;
+  const footer = `TraceGuard - Release test ${ver}${input.app ? ' - ' + input.app : ''}`;
   if (input.rows.length === 0) { r.emptyNote('No APIs are impacted by the current selection.'); r.save(file(ver), footer); return; }
 
   if (selected.length) {
@@ -90,4 +90,4 @@ function apiRow(r: ReportDoc, row: ImpactRow, svc: Record<string, string>) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `release-impact-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }
+function file(ver: string): string { return `release-test-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }

@@ -36,7 +36,7 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
     'svc = the backend service version sent to the host (read from the request template).',
   ]);
 
-  const footer = `TraceGuard - Release diff ${report.version || 'BASE'}${app ? ' - ' + app : ''}`;
+  const footer = `TraceGuard - Release impact ${report.version || 'BASE'}${app ? ' - ' + app : ''}`;
   if (apis.length === 0) { r.emptyNote('No APIs in the current view.'); r.save(fileName(report), footer); return; }
 
   const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
@@ -102,5 +102,5 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
 }
 
 function fileName(report: VersionDiffReport): string {
-  return `release-diff-${report.version || 'base'}-${stamp()}.pdf`;
+  return `release-impact-${report.version || 'base'}-${stamp()}.pdf`;
 }

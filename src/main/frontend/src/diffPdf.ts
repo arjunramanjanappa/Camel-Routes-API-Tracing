@@ -94,6 +94,10 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
     r.diffLines(rd.removed, rd.added);
     r.y += 3;
   });
+  if (a.payloadChange && (a.payloadChange.addedKeys.length || a.payloadChange.removedKeys.length)) {
+    const keys = [...a.payloadChange.addedKeys.map((k) => '+' + k), ...a.payloadChange.removedKeys.map((k) => '-' + k)];
+    summarize('Payload change (keys)', keys, PAL.blue.text);
+  }
   r.y += 6;
 }
 

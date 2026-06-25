@@ -393,6 +393,7 @@ public class RouteTraverser {
      * e.g. inside choice branches with the template after the choice) is back-filled.
      */
     private void applyTemplateVersion(String uri, List<PendingApi> pending) {
+        response.getTemplateUris().add(uri);   // remember every request-body template, for the payload diff
         String sv = templateVersion.apply(uri);
         currentServiceVersion = sv;
         if (sv == null) {

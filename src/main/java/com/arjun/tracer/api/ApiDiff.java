@@ -36,6 +36,7 @@ public record ApiDiff(String api, String operation,
                       List<RouteStepDiff> routeDiffs,
                       List<String> addedRoutes, List<String> removedRoutes,
                       List<BackendVersionChange> backendVersionChanges,
+                      PayloadChange payloadChange,
                       String note,
                       List<String> authors) {
 

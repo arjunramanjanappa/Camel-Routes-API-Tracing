@@ -126,8 +126,14 @@ export interface ApiDiff {
   addedRoutes: string[];
   removedRoutes: string[];
   backendVersionChanges: BackendVersionChange[];
+  payloadChange?: PayloadChange | null;
   note?: string | null;
   authors?: string[];
+}
+
+export interface PayloadChange {
+  addedKeys: string[];
+  removedKeys: string[];
 }
 
 export interface VersionDiffReport {

@@ -157,6 +157,14 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
         </>
       )}
 
+      {d.payloadChange && (d.payloadChange.addedKeys.length > 0 || d.payloadChange.removedKeys.length > 0) && (
+        <div className="diff-payload" title="JSON keys added/removed in the request-body template (.ftl/.vm) — serviceVersionNumber excluded">
+          <span className="diff-payload-label">Payload change</span>
+          {d.payloadChange.addedKeys.map((k) => <span key={'+' + k} className="pk add">+ {k}</span>)}
+          {d.payloadChange.removedKeys.map((k) => <span key={'-' + k} className="pk del">− {k}</span>)}
+        </div>
+      )}
+
       <div className="diff-actions">
         <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
         <button className="linkbtn" onClick={onCopy}>{copied ? 'Copied ✓' : 'Copy'}</button>

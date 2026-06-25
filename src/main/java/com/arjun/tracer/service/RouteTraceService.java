@@ -7,6 +7,7 @@ import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.GraphEdge;
 import com.arjun.tracer.api.GraphNode;
 import com.arjun.tracer.api.ImpactIndex;
+import com.arjun.tracer.api.PayloadChange;
 import com.arjun.tracer.api.RouteGraph;
 import com.arjun.tracer.api.RouteStepDiff;
 import com.arjun.tracer.api.TraceRequest;
@@ -265,6 +266,7 @@ public class RouteTraceService {
         Map<String, List<String>> bodies = routeBodiesCached(resolveRoot(request));
         Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(resolveRoot(request));
         var templateVersion = templateVersionResolver(request);
+        var templateKeys = templateKeysResolver(request);
         RouteRegistry registry = prepared.registry();
 
         int changed = 0;
@@ -286,7 +288,7 @@ public class RouteTraceService {
                 String resolvedLabel = targetResolved.version() != null ? targetResolved.version() : BASE_GROUP;
                 report.getApis().add(new ApiDiff(op.path(), op.operationName(),
                         targetResolved.routeName(), resolvedLabel, null, null,
-                        ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(),
+                        ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(), null,
                         "No " + target + " route — a " + target + " client still resolves to "
                                 + targetResolved.routeName() + ".", List.of()));
                 unchanged++;
@@ -309,14 +311,14 @@ public class RouteTraceService {
                 List<String> addedBy = flowAuthors(targetTrace.getFlow(), target, locations);
                 report.getApis().add(new ApiDiff(op.path(), op.operationName(),
                         targetResolved.routeName(), target, null, null,
-                        ApiDiff.NEW, List.of(), List.of(), List.of(), List.of(), null, addedBy));
+                        ApiDiff.NEW, List.of(), List.of(), List.of(), List.of(), null, null, addedBy));
                 added++;
                 continue;
             }
 
             TraceResponse lowerTrace = traceFor(prepared, op, lowerResolved, templateVersion);
             ApiDiff diff = buildApiDiff(op, targetResolved, target, lowerResolved, lowerLabel,
-                    targetTrace, lowerTrace, bodies, locations);
+                    targetTrace, lowerTrace, bodies, locations, templateKeys);
             report.getApis().add(diff);
             if (ApiDiff.CHANGED.equals(diff.status())) {
                 changed++;
@@ -362,7 +364,8 @@ public class RouteTraceService {
                                  ResolvedRoute lowerResolved, String lowerLabel,
                                  TraceResponse targetTrace, TraceResponse lowerTrace,
                                  Map<String, List<String>> bodies,
-                                 Map<String, RouteXmlDiff.RouteLocation> locations) {
+                                 Map<String, RouteXmlDiff.RouteLocation> locations,
+                                 java.util.function.Function<String, List<PayloadKeys.KeyRef>> templateKeys) {
         Map<String, String> targetByBase = new LinkedHashMap<>();
         for (String id : targetTrace.getFlow()) {
             targetByBase.putIfAbsent(baseName(id), id);
@@ -408,13 +411,27 @@ public class RouteTraceService {
         List<BackendVersionChange> svcChanges = backendVersionChanges(
                 lowerTrace.getBackendVersions(), targetTrace.getBackendVersions());
 
+        // Payload change: the JSON keys added/removed across the request-body templates the
+        // two flows use. Key-based and engine-agnostic (a .vm -> .ftl migration with the same
+        // keys is no change); serviceVersionNumber is excluded (it's the svc-version bump above).
+        List<PayloadKeys.KeyRef> targetKeys = new ArrayList<>();
+        for (String u : targetTrace.getTemplateUris()) {
+            targetKeys.addAll(templateKeys.apply(u));
+        }
+        List<PayloadKeys.KeyRef> lowerKeys = new ArrayList<>();
+        for (String u : lowerTrace.getTemplateUris()) {
+            lowerKeys.addAll(templateKeys.apply(u));
+        }
+        PayloadKeys.PayloadDiff pd = PayloadKeys.diff(targetKeys, lowerKeys);
+        PayloadChange payloadChange = pd.isEmpty() ? null : new PayloadChange(pd.added(), pd.removed());
+
         boolean anyChange = !routeDiffs.isEmpty() || !addedRoutes.isEmpty()
-                || !removedRoutes.isEmpty() || !svcChanges.isEmpty();
+                || !removedRoutes.isEmpty() || !svcChanges.isEmpty() || payloadChange != null;
         return new ApiDiff(op.path(), op.operationName(),
                 targetResolved.routeName(), target,
                 lowerResolved.routeName(), lowerLabel,
                 anyChange ? ApiDiff.CHANGED : ApiDiff.UNCHANGED,
-                routeDiffs, addedRoutes, removedRoutes, svcChanges, null, List.of());
+                routeDiffs, addedRoutes, removedRoutes, svcChanges, payloadChange, null, List.of());
     }
 
     /**
@@ -790,6 +807,16 @@ public class RouteTraceService {
     private String resolveTemplateVersion(List<Path> files, String uri) {
         // Strip the component scheme (velocity:/freemarker:/framework:…) and any nested
         // classpath:/file: resource scheme, leaving the path to suffix-match in memory.
+        String content = readTemplateContent(files, uri);
+        if (content == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = SERVICE_VERSION.matcher(content);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** Find the template file for a {@code <to>} uri (scheme-stripped, suffix-matched) and read it; null if absent. */
+    private String readTemplateContent(List<Path> files, String uri) {
         String suffix = uri.contains(":") ? uri.substring(uri.indexOf(':') + 1) : uri;
         suffix = suffix.replace('\\', '/').trim();
         int q = suffix.indexOf('?');
@@ -807,14 +834,28 @@ public class RouteTraceService {
         for (Path p : files) {
             if (p.toString().replace('\\', '/').endsWith(want)) {
                 try {
-                    java.util.regex.Matcher m = SERVICE_VERSION.matcher(Files.readString(p));
-                    return m.find() ? m.group(1) : null;
+                    return Files.readString(p);
                 } catch (java.io.IOException | RuntimeException e) {
                     return null;
                 }
             }
         }
         return null;
+    }
+
+    /** Like {@link #templateVersionResolver} but yields the template's JSON keys, for the payload diff. */
+    private java.util.function.Function<String, List<PayloadKeys.KeyRef>> templateKeysResolver(TraceRequest request) {
+        List<Path> files;
+        try {
+            files = scanCached(resolveRoot(request)).allFiles();
+        } catch (RuntimeException e) {
+            return uri -> List.of();
+        }
+        Map<String, List<PayloadKeys.KeyRef>> cache = new java.util.HashMap<>();
+        return uri -> cache.computeIfAbsent(uri, u -> {
+            String content = readTemplateContent(files, u);
+            return content == null ? List.of() : PayloadKeys.extract(content);
+        });
     }
 
     private String resolveOperation(String api, OperationResolver resolver, TraceResponse response) {

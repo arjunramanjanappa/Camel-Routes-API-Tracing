@@ -43,7 +43,7 @@ export default function AppPicker({ onPick }: { onPick: (app: string) => void })
         <div className="app-picker-tagline">Trace the flow. Guard the release.</div>
         <div className="app-picker-ai">✨ Powered by AI</div>
         <div className="app-picker-sub">
-          Choose an application to work with. API Trace, Release Impact and Release Diff work the same for both.
+          Choose an application to work with. Release Scope, Release Test and Release Impact work the same for both.
         </div>
         <div className="app-cards">
           {APPS.map((a) => (

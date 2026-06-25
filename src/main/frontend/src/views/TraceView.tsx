@@ -94,7 +94,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
                       onChange={onChange} onTrace={onTrace} onCatalogAll={onCatalogAll} />
         {error && <div className="err">Error: {error}</div>}
         {selectedNode && <DetailPanel node={selectedNode} onClose={() => setSelectedId(null)} />}
-        {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} app={app} />}
+        {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}
       </aside>
       <div className="main">
         {derived && <RouteGraph ref={graphRef} derived={derived} selectedId={selectedId} search={search} colorMode={colorMode} onSelect={setSelectedId} />}

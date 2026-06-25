@@ -1,11 +1,9 @@
 import type { AnalyzeResponse, TraceResponse } from '../types';
-import SplunkPanel from './SplunkPanel';
 
 interface Props {
   data: AnalyzeResponse;
   onBackToCatalog: () => void;
   onOpenApi: (api: string, version: string | undefined) => void;
-  app?: string;
 }
 
 function Warnings({ items }: { items: string[] }) {
@@ -18,7 +16,7 @@ function Warnings({ items }: { items: string[] }) {
   );
 }
 
-function Single({ d, app }: { d: TraceResponse; app?: string }) {
+function Single({ d }: { d: TraceResponse }) {
   return (
     <>
       <div className="panel">
@@ -40,20 +38,11 @@ function Single({ d, app }: { d: TraceResponse; app?: string }) {
       {d.backendApis.length > 0 && (
         <div className="panel"><h2>Backend APIs</h2><ul>{d.backendApis.map((b, i) => <li key={i}><code>{b}</code></li>)}</ul></div>
       )}
-      {d.operationName && (
-        <SplunkPanel
-          app={app}
-          title="Splunk export — this API"
-          frontendApis={[d.api || d.operationName || '']}
-          backendApis={d.backendApis}
-          hint="Run in Splunk, export the report, then upload it under Impact analysis for correlation."
-        />
-      )}
     </>
   );
 }
 
-export default function ResultPanels({ data, onBackToCatalog, onOpenApi, app }: Props) {
+export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props) {
   if (data.mode === 'single') {
     return (
       <>
@@ -61,15 +50,13 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi, app }: 
           <span className="sub">Single trace</span>
           <button className="linkbtn" onClick={onBackToCatalog}>← Catalog</button>
         </div>
-        <Single d={data} app={app} />
+        <Single d={data} />
         <Warnings items={data.warnings} />
       </>
     );
   }
 
   const cat = data;
-  const allFe = [...new Set(cat.groups.flatMap((g) => g.traces.map((t) => t.api || t.operationName || '')).filter(Boolean))];
-  const allBe = [...new Set(cat.groups.flatMap((g) => g.traces.flatMap((t) => t.backendApis || [])))];
   // Impacted APIs = those that actually resolve to a route (the catalog is
   // already scoped to the requested release, so every routed API is impacted).
   const impacted = cat.groups.filter((g) => g.version !== '(no route found)').reduce((n, g) => n + g.traces.length, 0);
@@ -120,15 +107,6 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi, app }: 
           </div>
         );
       })}
-      {allFe.length > 0 && (
-        <SplunkPanel
-          app={app}
-          title="Splunk export — all APIs"
-          frontendApis={allFe}
-          backendApis={allBe}
-          hint="Run in Splunk, export the report, then upload it under Impact analysis for correlation."
-        />
-      )}
       <Warnings items={cat.warnings} />
     </>
   );

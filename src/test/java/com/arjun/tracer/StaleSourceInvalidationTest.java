@@ -15,9 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * A release-diff (and impact) result must reflect edits to the source templates/routes
- * on the next reload, without restarting the app. The service caches the computed report
- * for speed, but it fingerprints the source tree on each Load/Compare and drops the cache
- * when a file changed — so re-running picks up the edit.
+ * on the next reload, without restarting the app. Each Load/Compare/Trace drops this
+ * source dir's caches and re-reads the tree, so re-running always picks up the edit.
  */
 class StaleSourceInvalidationTest {
 

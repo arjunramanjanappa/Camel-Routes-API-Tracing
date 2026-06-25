@@ -65,39 +65,6 @@ public class SourceScanner {
         return new SourceIndex(operations, files, allFiles, warnings);
     }
 
-    /**
-     * A cheap, parse-free fingerprint of the files this scanner would index for
-     * {@code root} — same directory pruning as {@link #scan}, but it only stats each
-     * file (path + size + last-modified) instead of reading/parsing it. The value
-     * changes whenever any indexed file is added, removed, or modified, so callers can
-     * detect on-disk edits and drop stale caches without re-scanning every request.
-     *
-     * <p>The per-file contributions are summed, so the result is independent of the
-     * order {@link Files#walk} yields. Returns {@code 0} if the tree can't be walked.
-     */
-    public long fingerprint(Path root) {
-        long[] acc = {0L};
-        try (Stream<Path> paths = Files.walk(root)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> !isUnderSkippedDir(root, p))
-                    .forEach(p -> {
-                        long h = p.toString().hashCode() & 0xffffffffL;
-                        try {
-                            java.nio.file.attribute.BasicFileAttributes a = Files.readAttributes(
-                                    p, java.nio.file.attribute.BasicFileAttributes.class);
-                            h = h * 1099511628211L + a.lastModifiedTime().toMillis();
-                            h = h * 31 + a.size();
-                        } catch (IOException ignore) {
-                            // unreadable attributes — fold the path alone; still detects add/remove
-                        }
-                        acc[0] += h;
-                    });
-        } catch (IOException e) {
-            return 0L;   // unwalkable — treat as unknown so the caller recomputes
-        }
-        return acc[0];
-    }
-
     private FileInfo toFileInfo(Path root, Path file, String xml, List<String> warnings) {
         String relPath = root.relativize(file).toString().replace('\\', '/');
         List<RouteModel> routes = loadRoutes(file.getFileName().toString(), xml, warnings);

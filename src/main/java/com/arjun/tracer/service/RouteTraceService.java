@@ -79,10 +79,6 @@ public class RouteTraceService {
     private final java.util.Map<String, Map<String, List<String>>> routeBodyCache = new java.util.concurrent.ConcurrentHashMap<>();
     // Route id -> source file + line range, per source dir, for git-blame attribution of changed routes.
     private final java.util.Map<String, Map<String, RouteXmlDiff.RouteLocation>> routeLocationCache = new java.util.concurrent.ConcurrentHashMap<>();
-    // Last-seen source fingerprint per root. The heavy entry points (impact, release diff)
-    // re-check it before serving a cached result and drop this root's caches when the tree
-    // changed on disk, so a reload/recompare reflects edits without an app restart.
-    private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final GitBlameService gitBlame = new GitBlameService();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
@@ -95,18 +91,17 @@ public class RouteTraceService {
     }
 
     /**
-     * Drop every cache for {@code root} when its source files changed on disk since the
-     * last check, so the next scan/impact/diff rebuilds from the edited sources. The
-     * fingerprint only stats files (no parsing), so this is cheap enough to run on each
-     * heavy Load/Compare; the actual re-scan happens lazily on the following cache miss.
+     * Drop every cache for {@code root} so the next trace / impact / release-diff rebuilds
+     * from the current sources. Called at the start of each Load / Compare / Trace, so every
+     * search is a fresh read of the source tree: timing is consistent and on-disk edits are
+     * always picked up without restarting the app or refreshing the browser.
+     *
+     * <p>The caches still earn their keep <em>within</em> one request — the scan, route bodies
+     * and template keys are computed once and reused across every API traced in a single
+     * report; they're just not carried over to the next click.
      */
-    private void invalidateIfChanged(Path root) {
+    private void invalidateRoot(Path root) {
         String key = root.toAbsolutePath().normalize().toString();
-        long fp = scanner.fingerprint(root);
-        Long prev = sourceFingerprints.put(key, fp);
-        if (prev != null && prev == fp) {
-            return;   // unchanged — keep the caches warm
-        }
         scanCache.remove(key);
         routeBodyCache.remove(key);
         routeLocationCache.remove(key);
@@ -120,6 +115,11 @@ public class RouteTraceService {
 
     /** Entry point used by the controller: returns a {@link TraceResponse} or {@link CatalogResponse}. */
     public Object analyze(TraceRequest request) {
+        try {
+            invalidateRoot(resolveRoot(request));   // every Trace is a fresh read of the sources
+        } catch (RuntimeException ignore) {
+            // no source dir configured — let prepare() surface the original error
+        }
         Prepared prepared = prepare(request);
         boolean hasApi = request.api() != null && !request.api().isBlank();
         return hasApi ? single(request, prepared) : catalog(request, prepared);
@@ -175,7 +175,7 @@ public class RouteTraceService {
         } catch (RuntimeException e) {
             return computeImpactIndex(request);   // no source dir → preserve the original error path
         }
-        invalidateIfChanged(root);   // rebuild if the sources changed since the last load
+        invalidateRoot(root);   // every Load is a fresh read of the sources
         return impactCache.computeIfAbsent(key, k -> computeImpactIndex(request));
     }
 
@@ -276,7 +276,7 @@ public class RouteTraceService {
         } catch (RuntimeException e) {
             return computeVersionDiff(request);   // no source dir → preserve the original error path
         }
-        invalidateIfChanged(root);   // rebuild if the sources changed since the last compare
+        invalidateRoot(root);   // every Compare is a fresh read of the sources
         return versionDiffCache.computeIfAbsent(key, k -> computeVersionDiff(request));
     }
 

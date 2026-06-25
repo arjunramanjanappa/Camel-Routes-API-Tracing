@@ -79,6 +79,10 @@ public class RouteTraceService {
     private final java.util.Map<String, Map<String, List<String>>> routeBodyCache = new java.util.concurrent.ConcurrentHashMap<>();
     // Route id -> source file + line range, per source dir, for git-blame attribution of changed routes.
     private final java.util.Map<String, Map<String, RouteXmlDiff.RouteLocation>> routeLocationCache = new java.util.concurrent.ConcurrentHashMap<>();
+    // Last-seen source fingerprint per root. The heavy entry points (impact, release diff)
+    // re-check it before serving a cached result and drop this root's caches when the tree
+    // changed on disk, so a reload/recompare reflects edits without an app restart.
+    private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final GitBlameService gitBlame = new GitBlameService();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
@@ -88,6 +92,26 @@ public class RouteTraceService {
     /** The scan for a root, computed once and reused (see {@link #scanCache}). */
     private SourceIndex scanCached(Path root) {
         return scanCache.computeIfAbsent(root.toAbsolutePath().normalize().toString(), k -> scanner.scan(root));
+    }
+
+    /**
+     * Drop every cache for {@code root} when its source files changed on disk since the
+     * last check, so the next scan/impact/diff rebuilds from the edited sources. The
+     * fingerprint only stats files (no parsing), so this is cheap enough to run on each
+     * heavy Load/Compare; the actual re-scan happens lazily on the following cache miss.
+     */
+    private void invalidateIfChanged(Path root) {
+        String key = root.toAbsolutePath().normalize().toString();
+        long fp = scanner.fingerprint(root);
+        Long prev = sourceFingerprints.put(key, fp);
+        if (prev != null && prev == fp) {
+            return;   // unchanged — keep the caches warm
+        }
+        scanCache.remove(key);
+        routeBodyCache.remove(key);
+        routeLocationCache.remove(key);
+        impactCache.keySet().removeIf(k -> k.equals(key) || k.startsWith(key + "|"));
+        versionDiffCache.keySet().removeIf(k -> k.equals(key) || k.startsWith(key + "|"));
     }
 
     /** Scan result plus the registry chosen for this request's country scope. */
@@ -143,12 +167,15 @@ public class RouteTraceService {
      */
     public ImpactIndex impactIndex(TraceRequest request) {
         String key;
+        Path root;
         try {
-            key = resolveRoot(request).toAbsolutePath().normalize()
+            root = resolveRoot(request);
+            key = root.toAbsolutePath().normalize()
                     + "|" + nz(request.country()) + "|" + nz(request.version()) + "|" + nz(request.transferType());
         } catch (RuntimeException e) {
             return computeImpactIndex(request);   // no source dir → preserve the original error path
         }
+        invalidateIfChanged(root);   // rebuild if the sources changed since the last load
         return impactCache.computeIfAbsent(key, k -> computeImpactIndex(request));
     }
 
@@ -241,12 +268,15 @@ public class RouteTraceService {
      */
     public VersionDiffReport versionDiff(TraceRequest request) {
         String key;
+        Path root;
         try {
-            key = resolveRoot(request).toAbsolutePath().normalize()
+            root = resolveRoot(request);
+            key = root.toAbsolutePath().normalize()
                     + "|" + nz(request.country()) + "|" + nz(request.version());
         } catch (RuntimeException e) {
             return computeVersionDiff(request);   // no source dir → preserve the original error path
         }
+        invalidateIfChanged(root);   // rebuild if the sources changed since the last compare
         return versionDiffCache.computeIfAbsent(key, k -> computeVersionDiff(request));
     }
 

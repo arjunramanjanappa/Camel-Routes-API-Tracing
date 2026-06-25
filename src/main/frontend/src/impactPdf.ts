@@ -21,7 +21,7 @@ export interface ImpactPdfInput {
   backendVersions: Record<string, string>;
 }
 
-/** Render the impact analysis to a downloadable PDF report. */
+/** Render the Release Impact analysis to a downloadable PDF report. */
 export async function exportImpactPdf(input: ImpactPdfInput) {
   const r = await ReportDoc.create();
   const ver = input.version || 'BASE';

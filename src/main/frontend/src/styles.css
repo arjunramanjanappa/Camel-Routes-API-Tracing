@@ -134,7 +134,7 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .detail-close { float: right; cursor: pointer; color: #9aa5b1; font-weight: 700; border: 0; background: none; font-size: 14px; }
 .role { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; color: #fff; }
 
-/* ---- Impact analysis view ---- */
+/* ---- Release Impact view ---- */
 .impact { flex: 1; min-height: 0; overflow-y: auto; background: #f7f9fb; }
 .context-bar { display: flex; gap: 12px; align-items: flex-end; padding: 16px 18px; background: #fff; border-bottom: 1px solid #e4e7eb; flex-wrap: wrap; }
 .context-bar > div { flex: 1; min-width: 160px; }

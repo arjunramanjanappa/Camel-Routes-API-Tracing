@@ -79,6 +79,10 @@ public class RouteTraceService {
     private final java.util.Map<String, Map<String, List<String>>> routeBodyCache = new java.util.concurrent.ConcurrentHashMap<>();
     // Route id -> source file + line range, per source dir, for git-blame attribution of changed routes.
     private final java.util.Map<String, Map<String, RouteXmlDiff.RouteLocation>> routeLocationCache = new java.util.concurrent.ConcurrentHashMap<>();
+    // Last-seen source fingerprint per root. Each Load/Compare/Trace re-checks it and keeps
+    // the warm caches when nothing changed (the common case: repeated searches, tab switches,
+    // log-analysis reusing the index), rebuilding only when the tree actually changed on disk.
+    private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final GitBlameService gitBlame = new GitBlameService();
 
     public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
@@ -91,17 +95,21 @@ public class RouteTraceService {
     }
 
     /**
-     * Drop every cache for {@code root} so the next trace / impact / release-diff rebuilds
-     * from the current sources. Called at the start of each Load / Compare / Trace, so every
-     * search is a fresh read of the source tree: timing is consistent and on-disk edits are
-     * always picked up without restarting the app or refreshing the browser.
+     * Called at the start of each Load / Compare / Trace. Keeps this root's warm caches when
+     * the source tree is unchanged since the last call — the common case (repeated searches,
+     * tab switches, the log-analysis upload reusing the impact index), so those stay instant —
+     * and drops them only when a file actually changed on disk, so edits are picked up on the
+     * next reload without restarting the app or refreshing the browser.
      *
-     * <p>The caches still earn their keep <em>within</em> one request — the scan, route bodies
-     * and template keys are computed once and reused across every API traced in a single
-     * report; they're just not carried over to the next click.
+     * <p>The fingerprint only stats files (no parsing), so the check is cheap next to a rebuild.
      */
-    private void invalidateRoot(Path root) {
+    private void invalidateIfChanged(Path root) {
         String key = root.toAbsolutePath().normalize().toString();
+        long fp = scanner.fingerprint(root);
+        Long prev = sourceFingerprints.put(key, fp);
+        if (prev != null && prev == fp) {
+            return;   // unchanged — keep the caches warm
+        }
         scanCache.remove(key);
         routeBodyCache.remove(key);
         routeLocationCache.remove(key);
@@ -116,7 +124,7 @@ public class RouteTraceService {
     /** Entry point used by the controller: returns a {@link TraceResponse} or {@link CatalogResponse}. */
     public Object analyze(TraceRequest request) {
         try {
-            invalidateRoot(resolveRoot(request));   // every Trace is a fresh read of the sources
+            invalidateIfChanged(resolveRoot(request));   // pick up source edits since the last trace
         } catch (RuntimeException ignore) {
             // no source dir configured — let prepare() surface the original error
         }
@@ -175,7 +183,7 @@ public class RouteTraceService {
         } catch (RuntimeException e) {
             return computeImpactIndex(request);   // no source dir → preserve the original error path
         }
-        invalidateRoot(root);   // every Load is a fresh read of the sources
+        invalidateIfChanged(root);   // reuse the warm cache unless the sources changed
         return impactCache.computeIfAbsent(key, k -> computeImpactIndex(request));
     }
 
@@ -276,7 +284,7 @@ public class RouteTraceService {
         } catch (RuntimeException e) {
             return computeVersionDiff(request);   // no source dir → preserve the original error path
         }
-        invalidateRoot(root);   // every Compare is a fresh read of the sources
+        invalidateIfChanged(root);   // reuse the warm cache unless the sources changed
         return versionDiffCache.computeIfAbsent(key, k -> computeVersionDiff(request));
     }
 

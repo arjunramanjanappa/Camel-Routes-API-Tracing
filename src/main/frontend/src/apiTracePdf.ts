@@ -1,4 +1,4 @@
-import { ReportDoc, PAL, M, CONTENT_W, stamp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp } from './pdfReport';
 import { backendPath } from './spl';
 import type { CatalogResponse, TraceResponse } from './types';
 
@@ -77,11 +77,14 @@ function apiRow(r: ReportDoc, t: TraceResponse, svc: Record<string, string>) {
   r.ensure(40);
   const path = t.api || t.operationName || '(unknown)';
   const w1 = r.text(path, M, 'bold', 11, PAL.ink);
-  const w2 = r.text(t.operationName || '', M + w1 + 8, 'normal', 9, PAL.muted);
+  r.text(t.operationName || '', M + w1 + 8, 'normal', 9, PAL.muted);
   const pillLabel = t.baseFallback ? 'BASE' : (t.resolvedVersion ? 'R' + t.resolvedVersion : '');
-  if (pillLabel) r.pill(pillLabel, M + w1 + 8 + w2 + 8, t.baseFallback ? PAL.gray.bar : PAL.blue.bar,
-    t.baseFallback ? PAL.gray.text : PAL.blue.text);
-  r.y += 14;
+  if (pillLabel) {
+    const pw = r.width(pillLabel, 'bold', 8) + 12;
+    r.pill(pillLabel, PAGE.w - M - pw, t.baseFallback ? PAL.gray.fill : PAL.blue.fill,
+      t.baseFallback ? PAL.gray.text : PAL.blue.text, 8);
+  }
+  r.y += 16;
   r.para(`Resolves to ${t.resolvedRoute || '-'}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
   if (t.flow && t.flow.length) {
     r.para('Flow: ' + t.flow.join(' -> '), M + 4, CONTENT_W - 4, 'normal', 9, PAL.body, 12);

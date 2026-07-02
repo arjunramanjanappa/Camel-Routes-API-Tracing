@@ -276,34 +276,55 @@ class LogAnalysisServiceTest {
         // The _raw-only Splunk export is just the raw log lines wrapped as CSV, so verifying
         // it must produce exactly the same result as uploading the raw output log itself.
         String rawLog = Files.readString(Path.of("src/test/resources/sample-logs/analysis-e2e.log"));
-
-        // Build the equivalent Splunk export: a single _raw column, each log line one row.
-        StringBuilder csv = new StringBuilder("_raw\n");
-        for (String ln : rawLog.split("\n", -1)) {
-            if (ln.isBlank()) continue;
-            csv.append('"').append(ln.replace("\"", "\"\"")).append("\"\n");
-        }
-
         LogAnalysisReport rawReport = analyzeText(rawLog, "9.4");
-        LogAnalysisReport csvReport = analyzeText(csv.toString(), "9.4");
+        LogAnalysisReport csvReport = analyzeText(toRawCsv(rawLog), "9.4");
 
         assertThat(rawReport.uploadType()).isEqualTo("RAW_LOG");
         assertThat(csvReport.uploadType()).isEqualTo("SPLUNK_CSV");
-        assertThat(csvReport.transactions()).isEqualTo(rawReport.transactions());
-        assertThat(csvReport.matchedLines()).isEqualTo(rawReport.matchedLines());
+        assertSameVerdict(rawReport, csvReport);
+    }
 
-        // Every API's end-to-end verdict is identical between the two upload shapes.
-        Map<String, LogStatus> rawByApi = rawReport.apis().stream()
+    @Test
+    void splunkRawCsvExportGivesTheSameVerdictAsTheRawLogForSplApp() throws IOException {
+        // Same equivalence for the SPL application (SPLMessage / SPLHostMessage markers):
+        // a _raw-only export must verify identically to uploading the raw SPL output log.
+        String rawLog = Files.readString(Path.of("src/test/resources/sample-logs/analysis-spl-app.log"));
+        LogAnalysisReport rawReport = analyzeText(rawLog, "9.4", "SPL");
+        LogAnalysisReport csvReport = analyzeText(toRawCsv(rawLog), "9.4", "SPL");
+
+        assertThat(csvReport.uploadType()).isEqualTo("SPLUNK_CSV");
+        assertSameVerdict(rawReport, csvReport);
+        assertThat(api(csvReport, V2).status()).isEqualTo(LogStatus.SUCCESS);   // SPL markers actually matched
+    }
+
+    private void assertSameVerdict(LogAnalysisReport raw, LogAnalysisReport csv) {
+        assertThat(csv.transactions()).isEqualTo(raw.transactions());
+        assertThat(csv.matchedLines()).isEqualTo(raw.matchedLines());
+        Map<String, LogStatus> rawByApi = raw.apis().stream()
                 .collect(Collectors.toMap(ApiLogResult::api, ApiLogResult::status));
-        Map<String, LogStatus> csvByApi = csvReport.apis().stream()
+        Map<String, LogStatus> csvByApi = csv.apis().stream()
                 .collect(Collectors.toMap(ApiLogResult::api, ApiLogResult::status));
         assertThat(csvByApi).isEqualTo(rawByApi);
     }
 
     private LogAnalysisReport analyzeText(String content, String version) throws IOException {
+        return analyzeText(content, version, "Mighty");
+    }
+
+    private LogAnalysisReport analyzeText(String content, String version, String app) throws IOException {
         try (InputStream in = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8))) {
-            return service.analyze(in, "in.txt", version, null, FW, null, null, true, "Mighty");
+            return service.analyze(in, "in.txt", version, null, FW, null, null, true, app);
         }
+    }
+
+    /** The _raw-only Splunk CSV export equivalent to a raw log (each line one row). */
+    private static String toRawCsv(String rawLog) {
+        StringBuilder csv = new StringBuilder("_raw\n");
+        for (String ln : rawLog.split("\n", -1)) {
+            if (ln.isBlank()) continue;
+            csv.append('"').append(ln.replace("\"", "\"\"")).append("\"\n");
+        }
+        return csv.toString();
     }
 
     @Test

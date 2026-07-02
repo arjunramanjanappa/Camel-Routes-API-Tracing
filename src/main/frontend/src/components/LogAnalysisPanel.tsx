@@ -232,16 +232,14 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
     exportLogPdf(report, app, version).catch(() => {});
   };
 
-  // Front-end APIs and backends are shown one section at a time; the segmented switch
-  // only appears when a report has both (a front-end-only or backend-only run just shows
-  // its one table). counts / donut / filter stay across both sections.
+  // Front-end APIs and backends are shown one section at a time via the segmented switch.
+  // Both tabs always show (each with its count) so the split is always visible — an empty
+  // section just shows a "none in this analysis" row. The donut / filter / sort stay shared.
   const hasFe = (report?.apis.length ?? 0) > 0;
   const hasBe = (report?.backends.length ?? 0) > 0;
-  const both = hasFe && hasBe;
-  const showFe = hasFe && (!both || section === 'FE');
-  const showBe = hasBe && (!both || section === 'BE');
-  const shownCount = (showFe ? shownApis.length : 0) + (showBe ? shownBackends.length : 0);
-  const sectionTotal = (showFe ? (report?.apis.length ?? 0) : 0) + (showBe ? (report?.backends.length ?? 0) : 0);
+  const showFe = section === 'FE';
+  const shownCount = showFe ? shownApis.length : shownBackends.length;
+  const sectionTotal = showFe ? (report?.apis.length ?? 0) : (report?.backends.length ?? 0);
 
   return (
     <div className="panel">
@@ -323,7 +321,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
 
           {report.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}
 
-          {both && (
+          {(hasFe || hasBe) && (
             <div className="seg" style={{ marginTop: 8 }}>
               <button className={section === 'FE' ? 'on' : ''} onClick={() => setSection('FE')}>Front-end APIs {report.apis.length}</button>
               <button className={section === 'BE' ? 'on' : ''} onClick={() => setSection('BE')}>Backends {report.backends.length}</button>
@@ -331,7 +329,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
           )}
 
           <div className="row between" style={{ marginTop: 8 }}>
-            <span className="muted">Showing {shownCount} of {sectionTotal} {showBe && !showFe ? 'backend(s)' : 'front-end API(s)'}</span>
+            <span className="muted">Showing {shownCount} of {sectionTotal} {showFe ? 'front-end API(s)' : 'backend(s)'}</span>
             <span className="row" style={{ gap: 8 }}>
               <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value as 'severity' | 'api')}>
                 <option value="severity">Sort: worst first</option>
@@ -352,13 +350,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
                   return <Row key={k} a={a} isOpen={open.has(k)} onToggle={() => toggle(k)} />;
                 })}
                 {shownApis.length === 0 && (
-                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No front-end APIs match this filter.</td></tr>
+                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>
+                    {hasFe ? 'No front-end APIs match this filter.' : 'No front-end APIs in this analysis — select an API, or upload a log with front-end lines.'}
+                  </td></tr>
                 )}
               </tbody>
             </table>
           )}
 
-          {showBe && (
+          {!showFe && (
             <table className="grid">
               <thead>
                 <tr><th>Status</th><th>Backend</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
@@ -366,7 +366,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
               <tbody>
                 {shownBackends.map((b) => <BackendRow key={b.backend} b={b} />)}
                 {shownBackends.length === 0 && (
-                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No backends match this filter.</td></tr>
+                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>
+                    {hasBe ? 'No backends match this filter.' : 'No backends in this analysis — analyse the whole release (uncheck “Limit to my selection”) or include a backend in the selection.'}
+                  </td></tr>
                 )}
               </tbody>
             </table>

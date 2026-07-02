@@ -153,6 +153,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<LogStatus | 'ALL' | 'ISSUES'>('ALL');
   const [sort, setSort] = useState<'severity' | 'api'>('severity');
+  const [section, setSection] = useState<'FE' | 'BE'>('FE');   // which result table is shown
   const fileRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -181,6 +182,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
       setReport(rep);
       setOpen(new Set());
       setFilter('ALL');
+      setSection(rep.apis.length ? 'FE' : 'BE');   // default to whichever section has data
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -229,6 +231,17 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
     if (!report) return;
     exportLogPdf(report, app, version).catch(() => {});
   };
+
+  // Front-end APIs and backends are shown one section at a time; the segmented switch
+  // only appears when a report has both (a front-end-only or backend-only run just shows
+  // its one table). counts / donut / filter stay across both sections.
+  const hasFe = (report?.apis.length ?? 0) > 0;
+  const hasBe = (report?.backends.length ?? 0) > 0;
+  const both = hasFe && hasBe;
+  const showFe = hasFe && (!both || section === 'FE');
+  const showBe = hasBe && (!both || section === 'BE');
+  const shownCount = (showFe ? shownApis.length : 0) + (showBe ? shownBackends.length : 0);
+  const sectionTotal = (showFe ? (report?.apis.length ?? 0) : 0) + (showBe ? (report?.backends.length ?? 0) : 0);
 
   return (
     <div className="panel">
@@ -310,8 +323,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
 
           {report.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}
 
+          {both && (
+            <div className="seg" style={{ marginTop: 8 }}>
+              <button className={section === 'FE' ? 'on' : ''} onClick={() => setSection('FE')}>Front-end APIs {report.apis.length}</button>
+              <button className={section === 'BE' ? 'on' : ''} onClick={() => setSection('BE')}>Backends {report.backends.length}</button>
+            </div>
+          )}
+
           <div className="row between" style={{ marginTop: 8 }}>
-            <span className="muted">Showing {shownApis.length + shownBackends.length} of {total}</span>
+            <span className="muted">Showing {shownCount} of {sectionTotal} {showBe && !showFe ? 'backend(s)' : 'front-end API(s)'}</span>
             <span className="row" style={{ gap: 8 }}>
               <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value as 'severity' | 'api')}>
                 <option value="severity">Sort: worst first</option>
@@ -321,7 +341,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
             </span>
           </div>
 
-          {report.apis.length > 0 && (
+          {showFe && (
             <table className="grid">
               <thead>
                 <tr><th>Status</th><th>Front-end API</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
@@ -338,8 +358,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
             </table>
           )}
 
-          {report.backends.length > 0 && (
-            <table className="grid" style={{ marginTop: 12 }}>
+          {showBe && (
+            <table className="grid">
               <thead>
                 <tr><th>Status</th><th>Backend</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
               </thead>

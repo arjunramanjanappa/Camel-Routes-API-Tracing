@@ -246,20 +246,22 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
 
       {inputType === 'SPLUNK' && (
         <div className="sub" style={{ marginTop: 8 }}>
-          Upload the CSV or JSON report you exported from Splunk for the generated query. The original event is
-          read from its <code>_raw</code> field, so the format is detected automatically.
+          Upload the CSV or JSON you exported from Splunk for the generated query — the event is read from its
+          <code>_raw</code> field, and the format is detected from the file. A <code>_raw</code>-only export saved as
+          <code>.txt</code> is just the raw log lines, so it verifies exactly like an output log — either upload mode
+          gives the same result.
         </div>
       )}
 
       <div className={'uploader' + (file ? ' has' : '')} onClick={() => fileRef.current?.click()}>
         <input ref={fileRef} type="file"
-               accept={inputType === 'SPLUNK' ? '.csv,.json,.gz' : '.log,.txt,.gz'} style={{ display: 'none' }}
+               accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
                onChange={(e) => setFile(e.target.files?.[0] || null)} />
         {file
           ? <span><b>{file.name}</b> · {(file.size / 1024).toFixed(0)} KB — click to change</span>
           : inputType === 'SPLUNK'
-            ? <span>Click to choose a Splunk export (.csv / .json / .gz)</span>
-            : <span>Click to choose an output log file (.log / .txt / .gz)</span>}
+            ? <span>Click to choose a Splunk export — <b>.csv</b> / .json, or a <code>_raw</code> <b>.txt</b> (format auto-detected)</span>
+            : <span>Click to choose an output log — <b>.txt</b> / .log, or a Splunk export (format auto-detected)</span>}
       </div>
 
       {hasSelection && (

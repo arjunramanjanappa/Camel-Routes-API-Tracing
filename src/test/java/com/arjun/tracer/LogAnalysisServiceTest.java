@@ -328,6 +328,22 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void splunkCsvSkipsHeaderAndNonEventRowsGenerically() throws IOException {
+        // The _raw header row and any stray non-event rows (a repeated header, a blank line,
+        // a garbage line with no marker) must be skipped without aborting the scan — only real
+        // marker lines are parsed, so the verdict is unchanged.
+        String rawLog = Files.readString(Path.of("src/test/resources/sample-logs/analysis-e2e.log"));
+        LogAnalysisReport clean = analyzeText(rawLog, "9.4");
+
+        String withJunk = toRawCsv(rawLog)
+                .replaceFirst("\n", "\n\"_raw\"\n\n\"garbage line with no marker\"\n");
+        LogAnalysisReport junked = analyzeText(withJunk, "9.4");
+
+        assertThat(junked.uploadType()).isEqualTo("SPLUNK_CSV");
+        assertSameVerdict(clean, junked);
+    }
+
+    @Test
     void splunkCsvWithOnlyARawColumnIsParsed() throws IOException {
         // The "| table _raw" query exports a single _raw column (no _time). It must still
         // auto-detect as SPLUNK_CSV and pull the event from column 0.

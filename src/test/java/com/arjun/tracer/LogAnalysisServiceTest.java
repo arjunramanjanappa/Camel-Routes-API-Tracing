@@ -9,11 +9,15 @@ import com.arjun.tracer.service.LogAnalysisService;
 import com.arjun.tracer.service.RouteTraceService;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -265,6 +269,41 @@ class LogAnalysisServiceTest {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
         });
+    }
+
+    @Test
+    void splunkRawCsvExportGivesTheSameVerdictAsUploadingTheRawLog() throws IOException {
+        // The _raw-only Splunk export is just the raw log lines wrapped as CSV, so verifying
+        // it must produce exactly the same result as uploading the raw output log itself.
+        String rawLog = Files.readString(Path.of("src/test/resources/sample-logs/analysis-e2e.log"));
+
+        // Build the equivalent Splunk export: a single _raw column, each log line one row.
+        StringBuilder csv = new StringBuilder("_raw\n");
+        for (String ln : rawLog.split("\n", -1)) {
+            if (ln.isBlank()) continue;
+            csv.append('"').append(ln.replace("\"", "\"\"")).append("\"\n");
+        }
+
+        LogAnalysisReport rawReport = analyzeText(rawLog, "9.4");
+        LogAnalysisReport csvReport = analyzeText(csv.toString(), "9.4");
+
+        assertThat(rawReport.uploadType()).isEqualTo("RAW_LOG");
+        assertThat(csvReport.uploadType()).isEqualTo("SPLUNK_CSV");
+        assertThat(csvReport.transactions()).isEqualTo(rawReport.transactions());
+        assertThat(csvReport.matchedLines()).isEqualTo(rawReport.matchedLines());
+
+        // Every API's end-to-end verdict is identical between the two upload shapes.
+        Map<String, LogStatus> rawByApi = rawReport.apis().stream()
+                .collect(Collectors.toMap(ApiLogResult::api, ApiLogResult::status));
+        Map<String, LogStatus> csvByApi = csvReport.apis().stream()
+                .collect(Collectors.toMap(ApiLogResult::api, ApiLogResult::status));
+        assertThat(csvByApi).isEqualTo(rawByApi);
+    }
+
+    private LogAnalysisReport analyzeText(String content, String version) throws IOException {
+        try (InputStream in = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8))) {
+            return service.analyze(in, "in.txt", version, null, FW, null, null, true, "Mighty");
+        }
     }
 
     @Test

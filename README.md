@@ -1,6 +1,6 @@
 # TraceGuard
 
-*Trace · Impact · Verify* — a standalone **route-tracing, impact-analysis and log-correlation tool** for
+*Scope · Test · Impact* — a standalone **route-tracing, log-verification and release-diff tool** for
 enterprise frameworks built on **Spring Boot + Apache Camel 4 (XML DSL)** with a
 UFW command/AOP layer. Point it at a framework **source directory** (it never
 needs the framework running) and it will, for any REST API:
@@ -14,13 +14,14 @@ needs the framework running) and it will, for any REST API:
 6. tell you — from your **logs or a Splunk export** — which APIs were actually
    exercised for a release, whether they passed **end-to-end**, and whether each
    backend was called at the **right service version**, and
-7. **compare two releases** (Release Diff) — for a target client version, what each
+7. **compare two releases** (Release Impact) — for a target client version, what each
    API changed versus its **immediate-lower** version (added / removed / modified
-   routes, backend service-version bumps), with optional **git-blame authorship**
-   of who made each change.
+   routes, backend service-version bumps, and **payload key** changes across the
+   request-body templates), with optional **git-blame authorship** of who made each
+   change.
 
-Every report-style tab exports a **shareable, sectioned PDF** (Release Diff,
-Impact analysis, log Verification) so a release / dev / test team can review and
+Every tab exports a **shareable, sectioned PDF** (Release Scope, Release Test /
+log Verification, Release Impact) so a release / dev / test team can review and
 sign off from one document.
 
 It serves **two independent applications — Mighty and SPL** — from one common entry
@@ -36,13 +37,13 @@ single Spring Boot jar with a **React + Vite + TypeScript** UI built into it.
 | **JDK** | 21 | |
 | **Maven** | 3.9+ | or IntelliJ's bundled Maven |
 | **Node.js + npm** | 18+ (built/tested with **Node 24**) | the Maven build shells out to your **system** `npm` to build the frontend |
-| **git** | any | **optional** — only for the Release Diff *"Changed by"* authorship; must be on the **`PATH`** of the host running the jar |
+| **git** | any | **optional** — only for the Release Impact *"Changed by"* authorship; must be on the **`PATH`** of the host running the jar |
 
 Install Node from [nodejs.org](https://nodejs.org) (or via `nvm`) and make sure
 `node -v` / `npm -v` work on your `PATH`. The build does **not** download a Node —
 it uses the one on your machine.
 
-**git is optional.** The Release Diff report can attribute each changed route to
+**git is optional.** The Release Impact report can attribute each changed route to
 its authors via `git blame`, but only when the scanned **source directory is a git
 work tree** and `git` is on the **`PATH`** of the process running the jar. If git
 is absent, or the directory isn't a git checkout, that one line is simply omitted —
@@ -89,6 +90,12 @@ The source directory can be set globally via `TRACER_SOURCE_DIR` /
 `tracer.source-dir`, or per request via the **Source directory** field in the UI
 (`sourceDir` param). A blank value yields a clear `400` explaining what to set.
 
+Scans are **cached per source dir** and reused across requests, but each Load /
+Compare / Trace first fingerprints the source tree (a cheap, parse-free stat) and
+**rebuilds only when a file changed on disk** — so edits, or a fresh `git pull` into
+the checkout, are picked up on the next action with **no app restart or browser
+refresh**; unchanged trees keep serving from the warm cache.
+
 ### Build the jar
 
 ```bash
@@ -114,16 +121,17 @@ On load, the SPA shows an **application picker** with two cards: **Mighty** and
 log markers differ (`MightyMessage`/`MightyHostMessage` vs `SPLMessage`/
 `SPLHostMessage`), which the UI never shows. Pick one and you work entirely within
 it; the header shows the active app and a **⇄ App** button switches. The **source
-directory, country and client version are remembered per application**, so each app
-keeps its own context (`tracer.<app>.*` in localStorage) — switching never leaks one
-app's settings into the other.
+directory and country are remembered per application**, so each app keeps its own
+context (`tracer.<app>.*` in localStorage) — switching never leaks one app's settings
+into the other.
 
 ## UI
 
-The workspace has three tabs — **Trace**, **Impact analysis**, **Release Diff** —
-and a light/dark theme toggle.
+The workspace has three tabs — **Release Scope** (trace the impacted APIs),
+**Release Test** (verify them against logs), **Release Impact** (what a release
+changed) — and a light/dark theme toggle.
 
-### Trace
+### Release Scope
 
 * **Catalog by default** — leave the inputs empty to see every discovered API
   grouped by the client release its route resolves to.
@@ -131,12 +139,17 @@ and a light/dark theme toggle.
   only the APIs that release actually impacts (others, which resolve to a lower
   version or BASE, are excluded with a notice). Blank ⇒ whole catalog.
 * **Graph** — React Flow with a layout switcher, minimap, zoom, role-coloured
-  nodes, an entry-route ring, selected-path highlighting (BFS up + downstream),
-  per-call host instances, node search, **Fit**, and **PNG/JSON** export. Each
-  backend node shows a **`svc vX.Y`** chip — its traced service version (or
-  `svc v2.2 / 3.3` when the same backend is called at several versions).
+  nodes, an entry-route ring, **all API entry nodes aligned in one column/row**,
+  selected-path highlighting (BFS up + downstream), per-call host instances, node
+  search, **Fit**, **PNG** export, and a **PDF** report. Each backend node shows a
+  **`svc vX.Y`** chip — its traced service version (or `svc v2.2 / 3.3` when the same
+  backend is called at several versions).
+* **PDF report** — exports the whole release's **impacted-API catalog**: every API
+  grouped by the version it resolves to, each with its resolved route, flow and
+  backends (svc versions where known). Always the full catalog — even when a single
+  API is on screen — so the report can't under-report a release.
 
-### Impact analysis
+### Release Test
 
 * **APIs to analyse** — a multiselect of every API in the release (single,
   several, or all). This selection drives the Splunk query **and** scopes the log
@@ -152,11 +165,18 @@ and a light/dark theme toggle.
   (`15m / 1h / 4h / 24h / 7d / 30d`, max 30 days). Each backend is paired with its
   traced **service version** (`(uri="…" serviceVersionNumber="2.2")`) so the search
   targets the right version, and a **path-suffix wildcard** (`uri="*…"`) tolerates a
-  deployment context prefix. It returns **raw events** (`| table _time, _raw`) so
-  the exported report uploads straight back for correlation. Configurable `index`,
-  front-end / backend / service-version field names; copy or download as `.spl`.
+  deployment context prefix. It is **scoped to the selected client version** (a
+  bracket field in every log line) so only that release's lines are fetched — far
+  fewer events, and no other-version noise. It returns the raw events as a single
+  `_raw` column (`| sort 0 _time | table _raw`), so exporting it as CSV yields the
+  raw log lines — identical to a raw output log, which uploads straight back for
+  correlation. Configurable `index`, front-end / backend / service-version field
+  names; copy or download as `.spl`.
 * **Verify with logs** — pick **Output log** or **Splunk report**, then upload a raw
-  output log or a Splunk export (CSV/JSON); the shape is auto-detected. The report,
+  output log or a Splunk export; the shape is **auto-detected from the file content**
+  (`.log/.txt/.csv/.json/.gz` accepted under either mode — a `_raw`-only export saved
+  as `.txt` verifies exactly like an output log, so both modes give the same result).
+  The report,
   **log-type aware** (front-end APIs from front-end log lines, backends from backend
   log lines, both when both are selected), shows a **status donut**, clickable
   **filter chips** (All / Issues / per-status), a **worst-first sort**, per-API
@@ -166,7 +186,7 @@ and a light/dark theme toggle.
   traced one, `svc 9.9 ✗ (exp 2.2)` on a mismatch (which flags the row even if the
   backend itself succeeded).
 
-### Release Diff
+### Release Impact
 
 Compare a release against the one before it. Enter a **target client version**
 (e.g. `9.18`) and **Compare**: for every API the release touched, TraceGuard traces
@@ -183,14 +203,20 @@ diffs them.
 * **Per-API card** — a `lower → target` version pill, a plain verdict, *change chips*
   (edited / added / removed routes), any **backend service-version bump**
   (`2.2 → 2.3`, read from the request template — caught even when the route XML is
-  otherwise identical), and a collapsible **element-level diff** (monospace, `-`
-  removed / `+` added) per route. A **View flow** opens the route graph; **Copy**
-  copies the API's diff.
-* **"Changed by"** *(when the source dir is a git work tree)* — each changed route
-  lists who authored its lines in the **latest** version (`git blame` of the target
-  route; the lower/BAU version's authors are intentionally excluded). Shows in the
-  **PDF** only; omitted entirely when git isn't available.
-* **Export PDF** — a sectioned **Release Diff report** (Changed + New), independent
+  otherwise identical), a **payload change** row, and a collapsible **element-level
+  diff** (monospace, `-` removed / `+` added) per route. A **View flow** opens the
+  route graph; **Copy** copies the API's diff.
+* **Payload change** — the JSON **keys added / removed** across the request-body
+  templates (`.ftl`/`.vm`) the two flows use. It is **key-based and engine-agnostic**:
+  a `.vm → .ftl` migration with the same keys is *not* a change; `serviceVersionNumber`
+  is excluded (it's the service-version bump above); a key name that appears under more
+  than one object is qualified `Object.key`. A payload key change flips the API to
+  **Changed**. Renders below "What changed" in both the card and the PDF.
+* **"Changed by" / "Added by"** *(when the source dir is a git work tree)* — each
+  changed route lists who authored its lines in the **latest** version (`git blame` of
+  the target route; the lower/BAU version's authors are intentionally excluded), and a
+  **New** API lists who added its routes. Omitted entirely when git isn't available.
+* **Export PDF** — a sectioned **Release Impact report** (Changed + New), independent
   of which group is on screen.
 
 Version comparison handles **multi-part (patch) versions** — `9.18.1 > 9.18`,
@@ -201,13 +227,13 @@ as both the base and the latest when no `R<ver>_` route exists.
 
 | Tab | Export | Format |
 |---|---|---|
-| Release Diff | Release Diff report (Changed + New, sectioned) | **PDF** |
-| Impact analysis | Impact report (selected + blast radius) | **PDF** |
-| Impact › *Verify with logs* | Verification / sign-off report (worst-first by status) | **PDF** |
-| Impact › *Splunk query* | the generated query | `.spl` |
-| Trace | the route graph | **PNG** / JSON |
+| Release Scope | the route graph (**PNG**) + the impacted-API catalog (**PDF**) | **PNG** / **PDF** |
+| Release Test | Release Test report (selected + blast radius) | **PDF** |
+| Release Test › *Verify with logs* | Verification / sign-off report (worst-first by status) | **PDF** |
+| Release Test › *Splunk query* | the generated query | `.spl` |
+| Release Impact | Release Impact report (Changed + New, sectioned) | **PDF** |
 
-The three PDF reports share one design — a cover header, an executive **stat band**,
+The four PDF reports share one design — a cover header, an executive **stat band**,
 a *"How to read this report"* legend, colour-coded **sections**, and page-numbered
 footers (`pdfReport.ts`). jsPDF is **lazy-loaded** (its own chunk) so it doesn't
 weigh down the initial page; built-in fonts are Latin-1, so the UI's unicode glyphs
@@ -221,7 +247,7 @@ are mapped to ASCII in the PDF.
 |---|---|---|
 | `/internal/route-graph` | GET / POST | Single trace (`api`) or catalog (no `api`), grouped by version |
 | `/internal/impact-index` | GET | Per-API footprint (routes / backends / hosts) for a release |
-| `/internal/version-diff` | GET | **Release Diff** — per-API changes of a target version vs its immediate-lower version |
+| `/internal/version-diff` | GET | **Release Impact** — per-API changes of a target version vs its immediate-lower version |
 | `/internal/log-analysis` | POST (multipart) | Correlate an uploaded log / Splunk export against the traced APIs |
 | `/internal/meta` | GET | Discovered countries, versions and transferType values |
 | `/internal/countries` | GET | Bootstrap (country) scopes |
@@ -245,7 +271,8 @@ traced service version) per API.
 (`mode: "version-diff"`): counts and an `apis` list of `ApiDiff` — each with a
 `status` (`CHANGED` / `NEW` / `UNCHANGED`), the target & lower route/version,
 per-route `routeDiffs` (`added`/`removed` canonical lines + `changedBy` git
-authors), whole `addedRoutes`/`removedRoutes`, and `backendVersionChanges`.
+authors), whole `addedRoutes`/`removedRoutes`, `backendVersionChanges`, a
+`payloadChange` (`addedKeys`/`removedKeys`), and `authors` (who added a NEW API).
 
 ---
 
@@ -256,7 +283,10 @@ original event in its `_raw` field, so all three feed one line parser. The shape
 is auto-detected and reported as `uploadType`:
 
 * **`RAW_LOG`** — the raw output log.
-* **`SPLUNK_CSV`** — header located, `_raw` column extracted per record.
+* **`SPLUNK_CSV`** — header located, `_raw` column extracted per record. Streamed one
+  record at a time (bounded memory for large 30-day / 200MB+ exports); a multi-line
+  `_raw` event and a leading UTF-8 BOM are handled, and the header / any non-event row
+  is skipped generically.
 * **`SPLUNK_JSON`** — array / `{results:[]}` / NDJSON; `_raw` per event.
 
 ### Log line format
@@ -364,10 +394,10 @@ route (`<operation>`). A blank version goes straight to BASE. Versions are compa
 **component-by-component**, so multi-part / patch versions sort correctly
 (`9.18.1 > 9.18 > 9.14`, `9.18 == 9.18.0`). An **un-versioned route** (`getFundTransfer`,
 no `R<ver>_`) is both the base and — when it's the only route — the latest, so every
-client resolves to it. The same machinery powers Release Diff's **immediate-lower**
+client resolves to it. The same machinery powers Release Impact's **immediate-lower**
 pick (highest versioned route strictly below the target, else BASE).
 
-### Release diff
+### Release impact
 For each API whose entry resolves to exactly the target version, the whole flow is
 traced at the **target** and at the **immediate-lower** version; the two flows'
 routes are paired by **base name** (strip `R<ver>_`). Each route's **raw XML** is
@@ -375,8 +405,10 @@ canonicalised (normalised whitespace, sorted attributes, one element per line) a
 the pair is **LCS-diffed** — version-bearing tokens (`direct:R9.18_x`) are collapsed
 to `R{v}_` so a pure re-stamp isn't reported as a change. Backend **service-version
 bumps** (which live in the request template, not the route XML) are caught by
-comparing the two flows' traced backend versions. When the source dir is a git work
-tree, each changed route's target-version lines are `git blame`d for the **authors**.
+comparing the two flows' traced backend versions, and **payload key** changes by
+diffing the JSON keys of the two flows' request-body templates (engine-agnostic,
+`serviceVersionNumber` excluded). When the source dir is a git work tree, each changed
+route's target-version lines are `git blame`d for the **authors**.
 Starts at the resolved entry route and follows `direct:` calls recursively
 (loop-guarded). It resolves the dynamic redirect
 `direct:${exchangeProperty[operationName]}`, honours `<choice>` branches
@@ -417,7 +449,7 @@ src/main/java/com/arjun/tracer/
   api/        DTOs — TraceRequest/Response, GraphNode/Edge, RouteGraph,
               ImpactIndex/ApiImpact (+ backendVersions), LogAnalysisReport/
               ApiLogResult/BackendCallResult/BackendLogResult, LogStatus,
-              VersionDiffReport/ApiDiff/RouteStepDiff/BackendVersionChange (Release Diff)
+              VersionDiffReport/ApiDiff/RouteStepDiff/BackendVersionChange (Release Impact)
   model/      neutral route model shared by both loaders
   loader/     CamelRouteModelLoader, XmlDomRouteModelLoader, RouteRegistry
   resolve/    OperationResolver (JavaParser), VersionResolver (+ immediateLowerVersion)
@@ -431,9 +463,9 @@ src/main/frontend/                React + Vite + TypeScript SPA (built into the 
   src/App.tsx       application picker (Mighty/SPL) + tabbed shell
   src/views/        TraceView, ImpactView, ReleaseDiffView   (per-app context: tracer.<app>.*)
   src/components/    AppPicker, RouteGraph, SplunkPanel, LogAnalysisPanel, ApiFlowModal, …
-  src/spl.ts         SPL generation (events query, time presets, service-version filter)
+  src/spl.ts         SPL generation (events query, time presets, service-version + client-version filter)
   src/pdfReport.ts   shared PDF kit (header, stat band, sections, legend, footers)
-  src/diffPdf.ts / impactPdf.ts / logPdf.ts   the three PDF reports (jsPDF, lazy-loaded)
+  src/apiTracePdf.ts / impactPdf.ts / logPdf.ts / diffPdf.ts   the four PDF reports (jsPDF, lazy-loaded)
 src/test/resources/sample-framework/    synthetic framework fixture (test-only)
 src/test/resources/svc-diff-framework/  Release-Diff fixture: svc bump + base-only (test-only)
 src/test/resources/sample-logs/          synthetic logs + Splunk exports (test-only)
@@ -458,10 +490,17 @@ mvn test          # or:  mvn -Dskip.frontend=true test   (Java only)
 * `LogAnalysisServiceTest` — end-to-end verdicts (success/latest-wins, not-tested,
   timeout, partial) over synthetic output logs **and** Splunk CSV/JSON exports,
   plus **pattern-based field detection**, **backend-only analysis**,
-  **service-version match/mismatch**, and the **SPL vs Mighty** marker switch.
-* `VersionDiffTest` — Release Diff: flow-vs-immediate-lower comparison, NEW / CHANGED
+  **service-version match/mismatch**, the **SPL vs Mighty** marker switch, and the
+  Splunk-CSV robustness set: **multi-line `_raw`**, **single `_raw` column**,
+  **raw-log ↔ `_raw`-CSV parity** (Mighty and SPL), and **header / junk-row skipping**.
+* `VersionDiffTest` — Release Impact: flow-vs-immediate-lower comparison, NEW / CHANGED
   / UNCHANGED, fallback-to-lower as unchanged, and **backend service-version bumps**
   (`.ftl` → `.vm`) surfaced even when the route XML matches.
+* `PayloadKeysTest` — the Release Impact **payload key** diff: engine-agnostic
+  (`.vm`/`.ftl` same keys ⇒ no change), added/removed keys, `serviceVersionNumber`
+  excluded, same-name-under-different-objects qualified `Object.key`, nested keys.
+* `StaleSourceInvalidationTest` — editing a template between two compares is picked
+  up on the next run (source-fingerprint cache invalidation), no restart.
 * `VersionResolverTest` — version ordering: multi-part / patch (`9.18.1 > 9.18`,
   `9.18 == 9.18.0`) and **un-versioned (BASE) routes** as both base and latest.
 * `OperationResolverTest` — de-duplicates the interface/impl `@RequestMapping` split.

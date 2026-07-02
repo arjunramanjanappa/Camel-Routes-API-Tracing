@@ -132,6 +132,9 @@ public class LogAnalysisService {
                 if (!line.isBlank()) { firstNonBlank = line; break; }
                 counters[0]++;
             }
+            if (firstNonBlank != null && !firstNonBlank.isEmpty() && firstNonBlank.charAt(0) == 0xFEFF) {
+                firstNonBlank = firstNonBlank.substring(1);   // strip a UTF-8 BOM (common in exported CSV)
+            }
             if (firstNonBlank == null) {
                 detected = "EMPTY";
             } else {
@@ -139,9 +142,16 @@ public class LogAnalysisService {
                 switch (detected) {
                     case "SPLUNK_CSV" -> {
                         int rawIdx = csvRawIndex(firstNonBlank);   // header row consumed
+                        // Read the rest of the file and split it into whole CSV records, so a
+                        // _raw event that spans several physical lines (embedded newlines inside
+                        // its quoted field — common in real Splunk exports) is reassembled intact.
+                        StringBuilder body = new StringBuilder();
                         while ((line = r.readLine()) != null) {
+                            body.append(line).append('\n');
+                        }
+                        for (List<String> cells : parseCsvRecords(body.toString())) {
                             counters[0]++;
-                            ingest(csvCell(line, rawIdx, markers), lines, counters, markers);
+                            ingest(cellFrom(cells, rawIdx, markers), lines, counters, markers);
                         }
                     }
                     case "SPLUNK_JSON" -> {
@@ -277,17 +287,75 @@ public class LogAnalysisService {
         return -1;   // no _raw column — fall back to "any cell with a marker"
     }
 
-    private String csvCell(String line, int rawIdx, Markers markers) {
-        List<String> cells = parseCsvLine(line);
+    /** The _raw cell of a parsed CSV record, or any cell carrying a marker when there's no _raw column. */
+    private String cellFrom(List<String> cells, int rawIdx, Markers markers) {
+        String cell = null;
         if (rawIdx >= 0 && rawIdx < cells.size()) {
-            return cells.get(rawIdx);
-        }
-        for (String c : cells) {
-            if (c.contains(markers.fe()) || c.contains(markers.be())) {
-                return c;
+            cell = cells.get(rawIdx);
+        } else {
+            for (String c : cells) {
+                if (c.contains(markers.fe()) || c.contains(markers.be())) {
+                    cell = c;
+                    break;
+                }
             }
         }
-        return null;
+        // A _raw event is one logical log line; flatten any embedded newlines so the
+        // single-line parser sees the whole event (marker, path, ids, JSON) at once.
+        return cell == null ? null : cell.replace('\n', ' ').replace('\r', ' ');
+    }
+
+    /**
+     * RFC-4180 split of a whole CSV body into records (each a list of fields), honouring
+     * quoted fields that contain commas, escaped {@code ""} quotes and embedded newlines —
+     * so a multi-line Splunk {@code _raw} event stays a single field instead of being torn
+     * across records. Blank lines between records are skipped.
+     */
+    private static List<List<String>> parseCsvRecords(String body) {
+        String norm = body.replace("\r\n", "\n").replace('\r', '\n');
+        List<List<String>> records = new ArrayList<>();
+        List<String> row = new ArrayList<>();
+        StringBuilder field = new StringBuilder();
+        boolean inQuotes = false;
+        boolean started = false;   // this record has some content (guards trailing blank lines)
+        for (int i = 0; i < norm.length(); i++) {
+            char c = norm.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < norm.length() && norm.charAt(i + 1) == '"') {
+                        field.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    field.append(c);
+                }
+            } else if (c == '"') {
+                inQuotes = true;
+                started = true;
+            } else if (c == ',') {
+                row.add(field.toString());
+                field.setLength(0);
+                started = true;
+            } else if (c == '\n') {
+                if (started || field.length() > 0 || !row.isEmpty()) {
+                    row.add(field.toString());
+                    records.add(row);
+                }
+                row = new ArrayList<>();
+                field.setLength(0);
+                started = false;
+            } else {
+                field.append(c);
+                started = true;
+            }
+        }
+        if (started || field.length() > 0 || !row.isEmpty()) {
+            row.add(field.toString());
+            records.add(row);
+        }
+        return records;
     }
 
     /** RFC-4180 CSV field split for one record: handles quoted fields and "" escapes. */

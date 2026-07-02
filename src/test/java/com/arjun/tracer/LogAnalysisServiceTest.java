@@ -268,6 +268,24 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void splunkCsvWithMultiLineRawFieldsIsReassembled() throws IOException {
+        // Real Splunk exports quote the _raw event and let it span several physical lines
+        // (embedded newlines). The CSV must be split on whole records, not readLine, or the
+        // event is torn apart and the verdict is wrong. Same result as the single-line CSV.
+        LogAnalysisReport r = analyze("analysis-splunk-multiline.csv", "9.4");
+
+        assertThat(r.uploadType()).isEqualTo("SPLUNK_CSV");
+        assertThat(r.transactions()).isEqualTo(1);
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);   // response JSON reassembled across lines
+        assertThat(v2.feLatencyMs()).isEqualTo(500);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
+    @Test
     void backendOnlySelectionReadsHostMessageLines() throws IOException {
         // Select a backend, no front-end API → a per-backend report driven by the
         // MightyHostMessage lines (matched through the /mty-banking-01/ context prefix).

@@ -142,16 +142,23 @@ public class LogAnalysisService {
                 switch (detected) {
                     case "SPLUNK_CSV" -> {
                         int rawIdx = csvRawIndex(firstNonBlank);   // header row consumed
-                        // Read the rest of the file and split it into whole CSV records, so a
-                        // _raw event that spans several physical lines (embedded newlines inside
-                        // its quoted field — common in real Splunk exports) is reassembled intact.
-                        StringBuilder body = new StringBuilder();
+                        // Stream one CSV record at a time: keep appending physical lines until the
+                        // double-quotes balance (a _raw event may span several lines inside its
+                        // quoted field — common in real Splunk exports), then parse just that
+                        // record. Bounds memory to one record even for large 30-day exports.
+                        StringBuilder rec = new StringBuilder();
                         while ((line = r.readLine()) != null) {
-                            body.append(line).append('\n');
+                            if (rec.length() > 0) {
+                                rec.append('\n');
+                            }
+                            rec.append(line);
+                            if (countChar(rec, '"') % 2 == 0) {   // not inside a quoted field → record complete
+                                emitCsvRecord(rec.toString(), rawIdx, lines, counters, markers);
+                                rec.setLength(0);
+                            }
                         }
-                        for (List<String> cells : parseCsvRecords(body.toString())) {
-                            counters[0]++;
-                            ingest(cellFrom(cells, rawIdx, markers), lines, counters, markers);
+                        if (rec.length() > 0) {
+                            emitCsvRecord(rec.toString(), rawIdx, lines, counters, markers);   // trailing record
                         }
                     }
                     case "SPLUNK_JSON" -> {
@@ -305,11 +312,31 @@ public class LogAnalysisService {
         return cell == null ? null : cell.replace('\n', ' ').replace('\r', ' ');
     }
 
+    /** Parse one complete CSV record and ingest its _raw cell; blank separator lines are skipped. */
+    private void emitCsvRecord(String record, int rawIdx, List<LogLine> lines, int[] counters, Markers markers) {
+        List<List<String>> parsed = parseCsvRecords(record);
+        if (parsed.isEmpty()) {
+            return;
+        }
+        counters[0]++;
+        ingest(cellFrom(parsed.get(0), rawIdx, markers), lines, counters, markers);
+    }
+
+    private static int countChar(CharSequence s, char ch) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == ch) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /**
-     * RFC-4180 split of a whole CSV body into records (each a list of fields), honouring
-     * quoted fields that contain commas, escaped {@code ""} quotes and embedded newlines —
-     * so a multi-line Splunk {@code _raw} event stays a single field instead of being torn
-     * across records. Blank lines between records are skipped.
+     * RFC-4180 split of a CSV chunk into records (each a list of fields), honouring quoted
+     * fields that contain commas, escaped {@code ""} quotes and embedded newlines — so a
+     * multi-line Splunk {@code _raw} event stays a single field instead of being torn across
+     * records. Blank lines between records are skipped.
      */
     private static List<List<String>> parseCsvRecords(String body) {
         String norm = body.replace("\r\n", "\n").replace('\r', '\n');

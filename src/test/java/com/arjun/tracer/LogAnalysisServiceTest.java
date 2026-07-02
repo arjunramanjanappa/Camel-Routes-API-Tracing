@@ -268,6 +268,22 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void splunkCsvWithOnlyARawColumnIsParsed() throws IOException {
+        // The "| table _raw" query exports a single _raw column (no _time). It must still
+        // auto-detect as SPLUNK_CSV and pull the event from column 0.
+        LogAnalysisReport r = analyze("analysis-splunk-rawonly.csv", "9.4");
+
+        assertThat(r.uploadType()).isEqualTo("SPLUNK_CSV");
+        assertThat(r.transactions()).isEqualTo(1);
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
+    @Test
     void splunkCsvWithMultiLineRawFieldsIsReassembled() throws IOException {
         // Real Splunk exports quote the _raw event and let it span several physical lines
         // (embedded newlines). The CSV must be split on whole records, not readLine, or the

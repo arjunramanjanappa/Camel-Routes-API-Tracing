@@ -1,0 +1,5 @@
+_raw
+"2026-06-11 18.43.45.102 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][C1][Android][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {""serviceRequest"":{}}"
+"2026-06-11 18.43.45.118 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][C1][Android][]-/bfs/ft/own/submit -[Request] - {""req"":1}"
+"2026-06-11 18.43.45.318 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][C1][Android][230ms]-/bfs/ft/own/submit -[Response] - {""serviceResponse"":{""responseCode"":""0000000"",""responseDescription"":""Success""}}"
+"2026-06-11 18.43.45.502 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][C1][Android][500ms]-/mty-banking/services/sg/payment/v2/fund/submit -Response - {""serviceResponse"":{""responseCode"":""000000"",""responseDescription"":""Success""}}"

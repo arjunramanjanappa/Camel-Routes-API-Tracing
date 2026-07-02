@@ -19,9 +19,9 @@ function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k)
 
 /**
  * Builds one Splunk search for the selected APIs (front-end paths + their
- * backends) that returns raw events as _time, _raw — the exact shape the log
- * analyser reads back, so the exported report drives the correlation. Each backend
- * is searched together with its traced service version.
+ * backends) that returns raw events as a single _raw column — the exact shape the
+ * log analyser reads back, so the exported report drives the correlation. Each
+ * backend is searched together with its traced service version.
  */
 export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app }: Props) {
   const application = app && app.trim() ? app.trim() : 'Mighty';
@@ -92,8 +92,8 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="sub" style={{ marginTop: 8 }}>
         {mode === 'all'
-          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events (<code>_time, _raw</code>) — same as a raw output log.</>
-          : <>Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_time, _raw</code>) for <b>{fe.length}</b> front-end
+          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events (<code>_raw</code>) — same as a raw output log.</>
+          : <>Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_raw</code>) for <b>{fe.length}</b> front-end
             + <b>{be.length}</b> backend path(s){versioned > 0 ? <> — each backend is filtered to its traced <b>service version</b> ({versioned} of {be.length} known)</> : null}.
             Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends (by hosturl) to <code>{beMarker}</code>.</>}
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.

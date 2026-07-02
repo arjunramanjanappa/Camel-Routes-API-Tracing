@@ -30,8 +30,9 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
 /**
  * Build a Splunk search that returns the raw events (one combined query over the
  * selected front-end paths and their backends) within the time window, projected
- * as {@code _time, _raw}. Exporting this as CSV yields exactly the columns the log
- * analyser reads back, so the same report drives the end-to-end correlation.
+ * as a single {@code _raw} column (sorted by time first). Exporting this as CSV
+ * yields exactly the raw log lines the analyser reads back, so the same report
+ * drives the end-to-end correlation — just like uploading the raw output log.
  */
 export function buildEventsSpl(
   index: string,
@@ -55,7 +56,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}(${markers})\n| table _time, _raw\n| sort 0 _time`;
+    return `index=${index} ${win}(${markers})\n| sort 0 _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -85,7 +86,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}(${groups.join(' OR ')})\n| table _time, _raw\n| sort 0 _time`;
+  return `index=${index} ${win}(${groups.join(' OR ')})\n| sort 0 _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

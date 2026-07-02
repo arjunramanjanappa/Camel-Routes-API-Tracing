@@ -314,12 +314,23 @@ public class LogAnalysisService {
 
     /** Parse one complete CSV record and ingest its _raw cell; blank separator lines are skipped. */
     private void emitCsvRecord(String record, int rawIdx, List<LogLine> lines, int[] counters, Markers markers) {
-        List<List<String>> parsed = parseCsvRecords(record);
-        if (parsed.isEmpty()) {
-            return;
+        // Fast path: a single-physical-line record (the norm for a _raw export) is split
+        // directly, skipping the multi-line record normalisation and its extra allocations.
+        List<String> cells;
+        if (record.indexOf('\n') < 0) {
+            cells = parseCsvLine(record);
+        } else {
+            List<List<String>> parsed = parseCsvRecords(record);
+            if (parsed.isEmpty()) {
+                return;
+            }
+            cells = parsed.get(0);
+        }
+        if (cells.size() == 1 && cells.get(0).isBlank()) {
+            return;   // blank separator line
         }
         counters[0]++;
-        ingest(cellFrom(parsed.get(0), rawIdx, markers), lines, counters, markers);
+        ingest(cellFrom(cells, rawIdx, markers), lines, counters, markers);
     }
 
     private static int countChar(CharSequence s, char ch) {
@@ -544,18 +555,30 @@ public class LogAnalysisService {
         // numeric or quoted, case-insensitive key) so it works for any API regardless of
         // where these fields nest. Falls back to a regex only if the JSON won't parse
         // (e.g. a truncated line).
-        JsonNode tree = tryParseJson(json);
         String code;
         String desc;
         String svc;
-        if (tree != null) {
-            code = request ? null : jsonFind(tree, "responseCode");
-            desc = request ? null : jsonFind(tree, "responseDescription");
-            svc = jsonFind(tree, "serviceVersionNumber");
-        } else {
-            code = request ? null : firstGroup(CODE, json);
-            desc = request ? null : firstGroup(DESC, json);
+        if (request) {
+            // A request carries no responseCode/description — only the service version is
+            // needed, and the regex reads it reliably. Skip the (expensive) JSON parse; on a
+            // 200MB export this halves the Jackson work since ~half the lines are requests.
+            code = null;
+            desc = null;
             svc = firstGroup(SVC_VERSION, json);
+        } else {
+            // Parse the response payload as JSON and search the tree (any depth/shape, numeric
+            // or quoted, case-insensitive key) so it works for any API; fall back to a regex
+            // only if the JSON won't parse (e.g. a truncated line).
+            JsonNode tree = tryParseJson(json);
+            if (tree != null) {
+                code = jsonFind(tree, "responseCode");
+                desc = jsonFind(tree, "responseDescription");
+                svc = jsonFind(tree, "serviceVersionNumber");
+            } else {
+                code = firstGroup(CODE, json);
+                desc = firstGroup(DESC, json);
+                svc = firstGroup(SVC_VERSION, json);
+            }
         }
         return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc);
     }

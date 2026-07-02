@@ -307,6 +307,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
               <SplunkPanel
                 title="Splunk query — selected APIs"
                 app={app}
+                version={version}
                 frontendApis={selectedApiList}
                 backendApis={splBackends}
                 backendVersions={backendVersionMap}

@@ -47,8 +47,16 @@ export function buildEventsSpl(
   feMarker = '',
   beMarker = '',
   mode: 'scoped' | 'all' = 'scoped',
+  clientVersion = '',
 ): string {
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
+  // Narrow to one client release: the version is a bracket field ([9.4]) present in both
+  // the front-end and host log lines, so ANDing it in drops other releases' noise and the
+  // same API exercised on a version that isn't part of this analysis. Skipped for BASE
+  // (its version bracket is empty, so there's nothing to match on).
+  const v = clientVersion && clientVersion.trim() && clientVersion.trim().toUpperCase() !== 'BASE'
+    ? clientVersion.trim() : '';
+  const ver = v ? ` "${v}"` : '';
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
   // are NOT filtered — the analyser scopes to the selected APIs on upload, so this is
@@ -56,7 +64,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}(${markers})\n| sort 0 _time\n| table _raw`;
+    return `index=${index} ${win}(${markers})${ver}\n| sort 0 _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -86,7 +94,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}(${groups.join(' OR ')})\n| sort 0 _time\n| table _raw`;
+  return `index=${index} ${win}(${groups.join(' OR ')})${ver}\n| sort 0 _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

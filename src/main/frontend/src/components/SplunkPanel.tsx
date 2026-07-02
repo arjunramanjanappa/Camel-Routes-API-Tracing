@@ -13,6 +13,8 @@ interface Props {
   hint?: string;
   /** Selected application — its markers (<app>Message / <app>HostMessage) scope the query. */
   app?: string;
+  /** Client release version — ANDed into the query so only that release's lines are fetched. */
+  version?: string;
 }
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
@@ -23,7 +25,7 @@ function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k)
  * log analyser reads back, so the exported report drives the correlation. Each
  * backend is searched together with its traced service version.
  */
-export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app }: Props) {
+export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version }: Props) {
   const application = app && app.trim() ? app.trim() : 'Mighty';
   const feMarker = application + 'Message';        // front-end log lines
   const beMarker = application + 'HostMessage';    // backend log lines
@@ -47,8 +49,10 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const beVer: Record<string, string> = {};
   backendApis.forEach((url) => { const p = bePathOf(url); if (p && backendVersions[url]) beVer[p] = backendVersions[url]; });
   const versioned = be.filter((p) => beVer[p]).length;
-  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard, feMarker, beMarker, mode);
+  const clientVersion = version && version.trim() ? version.trim() : '';
+  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard, feMarker, beMarker, mode, clientVersion);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
+  const verLabel = clientVersion && clientVersion.toUpperCase() !== 'BASE' ? clientVersion : '';
 
   return (
     <div className="panel">
@@ -92,10 +96,10 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="sub" style={{ marginTop: 8 }}>
         {mode === 'all'
-          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events (<code>_raw</code>) — same as a raw output log.</>
+          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events{verLabel ? <> on release <b>{verLabel}</b></> : null} (<code>_raw</code>) — same as a raw output log.</>
           : <>Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_raw</code>) for <b>{fe.length}</b> front-end
             + <b>{be.length}</b> backend path(s){versioned > 0 ? <> — each backend is filtered to its traced <b>service version</b> ({versioned} of {be.length} known)</> : null}.
-            Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends (by hosturl) to <code>{beMarker}</code>.</>}
+            Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends (by hosturl) to <code>{beMarker}</code>.{verLabel ? <> Only release <b>{verLabel}</b> lines are fetched.</> : null}</>}
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

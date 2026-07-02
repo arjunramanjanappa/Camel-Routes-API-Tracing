@@ -74,7 +74,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         {mode === 'scoped' && <>
           <div><label>Front-end field <span className="muted">(blank = raw)</span></label><input value={feField} placeholder="search _raw" onChange={(e) => set('splFeField', e.target.value, setFeField)} /></div>
           <div><label>Backend field <span className="muted">(blank = raw)</span></label><input value={beField} placeholder="search _raw" onChange={(e) => set('splBeField', e.target.value, setBeField)} /></div>
-          <div><label>Service version field</label><input value={svcField} onChange={(e) => set('splSvcField', e.target.value, setSvcField)} /></div>
+          <div><label>Service version field <span className="muted">(blank = skip)</span></label><input value={svcField} placeholder="serviceVersionNumber" onChange={(e) => set('splSvcField', e.target.value, setSvcField)} /></div>
         </>}
       </div>
 

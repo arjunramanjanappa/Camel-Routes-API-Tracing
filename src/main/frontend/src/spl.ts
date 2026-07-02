@@ -86,9 +86,14 @@ export function buildEventsSpl(
     // With an extracted backend field, also filter to the traced service version(s); in
     // raw mode the svc lives in _raw and the analyser validates it after upload, so skip it.
     const clauses = be.map((t) => {
-      const ver = beVersions[t];
-      if (!ver || !(beField && beField.trim())) return term(beField, t);
-      const vers = ver.split(' / ').map((v) => `${svcField}="${v.trim()}"`);
+      const bev = beVersions[t];
+      const svc = svcField && svcField.trim();
+      // Only add the service-version filter with an extracted backend field AND a non-empty
+      // service-version field name — otherwise `${svcField}="…"` would emit a bare `="…"`
+      // ("Comparator '=' has an invalid term on left hand side"). In raw mode the svc lives
+      // in _raw and the analyser validates it after upload, so it's skipped there anyway.
+      if (!bev || !(beField && beField.trim()) || !svc) return term(beField, t);
+      const vers = bev.split(' / ').map((x) => `${svc}="${x.trim()}"`);
       const verClause = vers.length > 1 ? '(' + vers.join(' OR ') + ')' : vers[0];
       return `(${term(beField, t)} ${verClause})`;
     });

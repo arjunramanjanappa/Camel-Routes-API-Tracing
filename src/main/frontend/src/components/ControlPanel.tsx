@@ -37,12 +37,12 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
       <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
       <div className="sub">Scope to one bootstrap (e.g. SG, MY) via its imports / routeContextRef.</div>
 
-      <label>Source directory</label>
-      <input value={params.sourceDir || ''} placeholder="defaults to server config"
+      <label>Source directory <span style={{ color: '#dc2626' }}>*</span></label>
+      <input value={params.sourceDir || ''} placeholder="path to the framework source"
              onChange={(e) => onChange({ sourceDir: e.target.value })} />
 
-      <button className="trace" disabled={loading || !(params.country || '').trim()} onClick={onTrace}
-              title={!(params.country || '').trim() ? 'Enter a country first' : ''}>
+      <button className="trace" disabled={loading || !(params.country || '').trim() || !(params.sourceDir || '').trim()} onClick={onTrace}
+              title={!(params.sourceDir || '').trim() ? 'Enter a source directory' : !(params.country || '').trim() ? 'Enter a country first' : ''}>
         {loading ? 'Scanning…' : 'Trace'}
       </button>
     </div>

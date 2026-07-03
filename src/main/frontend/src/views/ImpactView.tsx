@@ -161,8 +161,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     <div className="impact">
       <div className="context-bar">
         <div>
-          <label>Source directory</label>
-          <input value={sourceDir} placeholder="defaults to server config" onChange={(e) => setSourceDir(e.target.value)} />
+          <label>Source directory <span style={{ color: '#dc2626' }}>*</span></label>
+          <input value={sourceDir} placeholder="path to the framework source" onChange={(e) => setSourceDir(e.target.value)} />
         </div>
         <div style={{ width: 160 }}>
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
@@ -173,8 +173,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           <input value={version} placeholder="9.4" onChange={(e) => setVersion(e.target.value)} />
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-                disabled={loading || !country.trim()} onClick={load}
-                title={!country.trim() ? 'Select a country first' : ''}>
+                disabled={loading || !country.trim() || !sourceDir.trim()} onClick={load}
+                title={!sourceDir.trim() ? 'Enter a source directory' : !country.trim() ? 'Select a country first' : ''}>
           {loading ? 'Loading…' : 'Load'}
         </button>
       </div>

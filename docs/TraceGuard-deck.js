@@ -110,7 +110,7 @@ s.addNotes("Every release forces the same four questions, and today the answers 
 s = pres.addSlide();
 s.background = { color: WHITE };
 s.addText("One tool, from source to sign-off", { x: M, y: 0.5, w: W - 2 * M, h: 0.7, fontSize: 32, bold: true, color: INK, fontFace: HEAD, margin: 0 });
-s.addText("Point TraceGuard at your framework source — no running system. It reads the Camel routes and controllers, resolves versions, and correlates your logs.",
+s.addText("Point TraceGuard at your framework source — a local checkout or a Bitbucket branch / tag, no running system. It reads the Camel routes and controllers, resolves versions, and correlates your logs.",
   { x: M, y: 1.28, w: W - 2 * M, h: 0.6, fontSize: 15, color: SLATE, fontFace: BODY, margin: 0 });
 const steps = [
   [BLUE, "1", "Release Scope", "See what a release touches — every impacted API and its full traced flow."],
@@ -126,9 +126,9 @@ steps.forEach((st, i) => {
   s.addText(st[3], { x: x + 0.35, y: sy + 2.05, w: sw - 0.7, h: 0.95, align: "center", fontSize: 13, color: SLATE, fontFace: BODY, valign: "top", margin: 0 });
   if (i < 2) s.addText("→", { x: x + sw, y: sy, w: 0.55, h: sh, align: "center", valign: "middle", fontSize: 24, color: st[0], margin: 0 });
 });
-s.addText("Two applications — Mighty & SPL — traced and analysed separately from one entry point.",
-  { x: M, y: 6.1, w: W - 2 * M, h: 0.5, align: "center", fontSize: 13.5, italic: true, color: SLATE, fontFace: BODY, margin: 0 });
-s.addNotes("The three tabs are a workflow, not a menu: Scope then Test then Impact. It serves two apps that differ only in their log markers.");
+s.addText("Two applications (Mighty & SPL) from one entry point  ·  analyse a local path or a Bitbucket branch — nothing for the release team to install.",
+  { x: M, y: 6.1, w: W - 2 * M, h: 0.5, align: "center", fontSize: 13, italic: true, color: SLATE, fontFace: BODY, margin: 0 });
+s.addNotes("The three tabs are a workflow, not a menu: Scope then Test then Impact. Source can be a local checkout or a Bitbucket branch/tag (the server clones it — no git/helm on the user's machine). It serves two apps that differ only in their log markers.");
 
 /* ---------------- Slide 4 — Release Scope ---------------- */
 s = pres.addSlide();

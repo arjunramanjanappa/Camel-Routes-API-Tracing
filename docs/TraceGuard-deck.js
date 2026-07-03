@@ -126,9 +126,9 @@ steps.forEach((st, i) => {
   s.addText(st[3], { x: x + 0.35, y: sy + 2.05, w: sw - 0.7, h: 0.95, align: "center", fontSize: 13, color: SLATE, fontFace: BODY, valign: "top", margin: 0 });
   if (i < 2) s.addText("→", { x: x + sw, y: sy, w: 0.55, h: sh, align: "center", valign: "middle", fontSize: 24, color: st[0], margin: 0 });
 });
-s.addText("Two applications (Mighty & SPL) from one entry point  ·  analyse a local path or a Bitbucket branch — nothing for the release team to install.",
+s.addText("Two applications (Mighty & SPL) from one entry point  ·  analyse a local path or a Bitbucket branch — nothing to install locally.",
   { x: M, y: 6.1, w: W - 2 * M, h: 0.5, align: "center", fontSize: 13, italic: true, color: SLATE, fontFace: BODY, margin: 0 });
-s.addNotes("The three tabs are a workflow, not a menu: Scope then Test then Impact. Source can be a local checkout or a Bitbucket branch/tag (the server clones it — no git/helm on the user's machine). It serves two apps that differ only in their log markers.");
+s.addNotes("The three tabs are a workflow, not a menu: Scope then Test then Impact. Source can be a local checkout or a Bitbucket branch/tag (the server clones it — no git/helm needed locally). It serves two apps that differ only in their log markers.");
 
 /* ---------------- Slide 4 — Release Scope ---------------- */
 s = pres.addSlide();

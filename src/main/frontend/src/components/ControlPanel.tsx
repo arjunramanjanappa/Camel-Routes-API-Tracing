@@ -1,4 +1,5 @@
 import type { Meta, TraceParams } from '../types';
+import SourceFields, { sourceValid, type SourceState } from './SourceFields';
 
 interface Props {
   params: TraceParams;
@@ -11,6 +12,10 @@ interface Props {
 
 export default function ControlPanel({ params, meta, loading, onChange, onTrace, onCatalogAll }: Props) {
   const single = !!(params.api && params.api.trim());
+  const src: SourceState = {
+    sourceType: params.sourceType || 'local',
+    sourceDir: params.sourceDir || '', repo: params.repo || '', branch: params.branch || '',
+  };
   return (
     <div className="controls">
       <div className="row between">
@@ -37,12 +42,10 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
       <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
       <div className="sub">Scope to one bootstrap (e.g. SG, MY) via its imports / routeContextRef.</div>
 
-      <label>Source directory <span style={{ color: '#dc2626' }}>*</span></label>
-      <input value={params.sourceDir || ''} placeholder="path to the framework source"
-             onChange={(e) => onChange({ sourceDir: e.target.value })} />
+      <SourceFields value={src} onChange={onChange} />
 
-      <button className="trace" disabled={loading || !(params.country || '').trim() || !(params.sourceDir || '').trim()} onClick={onTrace}
-              title={!(params.sourceDir || '').trim() ? 'Enter a source directory' : !(params.country || '').trim() ? 'Enter a country first' : ''}>
+      <button className="trace" disabled={loading || !(params.country || '').trim() || !sourceValid(src)} onClick={onTrace}
+              title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !(params.country || '').trim() ? 'Enter a country first' : ''}>
         {loading ? 'Scanning…' : 'Trace'}
       </button>
     </div>

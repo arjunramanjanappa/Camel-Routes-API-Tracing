@@ -135,6 +135,8 @@ interface Props {
   version?: string;
   country?: string;
   sourceDir?: string;
+  repo?: string;
+  branch?: string;
   app?: string;
   selectedApis?: string[];
   selectedBackends?: string[];
@@ -147,7 +149,7 @@ interface Props {
  * front-end APIs are read from front-end log lines, selected backends from backend
  * log lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, app, selectedApis = [], selectedBackends = [], onReport }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
   const [limitToSelection, setLimitToSelection] = useState(true);
@@ -179,7 +181,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
       // Unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
       const all = !hasSelection || !limitToSelection;
       const rep = await analyzeLog(file, {
-        version, country, sourceDir, all, app,
+        version, country, sourceDir, repo, branch, all, app,
         apis: all ? undefined : selectedApis,
         backends: all ? undefined : selectedBackends,
       });

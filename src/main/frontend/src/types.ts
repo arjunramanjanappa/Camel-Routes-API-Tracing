@@ -87,12 +87,17 @@ export interface ImpactIndex {
   warnings: string[];
 }
 
+export type SourceType = 'local' | 'bitbucket';
+
 export interface TraceParams {
   api?: string;
   version?: string;
   transferType?: string;
   country?: string;
   sourceDir?: string;
+  sourceType?: SourceType;
+  repo?: string;
+  branch?: string;
 }
 
 // --- release diff (version comparison) ---

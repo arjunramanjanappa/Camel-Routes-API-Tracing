@@ -16,6 +16,15 @@ spring:
 tracer:
   source-dir: ${TRACER_SOURCE_DIR:}
 
+# Bitbucket source mode: when a tab is set to "Bitbucket branch", the server clones the
+# given HTTPS repo + branch (via JGit) into a cache dir and analyses that. Put your
+# internal Bitbucket HTTP access token here (read scope). Leave BLANK in the repo —
+# DO NOT commit a real token. (Later this can move to an env var, e.g. ${BITBUCKET_TOKEN:}.)
+bitbucket:
+  token:
+  # Where cloned repos are cached on the server. Blank = <java.io.tmpdir>/traceguard-repos.
+  work-dir:
+
 logging:
   level:
     com.arjun.tracer: INFO

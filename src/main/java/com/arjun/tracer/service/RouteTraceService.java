@@ -84,9 +84,18 @@ public class RouteTraceService {
     // log-analysis reusing the index), rebuilding only when the tree actually changed on disk.
     private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final GitBlameService gitBlame = new GitBlameService();
+    // Resolves a "Bitbucket branch" source to a local checkout; unused in local-path mode.
+    private final SourceResolver sourceResolver;
 
-    public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public RouteTraceService(@Value("${tracer.source-dir:}") String defaultSourceDir, SourceResolver sourceResolver) {
         this.defaultSourceDir = defaultSourceDir;
+        this.sourceResolver = sourceResolver;
+    }
+
+    /** Local-only constructor (tests / direct use) — Bitbucket source not configured. */
+    public RouteTraceService(String defaultSourceDir) {
+        this(defaultSourceDir, new SourceResolver(""));
     }
 
     /** The scan for a root, computed once and reused (see {@link #scanCache}). */
@@ -658,6 +667,11 @@ public class RouteTraceService {
     }
 
     private Path resolveRoot(TraceRequest request) {
+        // Bitbucket-branch mode: clone/fetch the repo at the branch and analyse that checkout.
+        if (request.repo() != null && !request.repo().isBlank()) {
+            return sourceResolver.resolve(request.repo(), request.branch());
+        }
+        // Local-path mode (unchanged).
         String sourceDir = (request.sourceDir() != null && !request.sourceDir().isBlank())
                 ? request.sourceDir().trim()
                 : defaultSourceDir;

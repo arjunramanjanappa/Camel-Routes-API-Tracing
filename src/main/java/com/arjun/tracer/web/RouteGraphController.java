@@ -46,8 +46,10 @@ public class RouteGraphController {
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String transferType,
             @RequestParam(required = false) String sourceDir,
-            @RequestParam(required = false) String country) {
-        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country));
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String branch) {
+        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country, repo, branch));
     }
 
     @PostMapping("/internal/route-graph")
@@ -57,17 +59,22 @@ public class RouteGraphController {
 
     /** Bootstrap scopes (countries) discovered in the source tree — for the UI dropdown. */
     @GetMapping("/internal/countries")
-    public Map<String, Object> countries(@RequestParam(required = false) String sourceDir) {
+    public Map<String, Object> countries(
+            @RequestParam(required = false) String sourceDir,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String branch) {
         return Map.of("countries", service.listCountries(
-                new TraceRequest(null, null, null, sourceDir, null)));
+                new TraceRequest(null, null, null, sourceDir, null, repo, branch)));
     }
 
     /** Discovery metadata for the UI: countries, versions and transferType values. */
     @GetMapping("/internal/meta")
     public Map<String, Object> meta(
             @RequestParam(required = false) String sourceDir,
-            @RequestParam(required = false) String country) {
-        return service.meta(new TraceRequest(null, null, null, sourceDir, country));
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String branch) {
+        return service.meta(new TraceRequest(null, null, null, sourceDir, country, repo, branch));
     }
 
     /** Impact catalog: every API's routes/backends/hosts at a client version, for impact analysis. */
@@ -76,8 +83,10 @@ public class RouteGraphController {
             @RequestParam(required = false) String sourceDir,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String version,
-            @RequestParam(required = false) String transferType) {
-        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country));
+            @RequestParam(required = false) String transferType,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String branch) {
+        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country, repo, branch));
     }
 
     /**
@@ -89,8 +98,10 @@ public class RouteGraphController {
     public com.arjun.tracer.api.VersionDiffReport versionDiff(
             @RequestParam(required = false) String sourceDir,
             @RequestParam(required = false) String country,
-            @RequestParam(required = false) String version) {
-        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country));
+            @RequestParam(required = false) String version,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String branch) {
+        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch));
     }
 
     /**
@@ -108,10 +119,12 @@ public class RouteGraphController {
             @RequestParam(required = false) List<String> apis,
             @RequestParam(required = false) List<String> backends,
             @RequestParam(required = false, defaultValue = "false") boolean all,
-            @RequestParam(required = false) String app) throws IOException {
+            @RequestParam(required = false) String app,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String branch) throws IOException {
         try (InputStream in = file.getInputStream()) {
             return logService.analyze(in, file.getOriginalFilename(), version, country, sourceDir,
-                    apis, backends, all, app);
+                    apis, backends, all, app, repo, branch);
         }
     }
 

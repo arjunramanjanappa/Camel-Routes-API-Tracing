@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { fetchVersionDiff } from '../api';
-import type { ApiDiff, DiffStatus, RouteStepDiff, VersionDiffReport } from '../types';
+import type { ApiDiff, DiffStatus, RouteStepDiff, SourceType, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
+import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
@@ -178,8 +179,18 @@ const GROUP_LABEL: Record<DiffStatus, string> = { CHANGED: 'Changed', NEW: 'New'
 
 export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
+  const [sourceType, setSourceType] = useState<SourceType>((localStorage.getItem(appKey(app, 'sourceType')) as SourceType) || 'local');
+  const [repo, setRepo] = useState(() => localStorage.getItem(appKey(app, 'repo')) ?? '');
+  const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('');
+  const src: SourceState = { sourceType, sourceDir, repo, branch };
+  const onSrc = (p: Partial<SourceState>) => {
+    if (p.sourceType !== undefined) setSourceType(p.sourceType);
+    if (p.sourceDir !== undefined) setSourceDir(p.sourceDir);
+    if (p.repo !== undefined) setRepo(p.repo);
+    if (p.branch !== undefined) setBranch(p.branch);
+  };
   const [report, setReport] = useState<VersionDiffReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,10 +203,14 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
 
   const load = async () => {
     localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
+    localStorage.setItem(appKey(app, 'sourceType'), sourceType);
+    localStorage.setItem(appKey(app, 'repo'), repo);
+    localStorage.setItem(appKey(app, 'branch'), branch);
     localStorage.setItem(appKey(app, 'country'), country);
     setLoading(true); setError(null);
     try {
-      const data = await fetchVersionDiff(sourceDir, country, version);
+      const sp = sourceParams(src);
+      const data = await fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch);
       setReport(data);
       setExpanded(new Set());
       setQuery('');
@@ -269,10 +284,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   return (
     <div className="impact">
       <div className="context-bar">
-        <div>
-          <label>Source directory <span style={{ color: '#dc2626' }}>*</span></label>
-          <input value={sourceDir} placeholder="path to the framework source" onChange={(e) => setSourceDir(e.target.value)} />
-        </div>
+        <SourceFields value={src} onChange={onSrc} bar />
         <div style={{ width: 160 }}>
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
           <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
@@ -280,11 +292,11 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         <div style={{ width: 140 }}>
           <label>Target version <span style={{ color: '#dc2626' }}>*</span></label>
           <input value={version} placeholder="9.18" onChange={(e) => setVersion(e.target.value)}
-                 onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && sourceDir.trim() && version.trim()) load(); }} />
+                 onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && sourceValid(src) && version.trim()) load(); }} />
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-                disabled={loading || !country.trim() || !sourceDir.trim() || !version.trim()} onClick={load}
-                title={!sourceDir.trim() ? 'Enter a source directory' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a target version' : ''}>
+                disabled={loading || !country.trim() || !sourceValid(src) || !version.trim()} onClick={load}
+                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a target version' : ''}>
           {loading ? 'Comparing…' : 'Compare'}
         </button>
       </div>
@@ -362,7 +374,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       )}
 
       {flowApi && (
-        <ApiFlowModal api={flowApi.api} version={flowApi.version} sourceDir={sourceDir} country={country}
+        <ApiFlowModal api={flowApi.api} version={flowApi.version} sourceDir={sourceParams(src).sourceDir}
+                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country}
                       colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>

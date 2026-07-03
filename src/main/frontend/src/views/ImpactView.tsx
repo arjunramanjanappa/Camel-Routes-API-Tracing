@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
-import type { ApiImpact, ImpactIndex } from '../types';
+import type { ApiImpact, ImpactIndex, SourceType } from '../types';
+import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
 import { backendPath } from '../spl';
 import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
@@ -17,8 +18,18 @@ function appKey(app: string | undefined, f: string) { return `tracer.${app || 'M
 
 export default function ImpactView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
   const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
+  const [sourceType, setSourceType] = useState<SourceType>((localStorage.getItem(appKey(app, 'sourceType')) as SourceType) || 'local');
+  const [repo, setRepo] = useState(() => localStorage.getItem(appKey(app, 'repo')) ?? '');
+  const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('');   // per-test: starts empty, never persisted
+  const src: SourceState = { sourceType, sourceDir, repo, branch };
+  const onSrc = (p: Partial<SourceState>) => {
+    if (p.sourceType !== undefined) setSourceType(p.sourceType);
+    if (p.sourceDir !== undefined) setSourceDir(p.sourceDir);
+    if (p.repo !== undefined) setRepo(p.repo);
+    if (p.branch !== undefined) setBranch(p.branch);
+  };
   const [idx, setIdx] = useState<ImpactIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,13 +43,17 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   const [analysed, setAnalysed] = useState(false);               // a log report has landed (drives the steps)
 
   const load = async () => {
-    // Remember this app's context (source dir + country + version).
+    // Remember this app's context (source + country).
     localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
+    localStorage.setItem(appKey(app, 'sourceType'), sourceType);
+    localStorage.setItem(appKey(app, 'repo'), repo);
+    localStorage.setItem(appKey(app, 'branch'), branch);
     localStorage.setItem(appKey(app, 'country'), country);
     localStorage.removeItem(appKey(app, 'version'));   // version is per-test, never persisted
     setLoading(true); setError(null);
     try {
-      const data = await fetchImpactIndex(sourceDir, country, version);
+      const sp = sourceParams(src);
+      const data = await fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch);
       setIdx(data);
       setManualRoutes(new Set());
       setManualBackends(new Set());
@@ -160,10 +175,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   return (
     <div className="impact">
       <div className="context-bar">
-        <div>
-          <label>Source directory <span style={{ color: '#dc2626' }}>*</span></label>
-          <input value={sourceDir} placeholder="path to the framework source" onChange={(e) => setSourceDir(e.target.value)} />
-        </div>
+        <SourceFields value={src} onChange={onSrc} bar />
         <div style={{ width: 160 }}>
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
           <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
@@ -173,8 +185,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           <input value={version} placeholder="9.4" onChange={(e) => setVersion(e.target.value)} />
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-                disabled={loading || !country.trim() || !sourceDir.trim()} onClick={load}
-                title={!sourceDir.trim() ? 'Enter a source directory' : !country.trim() ? 'Select a country first' : ''}>
+                disabled={loading || !country.trim() || !sourceValid(src)} onClick={load}
+                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Select a country first' : ''}>
           {loading ? 'Loading…' : 'Load'}
         </button>
       </div>
@@ -321,7 +333,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         </div>
 
         <div style={{ padding: '0 18px 18px' }}>
-          <LogAnalysisPanel version={version} country={country} sourceDir={sourceDir} app={app}
+          <LogAnalysisPanel version={version} country={country} sourceDir={sourceParams(src).sourceDir}
+                            repo={sourceParams(src).repo} branch={sourceParams(src).branch} app={app}
                             selectedApis={selectedApiList} selectedBackends={selectedBackendList}
                             onReport={setAnalysed} />
         </div>
@@ -329,7 +342,8 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
       )}
 
       {flowApi && (
-        <ApiFlowModal api={flowApi} version={version} sourceDir={sourceDir} country={country}
+        <ApiFlowModal api={flowApi} version={version} sourceDir={sourceParams(src).sourceDir}
+                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country}
                       colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>

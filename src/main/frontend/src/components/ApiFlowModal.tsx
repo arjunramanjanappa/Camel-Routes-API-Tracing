@@ -10,10 +10,12 @@ import Legend from './Legend';
  * React Flow graph as the Trace tab — so the Impact tab can stay a quick list with
  * the detailed flow one click away.
  */
-export default function ApiFlowModal({ api, version, sourceDir, country, colorMode, onClose }: {
+export default function ApiFlowModal({ api, version, sourceDir, repo, branch, country, colorMode, onClose }: {
   api: string;
   version?: string;
   sourceDir?: string;
+  repo?: string;
+  branch?: string;
   country?: string;
   colorMode: 'light' | 'dark';
   onClose: () => void;
@@ -28,12 +30,12 @@ export default function ApiFlowModal({ api, version, sourceDir, country, colorMo
     let alive = true;
     setLoading(true);
     setError(null);
-    analyze({ api, version, sourceDir, country })
+    analyze({ api, version, sourceDir, repo, branch, country })
       .then((d) => { if (alive) setData(d); })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [api, version, sourceDir, country]);
+  }, [api, version, sourceDir, repo, branch, country]);
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

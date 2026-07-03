@@ -3,6 +3,7 @@ import { analyze, fetchMeta } from '../api';
 import type { AnalyzeResponse, Meta, TraceParams } from '../types';
 import { derive, opNamesOf } from '../graphModel';
 import ControlPanel from '../components/ControlPanel';
+import { sourceParams } from '../components/SourceFields';
 import ResultPanels from '../components/ResultPanels';
 import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
@@ -13,17 +14,17 @@ import { exportApiTracePdf } from '../apiTracePdf';
 // Only the app CONTEXT (sourceDir + country) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
 // The "what" inputs (api/version/transferType) start EMPTY each load (per-test).
-const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country'];
+const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country', 'sourceType', 'repo', 'branch'];
 
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 
 function loadParams(app: string): TraceParams {
-  const p: TraceParams = {};
+  const p: Record<string, string> = {};
   PERSIST.forEach((f) => {
     const v = localStorage.getItem(appKey(app, f));
     if (v !== null) p[f] = v;
   });
-  return p;
+  return p as TraceParams;
 }
 
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
@@ -52,7 +53,9 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     setSelectedId(null);
     setSearch('');
     try {
-      const res = await analyze(p);
+      const res = await analyze({ ...p, ...sourceParams({
+        sourceType: p.sourceType || 'local', sourceDir: p.sourceDir || '', repo: p.repo || '', branch: p.branch || '',
+      }) });
       setData(res);
       if (res.availableCountries && res.availableCountries.length) {
         setMeta((m) => ({ ...m, countries: res.availableCountries }));

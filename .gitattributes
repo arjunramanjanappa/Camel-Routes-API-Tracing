@@ -1,0 +1,5 @@
+# Office documents are binary — never apply text/EOL conversion (would corrupt them).
+*.pptx binary
+*.docx binary
+*.xlsx binary
+*.pdf binary

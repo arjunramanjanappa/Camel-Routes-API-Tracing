@@ -165,14 +165,16 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           <input value={sourceDir} placeholder="defaults to server config" onChange={(e) => setSourceDir(e.target.value)} />
         </div>
         <div style={{ width: 160 }}>
-          <label>Country (optional)</label>
-          <input value={country} placeholder="e.g. SG" onChange={(e) => setCountry(e.target.value)} />
+          <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
+          <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
         </div>
         <div style={{ width: 140 }}>
           <label>Client version</label>
           <input value={version} placeholder="9.4" onChange={(e) => setVersion(e.target.value)} />
         </div>
-        <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }} disabled={loading} onClick={load}>
+        <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
+                disabled={loading || !country.trim()} onClick={load}
+                title={!country.trim() ? 'Select a country first' : ''}>
           {loading ? 'Loading…' : 'Load'}
         </button>
       </div>
@@ -186,7 +188,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
       {!loading && !idx && !error && (
         <div className="impact-empty">
           <div className="impact-empty-title">Ready when you are</div>
-          <div className="sub">Set the source directory (and optional country / client version) above, then click <b>Load</b> to scan the framework and list this release&rsquo;s APIs.</div>
+          <div className="sub">Set the source directory and <b>country</b> (and optional client version) above, then click <b>Load</b> to scan the framework and list this release&rsquo;s APIs.</div>
         </div>
       )}
 

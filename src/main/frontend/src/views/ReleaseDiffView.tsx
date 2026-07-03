@@ -274,15 +274,17 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
           <input value={sourceDir} placeholder="defaults to server config" onChange={(e) => setSourceDir(e.target.value)} />
         </div>
         <div style={{ width: 160 }}>
-          <label>Country (optional)</label>
-          <input value={country} placeholder="e.g. SG" onChange={(e) => setCountry(e.target.value)} />
+          <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
+          <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
         </div>
         <div style={{ width: 140 }}>
           <label>Target version</label>
           <input value={version} placeholder="9.18" onChange={(e) => setVersion(e.target.value)}
-                 onKeyDown={(e) => { if (e.key === 'Enter') load(); }} />
+                 onKeyDown={(e) => { if (e.key === 'Enter' && country.trim()) load(); }} />
         </div>
-        <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }} disabled={loading} onClick={load}>
+        <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
+                disabled={loading || !country.trim()} onClick={load}
+                title={!country.trim() ? 'Enter a country first' : ''}>
           {loading ? 'Comparing…' : 'Compare'}
         </button>
       </div>

@@ -85,7 +85,9 @@ function BackendRow({ b }: { b: BackendLogResult }) {
         {resultText}
       </td>
       <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
-      <td>{b.attempts > 0 ? `${b.attempts} (${b.successCount}✓/${b.failureCount}✗)` : '—'}</td>
+      <td>{b.attempts > 0 ? (
+        <>{b.attempts} (<span className="att-ok">{b.successCount}✓</span>/<span className="att-bad">{b.failureCount}✗</span>)</>
+      ) : '—'}</td>
       <td />
     </tr>
   );
@@ -108,7 +110,9 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           {resultText}
         </td>
         <td>{a.feLatencyMs != null ? a.feLatencyMs + ' ms' : '—'}</td>
-        <td>{a.attempts > 0 ? `${a.attempts} (${a.successCount}✓/${a.failureCount}✗)` : '—'}</td>
+        <td>{a.attempts > 0 ? (
+          <>{a.attempts} (<span className="att-ok">{a.successCount}✓</span>/<span className="att-bad">{a.failureCount}✗</span>)</>
+        ) : '—'}</td>
         <td>{a.backends.length > 0 && <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'backends'}</button>}</td>
       </tr>
       {isOpen && a.backends.map((b, i) => (
@@ -232,14 +236,17 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
     exportLogPdf(report, app, version).catch(() => {});
   };
 
-  // Front-end APIs and backends are shown one section at a time via the segmented switch.
-  // Both tabs always show (each with its count) so the split is always visible — an empty
-  // section just shows a "none in this analysis" row. The donut / filter / sort stay shared.
+  // Front-end APIs and backends are shown one section at a time. The segmented switch only
+  // appears when a report has a STANDALONE backend section (a backend-scoped analysis). In a
+  // front-end end-to-end run the backends are already listed inline under each API, so there
+  // is no separate "Backends 0" tab. The donut / filter / sort stay shared across sections.
   const hasFe = (report?.apis.length ?? 0) > 0;
   const hasBe = (report?.backends.length ?? 0) > 0;
-  const showFe = section === 'FE';
-  const shownCount = showFe ? shownApis.length : shownBackends.length;
-  const sectionTotal = showFe ? (report?.apis.length ?? 0) : (report?.backends.length ?? 0);
+  const both = hasFe && hasBe;
+  const showFe = hasFe && (!both || section === 'FE');
+  const showBe = hasBe && (!both || section === 'BE');
+  const shownCount = (showFe ? shownApis.length : 0) + (showBe ? shownBackends.length : 0);
+  const sectionTotal = (showFe ? (report?.apis.length ?? 0) : 0) + (showBe ? (report?.backends.length ?? 0) : 0);
 
   return (
     <div className="panel">
@@ -321,7 +328,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
 
           {report.warnings.map((w, i) => <div key={i} className="warn">{w}</div>)}
 
-          {(hasFe || hasBe) && (
+          {both && (
             <div className="seg" style={{ marginTop: 8 }}>
               <button className={section === 'FE' ? 'on' : ''} onClick={() => setSection('FE')}>Front-end APIs {report.apis.length}</button>
               <button className={section === 'BE' ? 'on' : ''} onClick={() => setSection('BE')}>Backends {report.backends.length}</button>
@@ -329,7 +336,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
           )}
 
           <div className="row between" style={{ marginTop: 8 }}>
-            <span className="muted">Showing {shownCount} of {sectionTotal} {showFe ? 'front-end API(s)' : 'backend(s)'}</span>
+            <span className="muted">Showing {shownCount} of {sectionTotal} {showBe && !showFe ? 'backend(s)' : 'front-end API(s)'}</span>
             <span className="row" style={{ gap: 8 }}>
               <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value as 'severity' | 'api')}>
                 <option value="severity">Sort: worst first</option>
@@ -350,15 +357,13 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
                   return <Row key={k} a={a} isOpen={open.has(k)} onToggle={() => toggle(k)} />;
                 })}
                 {shownApis.length === 0 && (
-                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>
-                    {hasFe ? 'No front-end APIs match this filter.' : 'No front-end APIs in this analysis — select an API, or upload a log with front-end lines.'}
-                  </td></tr>
+                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No front-end APIs match this filter.</td></tr>
                 )}
               </tbody>
             </table>
           )}
 
-          {!showFe && (
+          {showBe && (
             <table className="grid">
               <thead>
                 <tr><th>Status</th><th>Backend</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
@@ -366,9 +371,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, app, sel
               <tbody>
                 {shownBackends.map((b) => <BackendRow key={b.backend} b={b} />)}
                 {shownBackends.length === 0 && (
-                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>
-                    {hasBe ? 'No backends match this filter.' : 'No backends in this analysis — analyse the whole release (uncheck “Limit to my selection”) or include a backend in the selection.'}
-                  </td></tr>
+                  <tr><td colSpan={6} className="muted" style={{ padding: 10 }}>No backends match this filter.</td></tr>
                 )}
               </tbody>
             </table>

@@ -225,6 +225,10 @@ tr.lsub code { background: transparent; }
 .svcchip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; background: #e0e7ff; color: #3730a3; white-space: nowrap; }
 .svcchip.ok { background: #dcfce7; color: #166534; }
 .svcchip.bad { background: #fee2e2; color: #991b1b; }
+.att-ok { color: #16a34a; font-weight: 700; }
+.att-bad { color: #dc2626; font-weight: 700; }
+[data-theme="dark"] .att-ok { color: #4ade80; }
+[data-theme="dark"] .att-bad { color: #f87171; }
 
 /* ---- application picker (landing) ---- */
 .app-picker { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;

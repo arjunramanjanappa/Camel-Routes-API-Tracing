@@ -31,23 +31,20 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
              onChange={(e) => onChange({ version: e.target.value })} />
       <datalist id="versionList">{meta.versions.map((v) => <option key={v} value={v} />)}</datalist>
 
-      <label>Transfer type (optional)</label>
-      <input list="branchList" value={params.transferType || ''} placeholder="OWN / INTRA / INTER (blank = all)"
-             onChange={(e) => onChange({ transferType: e.target.value })} />
-      <datalist id="branchList">{meta.transferTypes.map((v) => <option key={v} value={v} />)}</datalist>
-
-      <label>Country</label>
-      <select value={params.country || ''} onChange={(e) => onChange({ country: e.target.value })}>
-        <option value="">(all countries)</option>
-        {meta.countries.map((c) => <option key={c} value={c}>{c}</option>)}
-      </select>
+      <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
+      <input list="countryList" value={params.country || ''} placeholder="SG / MY / ID / TH / VN"
+             onChange={(e) => onChange({ country: e.target.value })} />
+      <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
       <div className="sub">Scope to one bootstrap (e.g. SG, MY) via its imports / routeContextRef.</div>
 
       <label>Source directory</label>
       <input value={params.sourceDir || ''} placeholder="defaults to server config"
              onChange={(e) => onChange({ sourceDir: e.target.value })} />
 
-      <button className="trace" disabled={loading} onClick={onTrace}>{loading ? 'Scanning…' : 'Trace'}</button>
+      <button className="trace" disabled={loading || !(params.country || '').trim()} onClick={onTrace}
+              title={!(params.country || '').trim() ? 'Enter a country first' : ''}>
+        {loading ? 'Scanning…' : 'Trace'}
+      </button>
     </div>
   );
 }

@@ -47,6 +47,31 @@ class SourceResolverTest {
     }
 
     @Test
+    void reResolvingAnUnchangedBranchDoesNotRewriteTheWorkingTree(@TempDir Path tmp) throws Exception {
+        // A fetch that brings no new commits must NOT re-checkout (which would bump file mtimes and
+        // force the scan to rebuild every request) — the working tree, and its mtimes, stay stable.
+        Path remote = tmp.resolve("remote");
+        Files.createDirectories(remote);
+        try (Git git = Git.init().setDirectory(remote.toFile()).setInitialBranch("main").call()) {
+            Files.writeString(remote.resolve("common.txt"), "shared");
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("init").setAuthor("t", "t@t").setCommitter("t", "t@t").call();
+        }
+        String url = remote.toUri().toString();
+        SourceResolver resolver = new SourceResolver("", tmp.resolve("work").toString());
+
+        Path dir = resolver.resolve(url, "main");
+        Path file = dir.resolve("common.txt");
+        long mtime1 = Files.getLastModifiedTime(file).toMillis();
+
+        Thread.sleep(2100);   // past the 2s fetch throttle, so the next resolve really fetches
+        Path dir2 = resolver.resolve(url, "main");   // fetches, but the branch didn't move → no re-checkout
+
+        assertThat(dir2).isEqualTo(dir);
+        assertThat(Files.getLastModifiedTime(file).toMillis()).isEqualTo(mtime1);
+    }
+
+    @Test
     void aMissingBranchGivesAClearError(@TempDir Path tmp) throws Exception {
         Path remote = tmp.resolve("remote");
         Files.createDirectories(remote);

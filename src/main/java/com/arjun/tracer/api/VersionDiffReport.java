@@ -19,6 +19,8 @@ public class VersionDiffReport {
     private int unchangedCount;
     private final List<ApiDiff> apis = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
+    /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
+    private final List<String> needsReview = new ArrayList<>();
 
     public String getVersion() { return version; }
     public void setVersion(String version) { this.version = version; }
@@ -37,4 +39,5 @@ public class VersionDiffReport {
 
     public List<ApiDiff> getApis() { return apis; }
     public List<String> getWarnings() { return warnings; }
+    public List<String> getNeedsReview() { return needsReview; }
 }

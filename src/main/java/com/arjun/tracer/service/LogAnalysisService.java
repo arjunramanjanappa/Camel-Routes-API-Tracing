@@ -112,10 +112,20 @@ public class LogAnalysisService {
         return analyze(raw, filename, version, country, sourceDir, selectedApis, selectedBackends, all, app, null, null);
     }
 
+    /** Back-compat entry (Bitbucket source, no dependency roots). */
     public LogAnalysisReport analyze(InputStream raw, String filename, String version,
                                      String country, String sourceDir,
                                      List<String> selectedApis, List<String> selectedBackends, boolean all,
                                      String app, String repo, String branch)
+            throws IOException {
+        return analyze(raw, filename, version, country, sourceDir, selectedApis, selectedBackends, all, app,
+                repo, branch, List.of());
+    }
+
+    public LogAnalysisReport analyze(InputStream raw, String filename, String version,
+                                     String country, String sourceDir,
+                                     List<String> selectedApis, List<String> selectedBackends, boolean all,
+                                     String app, String repo, String branch, List<String> dependencies)
             throws IOException {
         InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
                 ? new GZIPInputStream(raw) : raw;
@@ -208,7 +218,8 @@ public class LogAnalysisService {
         }
 
         // Footprint (controller path + traced backends per API) for this release.
-        ImpactIndex idx = traceService.impactIndex(new TraceRequest(null, version, null, sourceDir, country, repo, branch));
+        ImpactIndex idx = traceService.impactIndex(
+                new TraceRequest(null, version, null, sourceDir, country, repo, branch, dependencies));
         boolean apiSel = selectedApis != null && !selectedApis.isEmpty();
         boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
 

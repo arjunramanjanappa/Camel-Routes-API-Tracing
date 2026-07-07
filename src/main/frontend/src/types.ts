@@ -33,6 +33,8 @@ export interface TraceResponse {
   flow: string[];
   backendApis: string[];
   warnings: string[];
+  /** Imports/routes that couldn't be resolved even after dependencies were added — needs a human. */
+  needsReview?: string[];
   graph: RouteGraph;
 }
 
@@ -51,6 +53,7 @@ export interface CatalogResponse {
   versionsFound: string[];
   groups: VersionGroup[];
   warnings: string[];
+  needsReview?: string[];
   graph: RouteGraph;
 }
 
@@ -85,9 +88,18 @@ export interface ImpactIndex {
   allHosts: string[];
   routeBackends?: Record<string, string[]>;
   warnings: string[];
+  needsReview?: string[];
 }
 
 export type SourceType = 'local' | 'bitbucket';
+
+/** An optional extra source root that supplies XMLs the primary source imports but doesn't contain. */
+export interface DepSource {
+  sourceType: SourceType;
+  sourceDir: string;
+  repo: string;
+  branch: string;
+}
 
 export interface TraceParams {
   api?: string;
@@ -98,6 +110,8 @@ export interface TraceParams {
   sourceType?: SourceType;
   repo?: string;
   branch?: string;
+  /** Encoded dependency sources: `local:<path>` or `bit:<repo>|<branch>`. */
+  dep?: string[];
 }
 
 // --- release diff (version comparison) ---
@@ -150,6 +164,7 @@ export interface VersionDiffReport {
   unchangedCount: number;
   apis: ApiDiff[];
   warnings: string[];
+  needsReview?: string[];
 }
 
 // --- log / Splunk correlation ---

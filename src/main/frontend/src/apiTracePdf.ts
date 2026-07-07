@@ -54,6 +54,7 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
   const footer = `TraceGuard - Release scope ${verLabel}${app ? ' - ' + app : ''}`;
   if (impacted === 0 && noRoute === 0) {
     r.emptyNote('No APIs resolve to this release in the current scope.');
+    r.reviewSection(cat.needsReview);
     r.save(file(ver), footer);
     return;
   }
@@ -70,6 +71,7 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
     r.para(names.join(', '), M, CONTENT_W, 'normal', 9, PAL.muted, 12);
   }
 
+  r.reviewSection(cat.needsReview);
   r.save(file(ver), footer);
 }
 

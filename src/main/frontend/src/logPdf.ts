@@ -29,7 +29,7 @@ function svcText(b: { expectedServiceVersion?: string | null; loggedServiceVersi
 }
 
 /** Render the log/Splunk verification to a downloadable PDF report. */
-export async function exportLogPdf(report: LogAnalysisReport, app?: string, version?: string) {
+export async function exportLogPdf(report: LogAnalysisReport, app?: string, version?: string, needsReview?: string[]) {
   const r = await ReportDoc.create();
   const ver = version || report.clientVersion || 'BASE';
 
@@ -63,7 +63,7 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
   ]);
 
   const footer = `TraceGuard - Verification ${ver}${app ? ' - ' + app : ''}`;
-  if (total === 0 && report.backends.length === 0) { r.emptyNote('No APIs or backends were correlated from the logs.'); r.save(file(ver), footer); return; }
+  if (total === 0 && report.backends.length === 0) { r.emptyNote('No APIs or backends were correlated from the logs.'); r.reviewSection(needsReview); r.save(file(ver), footer); return; }
 
   for (const status of ORDER) {
     const list = report.apis.filter((a) => a.status === status).sort((a, b) => a.api.localeCompare(b.api));
@@ -78,6 +78,7 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
     sorted.forEach((b, i) => { if (i > 0) r.separator(); backendEntry(r, b); });
   }
 
+  r.reviewSection(needsReview);
   r.save(file(ver), footer);
 }
 

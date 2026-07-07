@@ -37,7 +37,7 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
   ]);
 
   const footer = `TraceGuard - Release impact ${report.version || 'BASE'}${app ? ' - ' + app : ''}`;
-  if (apis.length === 0) { r.emptyNote('No APIs in the current view.'); r.save(fileName(report), footer); return; }
+  if (apis.length === 0) { r.emptyNote('No APIs in the current view.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
 
   const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
   apis.forEach((a) => grouped[a.status].push(a));
@@ -50,6 +50,7 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
     list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
   }
 
+  r.reviewSection(report.needsReview);
   r.save(fileName(report), footer);
 }
 

@@ -19,6 +19,7 @@ export interface ImpactPdfInput {
   changedBackends: string[];
   rows: ImpactRow[];
   backendVersions: Record<string, string>;
+  needsReview?: string[];
 }
 
 /** Render the Release Impact analysis to a downloadable PDF report. */
@@ -59,7 +60,7 @@ export async function exportImpactPdf(input: ImpactPdfInput) {
   ]);
 
   const footer = `TraceGuard - Release test ${ver}${input.app ? ' - ' + input.app : ''}`;
-  if (input.rows.length === 0) { r.emptyNote('No APIs are impacted by the current selection.'); r.save(file(ver), footer); return; }
+  if (input.rows.length === 0) { r.emptyNote('No APIs are impacted by the current selection.'); r.reviewSection(input.needsReview); r.save(file(ver), footer); return; }
 
   if (selected.length) {
     r.section('Directly selected APIs', selected.length, PAL.blue, 'The APIs you selected as the change to assess.');
@@ -71,6 +72,7 @@ export async function exportImpactPdf(input: ImpactPdfInput) {
     blast.forEach((row, i) => { if (i > 0) r.separator(); apiRow(r, row, input.backendVersions); });
   }
 
+  r.reviewSection(input.needsReview);
   r.save(file(ver), footer);
 }
 

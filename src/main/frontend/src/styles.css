@@ -543,3 +543,42 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .rdiff-body { background: #0b1220; }
 [data-theme="dark"] .rdiff-body .dl.add { background: #052e16; color: #86efac; }
 [data-theme="dark"] .rdiff-body .dl.del { background: #2a1416; color: #fca5a5; }
+
+/* --- dependency sources (optional extra roots that supply imported XMLs) --- */
+.dep-zone { padding: 8px 18px 0; }
+.sidebar .dep-zone { padding: 10px 0 0; }
+.dep-toggle { font-size: 12px; }
+.dep-editor { margin-top: 8px; border: 1px dashed #cbd2d9; border-radius: 8px; padding: 10px 12px; background: #fbfcfe; }
+.dep-editor-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.dep-editor-title { font-size: 12px; font-weight: 700; color: #52606d; }
+.dep-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.dep-seg { flex: 0 0 auto; }
+.dep-seg button { padding: 6px 10px; font-size: 11px; }
+.dep-input { flex: 1; min-width: 200px; width: auto; padding: 7px 10px; font-size: 12px; }
+.dep-input.dep-branch { flex: 0 0 140px; min-width: 120px; }
+.dep-remove { flex: 0 0 auto; border: 1px solid #cbd2d9; background: #fff; color: #9aa5b1; border-radius: 6px;
+  width: 28px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; }
+.dep-remove:hover { color: #dc2626; border-color: #fca5a5; }
+.dep-add { border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent);
+  border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.dep-add:hover { background: var(--accent); color: #fff; }
+
+/* --- "Needs review": unresolved imports/routes that still need a human --- */
+.reviewbox { border: 1px solid #fca5a5; background: #fef2f2; border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+.reviewbox-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.reviewbox-title { font-size: 13px; font-weight: 700; color: #991b1b; }
+.reviewbox-add { border: 1px solid #ef4444; background: #fff; color: #b91c1c; border-radius: 6px;
+  padding: 5px 11px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.reviewbox-add:hover { background: #ef4444; color: #fff; }
+.reviewbox-sub { font-size: 11px; color: #b45252; margin: 6px 0 4px; }
+.reviewbox-list { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: #7f1d1d; }
+.reviewbox-list li { margin: 2px 0; word-break: break-word; }
+
+[data-theme="dark"] .dep-editor { border-color: #334155; background: #0f172a; }
+[data-theme="dark"] .dep-editor-title { color: #cbd5e1; }
+[data-theme="dark"] .dep-remove { background: #1e293b; border-color: #334155; }
+[data-theme="dark"] .reviewbox { background: #2a1416; border-color: #7f1d1d; }
+[data-theme="dark"] .reviewbox-title { color: #fca5a5; }
+[data-theme="dark"] .reviewbox-add { background: #1e293b; border-color: #b91c1c; color: #fca5a5; }
+[data-theme="dark"] .reviewbox-sub { color: #f0a0a0; }
+[data-theme="dark"] .reviewbox-list { color: #fecaca; }

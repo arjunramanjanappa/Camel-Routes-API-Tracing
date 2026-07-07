@@ -140,6 +140,10 @@ interface Props {
   app?: string;
   selectedApis?: string[];
   selectedBackends?: string[];
+  /** Encoded dependency sources (see deps.ts) — threaded so the log analysis resolves the same routes. */
+  deps?: string[];
+  /** Unresolved imports/routes from the impact index — surfaced in the exported report. */
+  needsReview?: string[];
   onReport?: (hasReport: boolean) => void;
 }
 
@@ -149,7 +153,7 @@ interface Props {
  * front-end APIs are read from front-end log lines, selected backends from backend
  * log lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], onReport }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], deps = [], needsReview, onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
   const [limitToSelection, setLimitToSelection] = useState(true);
@@ -181,7 +185,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       // Unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
       const all = !hasSelection || !limitToSelection;
       const rep = await analyzeLog(file, {
-        version, country, sourceDir, repo, branch, all, app,
+        version, country, sourceDir, repo, branch, all, app, dep: deps,
         apis: all ? undefined : selectedApis,
         backends: all ? undefined : selectedBackends,
       });
@@ -235,7 +239,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
 
   const exportPdf = () => {
     if (!report) return;
-    exportLogPdf(report, app, version).catch(() => {});
+    exportLogPdf(report, app, version, needsReview).catch(() => {});
   };
 
   // Front-end APIs and backends are shown one section at a time. The segmented switch only

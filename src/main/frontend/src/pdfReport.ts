@@ -152,6 +152,22 @@ export class ReportDoc {
 
   emptyNote(s: string) { this.rule(); this.text(s, M, 'normal', 11, PAL.muted); }
 
+  /**
+   * A "Needs review" section listing imports/routes that could not be resolved from the
+   * source or the supplied dependencies — so the reader knows the analysis above may be
+   * incomplete. No-op when there is nothing to review.
+   */
+  reviewSection(items: string[] | undefined) {
+    const list = items || [];
+    if (!list.length) return;
+    this.section('Needs review - unresolved references', list.length, PAL.amber,
+      'These <import> / route references could not be resolved from the source or the dependencies '
+      + 'provided, so the analysis above may be incomplete. Add the dependency source that defines '
+      + 'them and re-run to close these out.');
+    list.forEach((it) => this.para('-  ' + it, M, CONTENT_W, 'normal', 9, PAL.body, 12));
+    this.y += 4;
+  }
+
   /** Add a footer (identity + page x of y) to every page, then download. */
   save(filename: string, footerLeft: string) {
     const total = this.doc.getNumberOfPages();

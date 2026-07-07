@@ -40,6 +40,12 @@ public class TraceResponse {
     private final java.util.Set<String> templateUris = new java.util.LinkedHashSet<>();
     /** Non-fatal notes: loader fallbacks, unresolved direct: targets, etc. */
     private final List<String> warnings = new ArrayList<>();
+    /**
+     * The subset of warnings that leaves the analysis incomplete and needs a human to
+     * review — imports/routes that could not be resolved even after any dependency
+     * sources were added. Highlighted in the UI and called out as its own report section.
+     */
+    private final List<String> needsReview = new ArrayList<>();
 
     private RouteGraph graph;
 
@@ -84,6 +90,7 @@ public class TraceResponse {
     public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public java.util.Set<String> getTemplateUris() { return templateUris; }
     public List<String> getWarnings() { return warnings; }
+    public List<String> getNeedsReview() { return needsReview; }
 
     public RouteGraph getGraph() { return graph; }
     public void setGraph(RouteGraph graph) { this.graph = graph; }

@@ -19,6 +19,8 @@ public class CatalogResponse {
     private final List<String> versionsFound = new ArrayList<>();
     private final List<VersionGroup> groups = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
+    /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
+    private final List<String> needsReview = new ArrayList<>();
 
     private RouteGraph graph;
 
@@ -42,6 +44,7 @@ public class CatalogResponse {
     public List<String> getVersionsFound() { return versionsFound; }
     public List<VersionGroup> getGroups() { return groups; }
     public List<String> getWarnings() { return warnings; }
+    public List<String> getNeedsReview() { return needsReview; }
 
     public RouteGraph getGraph() { return graph; }
     public void setGraph(RouteGraph graph) { this.graph = graph; }

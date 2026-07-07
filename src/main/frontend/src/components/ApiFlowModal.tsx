@@ -10,16 +10,18 @@ import Legend from './Legend';
  * React Flow graph as the Trace tab — so the Impact tab can stay a quick list with
  * the detailed flow one click away.
  */
-export default function ApiFlowModal({ api, version, sourceDir, repo, branch, country, colorMode, onClose }: {
+export default function ApiFlowModal({ api, version, sourceDir, repo, branch, country, deps, colorMode, onClose }: {
   api: string;
   version?: string;
   sourceDir?: string;
   repo?: string;
   branch?: string;
   country?: string;
+  deps?: string[];
   colorMode: 'light' | 'dark';
   onClose: () => void;
 }) {
+  const depKey = (deps || []).join('|');
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,12 +32,13 @@ export default function ApiFlowModal({ api, version, sourceDir, repo, branch, co
     let alive = true;
     setLoading(true);
     setError(null);
-    analyze({ api, version, sourceDir, repo, branch, country })
+    analyze({ api, version, sourceDir, repo, branch, country, dep: deps })
       .then((d) => { if (alive) setData(d); })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [api, version, sourceDir, repo, branch, country]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, version, sourceDir, repo, branch, country, depKey]);
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

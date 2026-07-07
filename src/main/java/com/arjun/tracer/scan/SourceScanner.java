@@ -34,11 +34,36 @@ public class SourceScanner {
     private final XmlDomRouteModelLoader domLoader = new XmlDomRouteModelLoader();
 
     public SourceIndex scan(Path root) {
+        return scan(root, List.of());
+    }
+
+    /**
+     * Scan the primary source root plus any dependency roots, merging them into one
+     * {@link SourceIndex}. Dependency roots provide route XMLs that the primary source
+     * {@code <import>}s but doesn't itself contain (routes packaged in a shared library);
+     * merging them means those imports resolve and the routes flow into the registry, trace
+     * and diff exactly as if they were in the primary tree. Each file keeps a path relative to
+     * its own root, so a {@code classpath:foo/bar.xml} import still suffix-matches a dependency
+     * file. Nothing is deduplicated across roots — a dependency is expected to be disjoint code.
+     */
+    public SourceIndex scan(Path primary, List<Path> deps) {
         OperationResolver operations = new OperationResolver();
         List<FileInfo> files = new ArrayList<>();
         List<Path> allFiles = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 
+        scanInto(primary, operations, files, allFiles, warnings, false);
+        for (Path dep : deps) {
+            if (dep != null) {
+                scanInto(dep, operations, files, allFiles, warnings, true);
+            }
+        }
+        return new SourceIndex(operations, files, allFiles, warnings);
+    }
+
+    /** Walk one root and add its controllers / route XMLs to the accumulating index state. */
+    private void scanInto(Path root, OperationResolver operations, List<FileInfo> files,
+                          List<Path> allFiles, List<String> warnings, boolean fromDependency) {
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !isUnderSkippedDir(root, p))
@@ -56,13 +81,12 @@ public class SourceScanner {
                             });
                         } else if (name.endsWith(".xml")) {
                             readQuietly(p).ifPresent(xml ->
-                                    files.add(toFileInfo(root, p, xml, warnings)));
+                                    files.add(toFileInfo(root, p, xml, warnings, fromDependency)));
                         }
                     });
         } catch (IOException e) {
             throw new IllegalStateException("Failed to scan source directory: " + root, e);
         }
-        return new SourceIndex(operations, files, allFiles, warnings);
     }
 
     /**
@@ -98,7 +122,7 @@ public class SourceScanner {
         return acc[0];
     }
 
-    private FileInfo toFileInfo(Path root, Path file, String xml, List<String> warnings) {
+    private FileInfo toFileInfo(Path root, Path file, String xml, List<String> warnings, boolean fromDependency) {
         String relPath = root.relativize(file).toString().replace('\\', '/');
         List<RouteModel> routes = loadRoutes(file.getFileName().toString(), xml, warnings);
         RouteXmlMetadata metadata = RouteXmlMetadata.parse(xml);
@@ -109,7 +133,7 @@ public class SourceScanner {
                     .map(r -> hostIds.contains(r.routeId()) ? r.asHost() : r)
                     .toList();
         }
-        return new FileInfo(relPath, routes, metadata);
+        return new FileInfo(relPath, routes, metadata, fromDependency);
     }
 
     /** Hybrid load: prefer the Camel RouteDefinition loader, fall back to DOM. */

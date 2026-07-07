@@ -1,9 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { analyze, fetchMeta } from '../api';
-import type { AnalyzeResponse, Meta, TraceParams } from '../types';
+import type { AnalyzeResponse, DepSource, Meta, TraceParams } from '../types';
 import { derive, opNamesOf } from '../graphModel';
 import ControlPanel from '../components/ControlPanel';
 import { sourceParams } from '../components/SourceFields';
+import DependencyEditor from '../components/DependencyEditor';
+import NeedsReviewBox from '../components/NeedsReviewBox';
+import { depParams, loadDeps, saveDeps, blankDep } from '../deps';
 import ResultPanels from '../components/ResultPanels';
 import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
@@ -14,7 +17,7 @@ import { exportApiTracePdf } from '../apiTracePdf';
 // Only the app CONTEXT (sourceDir + country) is remembered per application — Mighty
 // and SPL are separate codebases — so switching apps restores that app's settings.
 // The "what" inputs (api/version/transferType) start EMPTY each load (per-test).
-const PERSIST: (keyof TraceParams)[] = ['sourceDir', 'country', 'sourceType', 'repo', 'branch'];
+const PERSIST = ['sourceDir', 'country', 'sourceType', 'repo', 'branch'] as const;
 
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 
@@ -38,16 +41,20 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
+  const [showDeps, setShowDeps] = useState(false);
+  const openDeps = () => { setShowDeps(true); setDeps((d) => (d.length ? d : [blankDep(params.sourceType || 'local')])); };
   const graphRef = useRef<GraphHandle>(null);
 
   const persist = (p: TraceParams) => {
     PERSIST.forEach((f) => localStorage.setItem(appKey(app, f), p[f] || ''));
     localStorage.removeItem(appKey(app, 'version'));   // clear any version persisted by an older build
   };
-  const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country));
+  const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country, p.repo, p.branch, depParams(deps)));
 
   const runTrace = async (p: TraceParams) => {
     persist(p);
+    saveDeps(appKey(app, 'deps'), deps);
     setLoading(true);
     setError(null);
     setSelectedId(null);
@@ -55,7 +62,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     try {
       const res = await analyze({ ...p, ...sourceParams({
         sourceType: p.sourceType || 'local', sourceDir: p.sourceDir || '', repo: p.repo || '', branch: p.branch || '',
-      }) });
+      }), dep: depParams(deps) });
       setData(res);
       if (res.availableCountries && res.availableCountries.length) {
         setMeta((m) => ({ ...m, countries: res.availableCountries }));
@@ -97,7 +104,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     setExporting(true);
     setError(null);
     try {
-      const cat = await analyze({ ...params, api: '' });
+      const cat = await analyze({ ...params, api: '', dep: depParams(deps) });
       if (cat.mode === 'catalog') await exportApiTracePdf(cat, app);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -111,7 +118,16 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
       <aside className="sidebar">
         <ControlPanel params={params} meta={meta} loading={loading}
                       onChange={onChange} onTrace={onTrace} onCatalogAll={onCatalogAll} />
+        <div className="dep-zone">
+          <button type="button" className="linkbtn dep-toggle" onClick={() => (showDeps ? setShowDeps(false) : openDeps())}>
+            {showDeps ? '▾ Dependency sources' : `▸ Dependency sources${deps.length ? ` (${deps.length})` : ''}`}
+          </button>
+          {showDeps && <DependencyEditor deps={deps} onChange={setDeps} />}
+        </div>
         {error && <div className="err">Error: {error}</div>}
+        {data && data.needsReview && data.needsReview.length > 0 && (
+          <NeedsReviewBox items={data.needsReview} onAddDependency={openDeps} />
+        )}
         {selectedNode && <DetailPanel node={selectedNode} onClose={() => setSelectedId(null)} />}
         {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}
       </aside>

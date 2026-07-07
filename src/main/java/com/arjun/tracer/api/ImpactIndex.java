@@ -20,6 +20,8 @@ public class ImpactIndex {
     private final List<String> allBackends = new ArrayList<>();
     private final List<String> allHosts = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
+    /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
+    private final List<String> needsReview = new ArrayList<>();
     /** Route id → the backend APIs that route calls directly (for forward route→backend selection). */
     private final Map<String, List<String>> routeBackends = new LinkedHashMap<>();
 
@@ -34,5 +36,6 @@ public class ImpactIndex {
     public List<String> getAllBackends() { return allBackends; }
     public List<String> getAllHosts() { return allHosts; }
     public List<String> getWarnings() { return warnings; }
+    public List<String> getNeedsReview() { return needsReview; }
     public Map<String, List<String>> getRouteBackends() { return routeBackends; }
 }

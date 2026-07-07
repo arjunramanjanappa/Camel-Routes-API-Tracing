@@ -48,8 +48,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String sourceDir,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String repo,
-            @RequestParam(required = false) String branch) {
-        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country, repo, branch));
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) List<String> dep) {
+        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country, repo, branch, dep));
     }
 
     @PostMapping("/internal/route-graph")
@@ -62,9 +63,10 @@ public class RouteGraphController {
     public Map<String, Object> countries(
             @RequestParam(required = false) String sourceDir,
             @RequestParam(required = false) String repo,
-            @RequestParam(required = false) String branch) {
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) List<String> dep) {
         return Map.of("countries", service.listCountries(
-                new TraceRequest(null, null, null, sourceDir, null, repo, branch)));
+                new TraceRequest(null, null, null, sourceDir, null, repo, branch, dep)));
     }
 
     /** Discovery metadata for the UI: countries, versions and transferType values. */
@@ -73,8 +75,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String sourceDir,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String repo,
-            @RequestParam(required = false) String branch) {
-        return service.meta(new TraceRequest(null, null, null, sourceDir, country, repo, branch));
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) List<String> dep) {
+        return service.meta(new TraceRequest(null, null, null, sourceDir, country, repo, branch, dep));
     }
 
     /** Impact catalog: every API's routes/backends/hosts at a client version, for impact analysis. */
@@ -85,8 +88,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String transferType,
             @RequestParam(required = false) String repo,
-            @RequestParam(required = false) String branch) {
-        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country, repo, branch));
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) List<String> dep) {
+        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country, repo, branch, dep));
     }
 
     /**
@@ -100,8 +104,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String repo,
-            @RequestParam(required = false) String branch) {
-        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch));
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) List<String> dep) {
+        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch, dep));
     }
 
     /**
@@ -121,10 +126,11 @@ public class RouteGraphController {
             @RequestParam(required = false, defaultValue = "false") boolean all,
             @RequestParam(required = false) String app,
             @RequestParam(required = false) String repo,
-            @RequestParam(required = false) String branch) throws IOException {
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) List<String> dep) throws IOException {
         try (InputStream in = file.getInputStream()) {
             return logService.analyze(in, file.getOriginalFilename(), version, country, sourceDir,
-                    apis, backends, all, app, repo, branch);
+                    apis, backends, all, app, repo, branch, dep == null ? List.of() : dep);
         }
     }
 

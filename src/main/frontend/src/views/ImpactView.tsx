@@ -1,7 +1,10 @@
 import { Fragment, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
-import type { ApiImpact, ImpactIndex, SourceType } from '../types';
+import type { ApiImpact, DepSource, ImpactIndex, SourceType } from '../types';
 import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
+import DependencyEditor from '../components/DependencyEditor';
+import NeedsReviewBox from '../components/NeedsReviewBox';
+import { depParams, loadDeps, saveDeps, blankDep } from '../deps';
 import { backendPath } from '../spl';
 import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
@@ -23,6 +26,9 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('');   // per-test: starts empty, never persisted
+  const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
+  const [showDeps, setShowDeps] = useState(false);
+  const openDeps = () => { setShowDeps(true); setDeps((d) => (d.length ? d : [blankDep(sourceType)])); };
   const src: SourceState = { sourceType, sourceDir, repo, branch };
   const onSrc = (p: Partial<SourceState>) => {
     if (p.sourceType !== undefined) setSourceType(p.sourceType);
@@ -50,10 +56,11 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     localStorage.setItem(appKey(app, 'branch'), branch);
     localStorage.setItem(appKey(app, 'country'), country);
     localStorage.removeItem(appKey(app, 'version'));   // version is per-test, never persisted
+    saveDeps(appKey(app, 'deps'), deps);
     setLoading(true); setError(null);
     try {
       const sp = sourceParams(src);
-      const data = await fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch);
+      const data = await fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps));
       setIdx(data);
       setManualRoutes(new Set());
       setManualBackends(new Set());
@@ -160,6 +167,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         selected: selectedApis.has(i.api.api), viaRoutes: i.viaRoutes, viaBackends: i.viaBackends,
       })),
       backendVersions: backendVersionMap,
+      needsReview: idx.needsReview,
     }).catch(() => {});
   };
 
@@ -191,6 +199,13 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         </button>
       </div>
 
+      <div className="dep-zone">
+        <button type="button" className="linkbtn dep-toggle" onClick={() => (showDeps ? setShowDeps(false) : openDeps())}>
+          {showDeps ? '▾ Dependency sources' : `▸ Dependency sources${deps.length ? ` (${deps.length})` : ''}`}
+        </button>
+        {showDeps && <DependencyEditor deps={deps} onChange={setDeps} />}
+      </div>
+
       <Steps steps={steps} />
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
@@ -206,6 +221,11 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
       {!loading && idx && (
         <>
+        {idx.needsReview && idx.needsReview.length > 0 && (
+          <div style={{ padding: '0 18px' }}>
+            <NeedsReviewBox items={idx.needsReview} onAddDependency={openDeps} />
+          </div>
+        )}
         <div className="impact-body">
           <div className="impact-left">
             <div className="panel">
@@ -336,6 +356,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           <LogAnalysisPanel version={version} country={country} sourceDir={sourceParams(src).sourceDir}
                             repo={sourceParams(src).repo} branch={sourceParams(src).branch} app={app}
                             selectedApis={selectedApiList} selectedBackends={selectedBackendList}
+                            deps={depParams(deps)} needsReview={idx.needsReview}
                             onReport={setAnalysed} />
         </div>
         </>
@@ -344,7 +365,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
       {flowApi && (
         <ApiFlowModal api={flowApi} version={version} sourceDir={sourceParams(src).sourceDir}
                       repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country}
-                      colorMode={colorMode} onClose={() => setFlowApi(null)} />
+                      deps={depParams(deps)} colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>
   );

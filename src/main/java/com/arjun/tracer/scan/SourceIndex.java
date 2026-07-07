@@ -92,8 +92,18 @@ public class SourceIndex {
             return registry;
         }
         Set<FileInfo> closure = closureOf(start, scopeWarnings);
+        // Dependency files are country- and version-agnostic shared/core routes (host resolution),
+        // not country bootstraps — so they are ALWAYS in scope, even when the country bootstrap
+        // reaches them via direct: rather than an <import>. Union them into the closure so a host
+        // defined in a dependency resolves regardless of the selected country.
+        Set<FileInfo> included = new java.util.LinkedHashSet<>(closure);
+        for (FileInfo f : files) {
+            if (f.fromDependency()) {
+                included.add(f);
+            }
+        }
         int routeCount = 0;
-        for (FileInfo f : closure) {
+        for (FileInfo f : included) {
             for (RouteModel r : f.routes()) {
                 registry.add(r);
                 routeCount++;

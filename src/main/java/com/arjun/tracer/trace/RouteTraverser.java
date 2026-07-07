@@ -325,7 +325,12 @@ public class RouteTraverser {
                 if (currentDestRoute != null) {
                     target = currentDestRoute;
                 } else {
-                    response.getWarnings().add("Unresolved dynamic target: " + uri);
+                    // Name the route it's in: the needs-review list aggregates across every API the
+                    // Compare/Load traces, so without the route a generic ${...} target reads as if it
+                    // were the API you just viewed. This is usually a base name set by a bean (not an
+                    // XML <constant>), which can't be read statically.
+                    response.getWarnings().add("Unresolved dynamic target in "
+                            + routeLabel(currentNodeId) + ": " + uri);
                     return;
                 }
             }
@@ -370,8 +375,19 @@ public class RouteTraverser {
             visitRoute(m.group(1), currentNodeId, branch, new ArrayList<>());
         }
         if (!any) {
-            response.getWarnings().add("Dynamic recipientList not resolved: " + expression);
+            response.getWarnings().add("Dynamic recipientList not resolved in "
+                    + routeLabel(currentNodeId) + ": " + expression);
         }
+    }
+
+    /** The route identity from a graph node id like {@code route:R9.18_foo} or {@code route:R9.18_foo#3}. */
+    private static String routeLabel(String nodeId) {
+        if (nodeId == null) {
+            return "?";
+        }
+        String s = nodeId.startsWith("route:") ? nodeId.substring("route:".length()) : nodeId;
+        int hash = s.indexOf('#');
+        return hash >= 0 ? s.substring(0, hash) : s;
     }
 
     /**

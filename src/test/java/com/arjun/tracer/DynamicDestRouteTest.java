@@ -70,6 +70,68 @@ class DynamicDestRouteTest {
     }
 
     @Test
+    void serviceVersionFromATemplateInsideADynamicallyResolvedDestRouteIsCaptured(@TempDir Path dir) throws Exception {
+        Files.createDirectories(dir.resolve("templates"));
+        Files.writeString(dir.resolve("templates/accept.ftl"), "{ \"serviceVersionNumber\":\"6.0\", \"amount\": 1 }");
+        String routes = """
+                <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+                  <routeContext id="c">
+                    <route id="R9.14_mainRoute">
+                      <from uri="direct:R9.14_mainRoute"/>
+                      <setProperty name="DEST_ROUTE"><constant>acceptcoreinfo</constant></setProperty>
+                      <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
+                    </route>
+                    <route id="R9.14_acceptcoreinfo">
+                      <from uri="direct:R9.14_acceptcoreinfo"/>
+                      <to uri="framework:templates/accept.ftl"/>
+                      <setProperty name="api"><simple>/bfs/accept</simple></setProperty>
+                      <to uri="direct:callHost"/>
+                    </route>
+                    <route id="callHost"><from uri="direct:callHost"/><log message="x"/></route>
+                  </routeContext>
+                </beans:beans>
+                """;
+        Files.writeString(dir.resolve("r.xml"), routes);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("R9.14_mainRoute", "9.14", null, null));
+
+        assertThat(r.getFlow()).contains("R9.14_acceptcoreinfo");
+        assertThat(r.getBackendApis()).contains("/bfs/accept");
+        assertThat(r.getBackendVersions()).containsEntry("/bfs/accept", "6.0");
+    }
+
+    @Test
+    void serviceVersionTemplateInTheParentRouteBeforeTheDynamicHop(@TempDir Path dir) throws Exception {
+        // The template (serviceVersion) is in the PARENT route, the api in the dest route it dispatches to.
+        Files.createDirectories(dir.resolve("templates"));
+        Files.writeString(dir.resolve("templates/accept.ftl"), "{ \"serviceVersionNumber\":\"6.0\" }");
+        String routes = """
+                <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+                  <routeContext id="c">
+                    <route id="R9.14_mainRoute">
+                      <from uri="direct:R9.14_mainRoute"/>
+                      <to uri="framework:templates/accept.ftl"/>
+                      <setProperty name="DEST_ROUTE"><constant>acceptcoreinfo</constant></setProperty>
+                      <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
+                    </route>
+                    <route id="R9.14_acceptcoreinfo">
+                      <from uri="direct:R9.14_acceptcoreinfo"/>
+                      <setProperty name="api"><simple>/bfs/accept</simple></setProperty>
+                      <to uri="direct:callHost"/>
+                    </route>
+                    <route id="callHost"><from uri="direct:callHost"/><log message="x"/></route>
+                  </routeContext>
+                </beans:beans>
+                """;
+        Files.writeString(dir.resolve("r.xml"), routes);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("R9.14_mainRoute", "9.14", null, null));
+
+        assertThat(r.getBackendApis()).contains("/bfs/accept");
+        assertThat(r.getBackendVersions()).containsEntry("/bfs/accept", "6.0");
+    }
+
+    @Test
     void anUnresolvableDynamicTargetIsStillFlaggedWhenNoDestRouteBaseWasSet(@TempDir Path dir) throws Exception {
         // A dynamic direct: with no preceding DEST_ROUTE-style constant → still flagged for review.
         String routes = """

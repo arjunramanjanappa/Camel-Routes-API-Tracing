@@ -7,7 +7,7 @@ import ApiFlowModal from '../components/ApiFlowModal';
 import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
-import { depParams, loadDeps, saveDeps, blankDep } from '../deps';
+import { depParams, loadDeps, saveDeps } from '../deps';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
@@ -188,8 +188,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('');
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
-  const [showDeps, setShowDeps] = useState(false);
-  const openDeps = () => { setShowDeps(true); setDeps((d) => (d.length ? d : [blankDep(sourceType)])); };
   const src: SourceState = { sourceType, sourceDir, repo, branch };
   const onSrc = (p: Partial<SourceState>) => {
     if (p.sourceType !== undefined) setSourceType(p.sourceType);
@@ -308,12 +306,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </button>
       </div>
 
-      <div className="dep-zone">
-        <button type="button" className="linkbtn dep-toggle" onClick={() => (showDeps ? setShowDeps(false) : openDeps())}>
-          {showDeps ? '▾ Dependency sources' : `▸ Dependency sources${deps.length ? ` (${deps.length})` : ''}`}
-        </button>
-        {showDeps && <DependencyEditor deps={deps} onChange={setDeps} />}
-      </div>
+      {(report?.needsReview?.length ?? 0) > 0 && (
+        <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
+      )}
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
@@ -343,7 +338,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
           </div>
 
           <div className="diff-main">
-            <NeedsReviewBox items={report.needsReview ?? []} onAddDependency={openDeps} />
+            <NeedsReviewBox items={report.needsReview ?? []} />
             {(() => {
               // The needs-review items are shown in their own highlighted box above; keep them out of
               // the plain warning banner so the two sections don't repeat the same lines.

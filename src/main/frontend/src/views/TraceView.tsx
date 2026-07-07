@@ -6,7 +6,7 @@ import ControlPanel from '../components/ControlPanel';
 import { sourceParams } from '../components/SourceFields';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
-import { depParams, loadDeps, saveDeps, blankDep } from '../deps';
+import { depParams, loadDeps, saveDeps } from '../deps';
 import ResultPanels from '../components/ResultPanels';
 import DetailPanel from '../components/DetailPanel';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
@@ -42,8 +42,6 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
-  const [showDeps, setShowDeps] = useState(false);
-  const openDeps = () => { setShowDeps(true); setDeps((d) => (d.length ? d : [blankDep(params.sourceType || 'local')])); };
   const graphRef = useRef<GraphHandle>(null);
 
   const persist = (p: TraceParams) => {
@@ -121,15 +119,12 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
       <aside className="sidebar">
         <ControlPanel params={params} meta={meta} loading={loading}
                       onChange={onChange} onTrace={onTrace} onCatalogAll={onCatalogAll} />
-        <div className="dep-zone">
-          <button type="button" className="linkbtn dep-toggle" onClick={() => (showDeps ? setShowDeps(false) : openDeps())}>
-            {showDeps ? '▾ Dependency sources' : `▸ Dependency sources${deps.length ? ` (${deps.length})` : ''}`}
-          </button>
-          {showDeps && <DependencyEditor deps={deps} onChange={setDeps} />}
-        </div>
+        {(data?.needsReview?.length ?? 0) > 0 && (
+          <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
+        )}
         {error && <div className="err">Error: {error}</div>}
         {data && data.needsReview && data.needsReview.length > 0 && (
-          <NeedsReviewBox items={data.needsReview} onAddDependency={openDeps} />
+          <NeedsReviewBox items={data.needsReview} />
         )}
         {selectedNode && <DetailPanel node={selectedNode} onClose={() => setSelectedId(null)} />}
         {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}

@@ -4,7 +4,7 @@ import type { ApiImpact, DepSource, ImpactIndex, SourceType } from '../types';
 import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
-import { depParams, loadDeps, saveDeps, blankDep } from '../deps';
+import { depParams, loadDeps, saveDeps } from '../deps';
 import { backendPath } from '../spl';
 import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
@@ -27,8 +27,6 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('');   // per-test: starts empty, never persisted
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
-  const [showDeps, setShowDeps] = useState(false);
-  const openDeps = () => { setShowDeps(true); setDeps((d) => (d.length ? d : [blankDep(sourceType)])); };
   const src: SourceState = { sourceType, sourceDir, repo, branch };
   const onSrc = (p: Partial<SourceState>) => {
     if (p.sourceType !== undefined) setSourceType(p.sourceType);
@@ -199,12 +197,9 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         </button>
       </div>
 
-      <div className="dep-zone">
-        <button type="button" className="linkbtn dep-toggle" onClick={() => (showDeps ? setShowDeps(false) : openDeps())}>
-          {showDeps ? '▾ Dependency sources' : `▸ Dependency sources${deps.length ? ` (${deps.length})` : ''}`}
-        </button>
-        {showDeps && <DependencyEditor deps={deps} onChange={setDeps} />}
-      </div>
+      {(idx?.needsReview?.length ?? 0) > 0 && (
+        <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
+      )}
 
       <Steps steps={steps} />
 
@@ -223,7 +218,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         <>
         {idx.needsReview && idx.needsReview.length > 0 && (
           <div style={{ padding: '0 18px' }}>
-            <NeedsReviewBox items={idx.needsReview} onAddDependency={openDeps} />
+            <NeedsReviewBox items={idx.needsReview} />
           </div>
         )}
         <div className="impact-body">

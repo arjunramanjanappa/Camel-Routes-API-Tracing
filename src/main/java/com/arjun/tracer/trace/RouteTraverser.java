@@ -113,8 +113,11 @@ public class RouteTraverser {
 
         boolean firstVisit = expandedRoutes.add(identity);   // expand body once (loop guard)
         if (firstVisit) {
-            currentServiceVersion = null;   // backend service version is scoped to this route's body
-            currentHosturl = null;          // so is the hosturl (the logged backend path)
+            // currentServiceVersion is intentionally NOT reset here: a template set in a caller route
+            // (before it dispatches) is the request body for the backend the callee route calls, so it
+            // must survive the hop. It is cleared when an api CONSUMES it instead (below), which stops
+            // it leaking to a later api that has no template of its own.
+            currentHosturl = null;          // hosturl (the logged backend path) is scoped to this route body
             currentDestRoute = null;        // and the DEST_ROUTE base is per-route-body
         }
         if (route == null) {
@@ -221,6 +224,7 @@ public class RouteTraverser {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
                     out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
+                    currentServiceVersion = null;   // consumed
                 }
             } else if (el instanceof ChoiceElement choice) {
                 for (WhenElement when : choice.whens()) {
@@ -265,6 +269,7 @@ public class RouteTraverser {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
                     active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
+                    currentServiceVersion = null;   // consumed — a later api needs its own template to get a version
                 } else {
                     // A DEST_ROUTE-style base name (e.g. acceptcoreinfo): remember the route it resolves
                     // to at this client version, so a following dynamic direct: toD can follow it. Property

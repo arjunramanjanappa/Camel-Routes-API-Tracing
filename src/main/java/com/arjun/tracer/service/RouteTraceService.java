@@ -386,7 +386,10 @@ public class RouteTraceService {
             }
 
             TraceResponse lowerTrace = traceFor(prepared, op, lowerResolved, templateVersion);
-            harvested.addAll(lowerTrace.getWarnings());
+            // Deliberately NOT harvesting lowerTrace warnings into needs-review: the lower version is
+            // the in-production BAU flow, traced only for the diff. A dynamic route that is new in the
+            // target legitimately doesn't resolve at the lower version, so flagging it here is a false
+            // alarm — only the target flow's gaps are actionable for THIS release.
             ApiDiff diff = buildApiDiff(op, targetResolved, target, lowerResolved, lowerLabel,
                     targetTrace, lowerTrace, bodies, locations, templateKeys);
             report.getApis().add(diff);

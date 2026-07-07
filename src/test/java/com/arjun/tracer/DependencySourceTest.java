@@ -159,4 +159,33 @@ class DependencySourceTest {
         assertThat(withDep.getWarnings()).noneMatch(w -> w.startsWith("Route not found"));
         assertThat(withDep.getNeedsReview()).isEmpty();
     }
+
+    /**
+     * A dependency that cannot be loaded (bad Bitbucket URL / auth) must not be swallowed — the
+     * reason is surfaced for review, so the user can see WHY an import is still unresolved instead
+     * of a dependency that silently did nothing. The primary analysis still completes.
+     */
+    @Test
+    void aDependencyThatFailsToLoadIsSurfacedNotSwallowed(@TempDir Path primaryDir) throws Exception {
+        RouteTraceService service = new RouteTraceService(primary(primaryDir).toString());
+        List<String> deps = List.of("bit:file:///no/such/repo.git|master");   // cannot be cloned
+
+        CatalogResponse sg = (CatalogResponse) service.analyze(
+                new TraceRequest(null, null, null, null, "SG", null, null, deps));
+
+        assertThat(sg.getNeedsReview()).anyMatch(w -> w.startsWith("Dependency source could not be loaded"));
+        // the original unresolved import is still reported — the failed dependency didn't hide it
+        assertThat(sg.getNeedsReview()).anyMatch(w -> w.startsWith("Unresolved <import>"));
+    }
+
+    @Test
+    void aLocalDependencyPathThatDoesNotExistIsSurfaced(@TempDir Path primaryDir) throws Exception {
+        RouteTraceService service = new RouteTraceService(primary(primaryDir).toString());
+        List<String> deps = List.of("local:" + primaryDir.resolve("does-not-exist"));
+
+        CatalogResponse sg = (CatalogResponse) service.analyze(
+                new TraceRequest(null, null, null, null, "SG", null, null, deps));
+
+        assertThat(sg.getNeedsReview()).anyMatch(w -> w.startsWith("Dependency path not found"));
+    }
 }

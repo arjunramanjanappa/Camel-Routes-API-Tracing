@@ -344,9 +344,15 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
 
           <div className="diff-main">
             <NeedsReviewBox items={report.needsReview ?? []} onAddDependency={openDeps} />
-            {report.warnings.length > 0 && (
-              <div className="warnbox">{report.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
-            )}
+            {(() => {
+              // The needs-review items are shown in their own highlighted box above; keep them out of
+              // the plain warning banner so the two sections don't repeat the same lines.
+              const review = new Set(report.needsReview ?? []);
+              const other = report.warnings.filter((w) => !review.has(w));
+              return other.length > 0 ? (
+                <div className="warnbox">{other.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
+              ) : null;
+            })()}
 
             <div className="diff-main-head row between">
               <h2 style={{ margin: 0 }}>{GROUP_LABEL[activeGroup]} APIs <span className="muted">{visible.length}</span></h2>

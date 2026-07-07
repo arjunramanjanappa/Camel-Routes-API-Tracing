@@ -1004,22 +1004,23 @@ public class RouteTraceService {
         String apiLabel = (api != null ? api : operationName) + "  [" + operationName + "]";
         graph.addNode(new GraphNode(apiNodeId, apiLabel, GraphNode.TYPE_API));
         new RouteTraverser(registry, graph, response, transferType, resolved.routeName(),
-                templateVersion, destRouteResolver(registry, clientVersion))
+                templateVersion, destRouteResolver(registry), clientVersion)
                 .trace(resolved.routeName(), apiNodeId);
     }
 
     /**
-     * Resolve a DEST_ROUTE-style base name (e.g. {@code acceptcoreinfo}) to the actual route it runs
-     * at {@code clientVersion} — the same version rule used for entry routes (highest {@code R<ver>_}
-     * &le; the client version, else BASE). Returns null when it doesn't resolve to a route that
-     * exists in this scope, so a non-route constant is never mistaken for a dynamic {@code toD} target.
+     * Resolve a DEST_ROUTE-style base name (e.g. {@code acceptcoreinfo}) at a given version to the
+     * actual route it runs — the same version rule used for entry routes (highest {@code R<ver>_}
+     * &le; the version, else BASE). Returns null when it doesn't resolve to a route that exists in
+     * this scope, so a non-route constant is never mistaken for a dynamic {@code toD} target. The
+     * traverser chooses the version (requested client version, else the calling route's own version).
      */
-    private java.util.function.Function<String, String> destRouteResolver(RouteRegistry registry, String clientVersion) {
-        return base -> {
+    private java.util.function.BiFunction<String, String, String> destRouteResolver(RouteRegistry registry) {
+        return (base, version) -> {
             if (base == null || base.isBlank()) {
                 return null;
             }
-            ResolvedRoute rr = versionResolver.resolve(registry, base.trim(), clientVersion);
+            ResolvedRoute rr = versionResolver.resolve(registry, base.trim(), version);
             String routeName = rr.routeName();
             return (routeName != null && registry.contains(routeName)) ? routeName : null;
         };

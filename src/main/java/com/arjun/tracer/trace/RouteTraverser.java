@@ -35,6 +35,8 @@ public class RouteTraverser {
     private static final Pattern DIRECT_REF = Pattern.compile("direct:([A-Za-z0-9_.\\-]+)");
     /** A bare, route-name-shaped constant (no scheme, path, placeholder or whitespace) — a DEST_ROUTE base. */
     private static final Pattern BARE_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_.\\-]*");
+    /** The version prefix of a route id, e.g. {@code R9.14_foo} → {@code 9.14}. */
+    private static final Pattern ROUTE_VERSION = Pattern.compile("^R(\\d+(?:\\.\\d+)*)_");
     /** Endpoint schemes treated as external backend calls when used in {@code <to>}. */
     private static final Set<String> EXTERNAL_SCHEMES = Set.of(
             "http", "https", "http4", "https4", "cxf", "cxfrs", "rest", "netty-http",
@@ -54,13 +56,20 @@ public class RouteTraverser {
     /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (or null). */
     private final java.util.function.Function<String, String> templateVersion;
     /**
-     * Resolves a base route name (e.g. a {@code DEST_ROUTE} constant like {@code acceptcoreinfo})
-     * to the actual route it runs at the current client version (e.g. {@code R9.14_acceptcoreinfo}),
-     * or null when it doesn't resolve to a real route. This is how a
-     * {@code <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>} is followed: a bean builds
-     * {@code FINAL_ROUTE_NAME} = version + base, which is the same version resolution used for entry routes.
+     * Resolves a base route name + client version (e.g. {@code acceptcoreinfo} at {@code 9.14}) to
+     * the actual route it runs (e.g. {@code R9.14_acceptcoreinfo}), or null when it doesn't resolve
+     * to a real route. This is how a {@code <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>}
+     * is followed: a bean builds {@code FINAL_ROUTE_NAME} = version + base, which is the same version
+     * resolution used for entry routes.
      */
-    private final java.util.function.Function<String, String> destRouteResolver;
+    private final java.util.function.BiFunction<String, String, String> destRouteResolver;
+    /**
+     * The requested client version (blank/null when the user left it empty, e.g. Release Scope). When
+     * present it wins — the bean uses the real ClientVersion header. When empty, the DEST_ROUTE is
+     * resolved at the CALLING route's own version instead, so the dynamic target still resolves rather
+     * than being flagged just because no version was typed.
+     */
+    private final String requestClientVersion;
     /** Service version from the most recent template {@code <to>}, applied to the next backend. */
     private String currentServiceVersion;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
@@ -70,20 +79,23 @@ public class RouteTraverser {
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion) {
-        this(registry, graph, response, transferType, operationRouteName, templateVersion, name -> null);
+        this(registry, graph, response, transferType, operationRouteName, templateVersion,
+                (base, version) -> null, null);
     }
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion,
-                          java.util.function.Function<String, String> destRouteResolver) {
+                          java.util.function.BiFunction<String, String, String> destRouteResolver,
+                          String requestClientVersion) {
         this.registry = registry;
         this.graph = graph;
         this.response = response;
         this.transferType = (transferType == null || transferType.isBlank()) ? null : transferType.trim();
         this.operationRouteName = operationRouteName;
         this.templateVersion = templateVersion != null ? templateVersion : uri -> null;
-        this.destRouteResolver = destRouteResolver != null ? destRouteResolver : name -> null;
+        this.destRouteResolver = destRouteResolver != null ? destRouteResolver : (base, version) -> null;
+        this.requestClientVersion = requestClientVersion;
     }
 
     /** Trace from the entry route, attaching it under the given API node. */
@@ -274,7 +286,7 @@ public class RouteTraverser {
                     // A DEST_ROUTE-style base name (e.g. acceptcoreinfo): remember the route it resolves
                     // to at this client version, so a following dynamic direct: toD can follow it. Property
                     // names vary by module, so we key on "a constant that resolves to a real route", not a name.
-                    trackDestRoute(sp.value());
+                    trackDestRoute(sp.value(), currentNodeId);
                 }
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch, active, forward);
@@ -388,6 +400,12 @@ public class RouteTraverser {
         String s = nodeId.startsWith("route:") ? nodeId.substring("route:".length()) : nodeId;
         int hash = s.indexOf('#');
         return hash >= 0 ? s.substring(0, hash) : s;
+    }
+
+    /** The version stamped on the route currently being walked (e.g. {@code R9.14_foo} → {@code 9.14}), or null. */
+    private static String routeVersion(String nodeId) {
+        Matcher m = ROUTE_VERSION.matcher(routeLabel(nodeId));
+        return m.find() ? m.group(1) : null;
     }
 
     /**
@@ -508,10 +526,12 @@ public class RouteTraverser {
 
     /**
      * Track a DEST_ROUTE-style base name: when this {@code setProperty} value is a bare name that
-     * resolves to a real route at the current client version, remember that route so a following
-     * dynamic {@code direct:} toD can follow it. Non-name values (URLs, expressions, flags) are ignored.
+     * resolves to a real route, remember that route so a following dynamic {@code direct:} toD can
+     * follow it. The version used is the requested client version when given (the real ClientVersion
+     * header), else the CALLING route's own version — so an empty version doesn't leave it unresolved.
+     * Non-name values (URLs, expressions, flags) are ignored.
      */
-    private void trackDestRoute(String value) {
+    private void trackDestRoute(String value, String currentNodeId) {
         if (value == null) {
             return;
         }
@@ -519,7 +539,9 @@ public class RouteTraverser {
         if (v.isEmpty() || !BARE_NAME.matcher(v).matches()) {
             return;   // cheap skip for URLs / expressions / placeholders that can't be a route base
         }
-        String resolved = destRouteResolver.apply(v);
+        String version = (requestClientVersion != null && !requestClientVersion.isBlank())
+                ? requestClientVersion : routeVersion(currentNodeId);
+        String resolved = destRouteResolver.apply(v, version);
         if (resolved != null) {
             currentDestRoute = resolved;
         }

@@ -132,6 +132,34 @@ class DynamicDestRouteTest {
     }
 
     @Test
+    void emptyClientVersionResolvesTheDestAtTheCallingRoutesOwnVersion(@TempDir Path dir) throws Exception {
+        // No client version typed (Release Scope): the calling route R9.14_prospectRoute supplies the
+        // version, so the dynamic toD still resolves to R9.14_prospectDetails rather than being flagged.
+        String routes = """
+                <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+                  <routeContext id="c">
+                    <route id="R9.14_prospectRoute">
+                      <from uri="direct:prospect"/>
+                      <setProperty name="DEST_ROUTE"><constant>prospectDetails</constant></setProperty>
+                      <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
+                    </route>
+                    <route id="R9.14_prospectDetails">
+                      <from uri="direct:R9.14_prospectDetails"/>
+                      <setProperty name="api"><simple>/bfs/prospect</simple></setProperty>
+                    </route>
+                  </routeContext>
+                </beans:beans>
+                """;
+        Files.writeString(dir.resolve("r.xml"), routes);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("prospect", "", null, null));
+
+        assertThat(r.getFlow()).contains("R9.14_prospectRoute", "R9.14_prospectDetails");
+        assertThat(r.getBackendApis()).contains("/bfs/prospect");
+        assertThat(r.getNeedsReview()).noneMatch(w -> w.startsWith("Unresolved dynamic target"));
+    }
+
+    @Test
     void anUnresolvableDynamicTargetIsStillFlaggedWhenNoDestRouteBaseWasSet(@TempDir Path dir) throws Exception {
         // A dynamic direct: with no preceding DEST_ROUTE-style constant → still flagged for review.
         String routes = """

@@ -30,6 +30,8 @@ public class SourceIndex {
     private final Map<String, FileInfo> contextIdToFile = new LinkedHashMap<>();
     /** bootstrap (country) name → its file. */
     private final Map<String, FileInfo> countryToFile = new LinkedHashMap<>();
+    /** Dependency-source files (shared/core host routes), collected once — always in every country scope. */
+    private final List<FileInfo> dependencyFiles = new ArrayList<>();
 
     public SourceIndex(OperationResolver operations, List<FileInfo> files,
                        List<java.nio.file.Path> allFiles, List<String> warnings) {
@@ -52,6 +54,9 @@ public class SourceIndex {
             }
             if (f.metadata().hasCamelContext()) {
                 countryToFile.putIfAbsent(f.baseName(), f);
+            }
+            if (f.fromDependency()) {
+                dependencyFiles.add(f);
             }
         }
     }
@@ -97,11 +102,7 @@ public class SourceIndex {
         // reaches them via direct: rather than an <import>. Union them into the closure so a host
         // defined in a dependency resolves regardless of the selected country.
         Set<FileInfo> included = new java.util.LinkedHashSet<>(closure);
-        for (FileInfo f : files) {
-            if (f.fromDependency()) {
-                included.add(f);
-            }
-        }
+        included.addAll(dependencyFiles);   // precomputed once — no per-call rescan of the merged file list
         int routeCount = 0;
         for (FileInfo f : included) {
             for (RouteModel r : f.routes()) {

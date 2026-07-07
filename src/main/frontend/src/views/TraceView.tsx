@@ -50,7 +50,10 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     PERSIST.forEach((f) => localStorage.setItem(appKey(app, f), p[f] || ''));
     localStorage.removeItem(appKey(app, 'version'));   // clear any version persisted by an older build
   };
-  const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country, p.repo, p.branch, depParams(deps)));
+  // Meta (country/version dropdowns) comes from the PRIMARY source only — dependency modules are
+  // country- and version-agnostic host routes, so they add nothing here. Skipping them keeps this
+  // per-keystroke call from resolving (and, for Bitbucket, re-opening) the dependency each time.
+  const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country, p.repo, p.branch));
 
   const runTrace = async (p: TraceParams) => {
     persist(p);

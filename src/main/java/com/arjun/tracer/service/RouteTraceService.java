@@ -141,16 +141,8 @@ public class RouteTraceService {
         versionDiffCache.keySet().removeIf(k -> k.equals(key) || k.startsWith(key + "|"));
     }
 
-    /**
-     * Scan result plus the registries for this request. {@code registry} is the FULL index — used for
-     * traversal, so a flow can follow the shared/common routes it dispatches to (e.g. dynamic dest
-     * routes de-duplicated across countries) even when the country bootstrap doesn't statically
-     * {@code <import>} them. {@code scoped} is the country's import/ref closure (== {@code registry}
-     * when no country) — it limits which APIs are LISTED and gates a single trace's entry, so a
-     * country view stays that country's.
-     */
-    private record Prepared(SourceIndex index, RouteRegistry registry, RouteRegistry scoped,
-                            List<String> warnings, String country) {
+    /** Scan result plus the registry chosen for this request's country scope. */
+    private record Prepared(SourceIndex index, RouteRegistry registry, List<String> warnings, String country) {
     }
 
     /** Entry point used by the controller: returns a {@link TraceResponse} or {@link CatalogResponse}. */
@@ -675,12 +667,10 @@ public class RouteTraceService {
         warnings.addAll(roots.depErrors());   // a dependency that failed to load is why an import may still be unresolved
         String country = (request.country() != null && !request.country().isBlank())
                 ? request.country().trim() : null;
-        // Traversal always runs on the full index so a flow can follow the shared routes it dispatches
-        // to (dynamic dest routes, common host routes) even when the country bootstrap doesn't import
-        // them. The country closure only scopes which APIs are listed / which entry a single trace allows.
-        RouteRegistry full = index.fullRegistry();
-        RouteRegistry scoped = country != null ? index.scopedRegistry(country, warnings) : full;
-        return new Prepared(index, full, scoped, warnings, country);
+        RouteRegistry registry = country != null
+                ? index.scopedRegistry(country, warnings)
+                : index.fullRegistry();
+        return new Prepared(index, registry, warnings, country);
     }
 
     /**
@@ -690,13 +680,6 @@ public class RouteTraceService {
      * APIs and is not padded with endpoints whose routes live in another country (which would
      * otherwise show up as a large, misleading "(no route found)" bucket).
      */
-    /** True if an operation belongs to the selected country's scope (its bootstrap wires it in). */
-    private boolean inCountryScope(Prepared prepared, String operationName, ResolvedRoute resolved) {
-        RouteRegistry scoped = prepared.scoped();
-        return scoped.operationNames().contains(operationName)
-                || (resolved.routeName() != null && scoped.contains(resolved.routeName()));
-    }
-
     private List<OperationInfo> operationsInScope(Prepared prepared) {
         List<OperationInfo> all = prepared.index().operations().all();
         if (prepared.country() == null) {
@@ -704,7 +687,7 @@ public class RouteTraceService {
         }
         // One pass over the scoped routes → the set of operations they cover; then an O(1)
         // membership test per operation (instead of re-scanning every route per operation).
-        Set<String> covered = prepared.scoped().operationNames();
+        Set<String> covered = prepared.registry().operationNames();
         List<OperationInfo> out = new ArrayList<>();
         for (OperationInfo op : all) {
             if (covered.contains(op.operationName())) {
@@ -889,17 +872,6 @@ public class RouteTraceService {
 
         ResolvedRoute resolved =
                 versionResolver.resolve(prepared.registry(), operationName, request.version());
-        if (prepared.country() != null && !inCountryScope(prepared, operationName, resolved)) {
-            // This operation isn't wired into the selected country's bootstrap — its routes live in
-            // another country, so it's not traced here (same scoping the catalog applies).
-            response.setResolvedRoute(resolved.routeName());
-            response.setResolvedVersion(resolved.version());
-            response.setBaseFallback(resolved.baseFallback());
-            response.getWarnings().add("Route not found in source: " + resolved.routeName());
-            response.setGraph(new RouteGraph());
-            applyReview(response.getWarnings(), response.getNeedsReview(), List.of());
-            return response;
-        }
         RouteGraph graph = new RouteGraph();
         traverseInto(response, request.api(), operationName, resolved,
                 request.transferType(), prepared.registry(), graph, templateVersionResolver(request),

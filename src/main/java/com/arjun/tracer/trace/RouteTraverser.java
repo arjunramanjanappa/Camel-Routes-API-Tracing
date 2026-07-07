@@ -33,6 +33,8 @@ public class RouteTraverser {
     private static final Pattern QUOTED = Pattern.compile("['\"]([A-Za-z0-9_\\-]+)['\"]");
     /** A static {@code direct:NAME} reference inside an expression. */
     private static final Pattern DIRECT_REF = Pattern.compile("direct:([A-Za-z0-9_.\\-]+)");
+    /** A bare, route-name-shaped constant (no scheme, path, placeholder or whitespace) — a DEST_ROUTE base. */
+    private static final Pattern BARE_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_.\\-]*");
     /** Endpoint schemes treated as external backend calls when used in {@code <to>}. */
     private static final Set<String> EXTERNAL_SCHEMES = Set.of(
             "http", "https", "http4", "https4", "cxf", "cxfrs", "rest", "netty-http",
@@ -51,19 +53,37 @@ public class RouteTraverser {
 
     /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (or null). */
     private final java.util.function.Function<String, String> templateVersion;
+    /**
+     * Resolves a base route name (e.g. a {@code DEST_ROUTE} constant like {@code acceptcoreinfo})
+     * to the actual route it runs at the current client version (e.g. {@code R9.14_acceptcoreinfo}),
+     * or null when it doesn't resolve to a real route. This is how a
+     * {@code <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>} is followed: a bean builds
+     * {@code FINAL_ROUTE_NAME} = version + base, which is the same version resolution used for entry routes.
+     */
+    private final java.util.function.Function<String, String> destRouteResolver;
     /** Service version from the most recent template {@code <to>}, applied to the next backend. */
     private String currentServiceVersion;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
+    /** Resolved route from the most recent DEST_ROUTE-style setProperty — target of a dynamic direct: toD. */
+    private String currentDestRoute;
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion) {
+        this(registry, graph, response, transferType, operationRouteName, templateVersion, name -> null);
+    }
+
+    public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
+                          String transferType, String operationRouteName,
+                          java.util.function.Function<String, String> templateVersion,
+                          java.util.function.Function<String, String> destRouteResolver) {
         this.registry = registry;
         this.graph = graph;
         this.response = response;
         this.transferType = (transferType == null || transferType.isBlank()) ? null : transferType.trim();
         this.operationRouteName = operationRouteName;
         this.templateVersion = templateVersion != null ? templateVersion : uri -> null;
+        this.destRouteResolver = destRouteResolver != null ? destRouteResolver : name -> null;
     }
 
     /** Trace from the entry route, attaching it under the given API node. */
@@ -95,6 +115,7 @@ public class RouteTraverser {
         if (firstVisit) {
             currentServiceVersion = null;   // backend service version is scoped to this route's body
             currentHosturl = null;          // so is the hosturl (the logged backend path)
+            currentDestRoute = null;        // and the DEST_ROUTE base is per-route-body
         }
         if (route == null) {
             if (firstVisit) {
@@ -244,6 +265,11 @@ public class RouteTraverser {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
                     active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
+                } else {
+                    // A DEST_ROUTE-style base name (e.g. acceptcoreinfo): remember the route it resolves
+                    // to at this client version, so a following dynamic direct: toD can follow it. Property
+                    // names vary by module, so we key on "a constant that resolves to a real route", not a name.
+                    trackDestRoute(sp.value());
                 }
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch, active, forward);
@@ -288,8 +314,15 @@ public class RouteTraverser {
         if (scheme.equals("direct") || scheme.equals("direct-vm") || async) {
             String target = resolveDynamicName(remainder);
             if (target == null) {
-                response.getWarnings().add("Unresolved dynamic target: " + uri);
-                return;
+                // A dynamic direct: whose expression we can't read directly (e.g.
+                // ${exchangeProperty[FINAL_ROUTE_NAME]}). If a DEST_ROUTE-style base was set in scope
+                // and resolves to a real route at this version, follow that; otherwise flag for review.
+                if (currentDestRoute != null) {
+                    target = currentDestRoute;
+                } else {
+                    response.getWarnings().add("Unresolved dynamic target: " + uri);
+                    return;
+                }
             }
             // Flag async (seda/vm) calls on the edge so they read as fire-and-forget.
             String edgeLabel = async
@@ -379,11 +412,13 @@ public class RouteTraverser {
         // template inside one branch must not leak to sibling branches or after the choice.
         String savedServiceVersion = currentServiceVersion;
         String savedHosturl = currentHosturl;
+        String savedDestRoute = currentDestRoute;   // each branch sets its own DEST_ROUTE → its own toD target
         try {
             return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
         } finally {
             currentServiceVersion = savedServiceVersion;
             currentHosturl = savedHosturl;
+            currentDestRoute = savedDestRoute;
         }
     }
 
@@ -447,6 +482,25 @@ public class RouteTraverser {
                 return existing + " / " + add;
             });
             graph.setBackendServiceVersion(nodeId, joined);
+        }
+    }
+
+    /**
+     * Track a DEST_ROUTE-style base name: when this {@code setProperty} value is a bare name that
+     * resolves to a real route at the current client version, remember that route so a following
+     * dynamic {@code direct:} toD can follow it. Non-name values (URLs, expressions, flags) are ignored.
+     */
+    private void trackDestRoute(String value) {
+        if (value == null) {
+            return;
+        }
+        String v = value.trim();
+        if (v.isEmpty() || !BARE_NAME.matcher(v).matches()) {
+            return;   // cheap skip for URLs / expressions / placeholders that can't be a route base
+        }
+        String resolved = destRouteResolver.apply(v);
+        if (resolved != null) {
+            currentDestRoute = resolved;
         }
     }
 

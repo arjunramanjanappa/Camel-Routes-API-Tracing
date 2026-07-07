@@ -248,7 +248,7 @@ public class RouteTraceService {
             TraceResponse r = new TraceResponse();
             RouteGraph graph = new RouteGraph();
             traverseInto(r, op.path(), op.operationName(), resolved,
-                    request.transferType(), prepared.registry(), graph, templateVersion);
+                    request.transferType(), prepared.registry(), graph, templateVersion, request.version());
             harvested.addAll(r.getWarnings());   // "Route not found in source" for dependency routes not yet added
             List<String> apiHosts = extractHosts(graph);
 
@@ -426,8 +426,10 @@ public class RouteTraceService {
         RouteGraph graph = new RouteGraph();
         // transferType left null on purpose: walk every branch so the flow includes
         // all sub-routes either version could reach, for a complete structural compare.
+        // clientVersion = the version this side of the diff is simulating (target or lower), so a
+        // dynamic DEST_ROUTE toD follows that version's route on each side.
         traverseInto(r, op.path(), op.operationName(), resolved, null,
-                prepared.registry(), graph, templateVersion);
+                prepared.registry(), graph, templateVersion, resolved.version());
         return r;
     }
 
@@ -869,7 +871,8 @@ public class RouteTraceService {
                 versionResolver.resolve(prepared.registry(), operationName, request.version());
         RouteGraph graph = new RouteGraph();
         traverseInto(response, request.api(), operationName, resolved,
-                request.transferType(), prepared.registry(), graph, templateVersionResolver(request));
+                request.transferType(), prepared.registry(), graph, templateVersionResolver(request),
+                request.version());
         response.setGraph(graph);
         // Traversal may have added "Route not found in source" for a direct: target that
         // lives in a dependency not yet added — surface those for review too.
@@ -925,7 +928,8 @@ public class RouteTraceService {
                 }
                 TraceResponse entry = newEntry(op, request.transferType());
                 traverseInto(entry, op.path(), op.operationName(), target,
-                        request.transferType(), registry, graph, templateVersion);
+                        request.transferType(), registry, graph, templateVersion,
+                        versionGiven ? request.version() : target.version());
                 String key = target.version() != null ? target.version() : BASE_GROUP;
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
@@ -987,7 +991,8 @@ public class RouteTraceService {
     private void traverseInto(TraceResponse response, String api, String operationName,
                               ResolvedRoute resolved, String transferType,
                               RouteRegistry registry, RouteGraph graph,
-                              java.util.function.Function<String, String> templateVersion) {
+                              java.util.function.Function<String, String> templateVersion,
+                              String clientVersion) {
         response.setResolvedRoute(resolved.routeName());
         response.setResolvedVersion(resolved.version());
         response.setBaseFallback(resolved.baseFallback());
@@ -995,8 +1000,26 @@ public class RouteTraceService {
         String apiNodeId = "api:" + (api != null ? api : operationName);
         String apiLabel = (api != null ? api : operationName) + "  [" + operationName + "]";
         graph.addNode(new GraphNode(apiNodeId, apiLabel, GraphNode.TYPE_API));
-        new RouteTraverser(registry, graph, response, transferType, resolved.routeName(), templateVersion)
+        new RouteTraverser(registry, graph, response, transferType, resolved.routeName(),
+                templateVersion, destRouteResolver(registry, clientVersion))
                 .trace(resolved.routeName(), apiNodeId);
+    }
+
+    /**
+     * Resolve a DEST_ROUTE-style base name (e.g. {@code acceptcoreinfo}) to the actual route it runs
+     * at {@code clientVersion} — the same version rule used for entry routes (highest {@code R<ver>_}
+     * &le; the client version, else BASE). Returns null when it doesn't resolve to a route that
+     * exists in this scope, so a non-route constant is never mistaken for a dynamic {@code toD} target.
+     */
+    private java.util.function.Function<String, String> destRouteResolver(RouteRegistry registry, String clientVersion) {
+        return base -> {
+            if (base == null || base.isBlank()) {
+                return null;
+            }
+            ResolvedRoute rr = versionResolver.resolve(registry, base.trim(), clientVersion);
+            String routeName = rr.routeName();
+            return (routeName != null && registry.contains(routeName)) ? routeName : null;
+        };
     }
 
     /**

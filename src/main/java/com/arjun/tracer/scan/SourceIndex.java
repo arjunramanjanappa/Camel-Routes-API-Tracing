@@ -130,7 +130,13 @@ public class SourceIndex {
     }
 
     private static String stripScheme(String pattern) {
-        return pattern.trim().replaceFirst("(?i)^(classpath\\*?|file):", "").replace('\\', '/');
+        String p = pattern.trim().replaceFirst("(?i)^(classpath\\*?|file):", "").replace('\\', '/');
+        // A leading '/' (or './') is root-relative — e.g. classpath:/sg/*.xml or /${country}/*.xml.
+        // Scanned file paths are root-relative WITHOUT a leading slash, so drop it or the match fails.
+        while (p.startsWith("/") || p.startsWith("./")) {
+            p = p.startsWith("./") ? p.substring(2) : p.substring(1);
+        }
+        return p;
     }
 
     private static String substitutePlaceholder(String pattern, String value) {

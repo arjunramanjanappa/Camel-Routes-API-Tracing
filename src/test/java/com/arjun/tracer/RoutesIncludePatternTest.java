@@ -89,4 +89,43 @@ class RoutesIncludePatternTest {
         assertThat(trace(service, "aFlow", "MY").getFlow()).contains("aFlow");
         assertThat(trace(service, "bFlow", "MY").getFlow()).contains("bFlow");
     }
+
+    @Test
+    void leadingSlashCountryFolderGlobScopesByCountry(@TempDir Path dir) throws Exception {
+        Files.createDirectories(dir.resolve("sg"));
+        Files.createDirectories(dir.resolve("my"));
+        Files.writeString(dir.resolve("sg/one.xml"), routesDsl("sgOne", "/bfs/sg1"));
+        Files.writeString(dir.resolve("sg/two.xml"), routesDsl("sgTwo", "/bfs/sg2"));
+        Files.writeString(dir.resolve("my/three.xml"), routesDsl("myThree", "/bfs/my3"));
+        Files.createDirectories(dir.resolve("config"));
+        // Leading-slash placeholder folder: classpath:/${country}/*.xml
+        Files.writeString(dir.resolve("config/application.yml"), """
+                camel:
+                  main:
+                    routes-include-pattern: classpath:/${country}/*.xml
+                """);
+        RouteTraceService service = new RouteTraceService(dir.toString());
+
+        assertThat(service.listCountries(new TraceRequest(null, null, null, null)))
+                .containsExactlyInAnyOrder("sg", "my");
+
+        // SG folder → both SG files resolve; MY's folder is out of scope.
+        assertThat(trace(service, "sgOne", "SG").getFlow()).contains("sgOne");
+        assertThat(trace(service, "sgTwo", "SG").getFlow()).contains("sgTwo");
+        assertThat(trace(service, "myThree", "SG").getWarnings())
+                .anyMatch(w -> w.startsWith("Route not found"));
+    }
+
+    @Test
+    void leadingSlashLiteralFolderFileLoads(@TempDir Path dir) throws Exception {
+        Files.createDirectories(dir.resolve("sg"));
+        Files.writeString(dir.resolve("sg/routes.xml"), routesDsl("sgRoutes", "/bfs/sg"));
+        Files.createDirectories(dir.resolve("config"));
+        // Leading-slash literal: classpath:/sg/routes.xml (no ${country}) — loads that exact file.
+        Files.writeString(dir.resolve("config/application.yml"),
+                "camel.main.routes-include-pattern=classpath:/sg/routes.xml\n");
+        RouteTraceService service = new RouteTraceService(dir.toString());
+
+        assertThat(trace(service, "sgRoutes", "SG").getFlow()).contains("sgRoutes");
+    }
 }

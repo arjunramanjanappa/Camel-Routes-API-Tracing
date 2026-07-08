@@ -11,8 +11,8 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.arjun</groupId>
-    <artifactId>camel-route-tracer</artifactId>
+    <groupId>com.uob</groupId>
+    <artifactId>traceguard</artifactId>
     <version>1.0.0</version>
     <name>TraceGuard</name>
     <description>Route trace, release impact and end-to-end log/Splunk verification for Apache Camel XML DSL frameworks</description>

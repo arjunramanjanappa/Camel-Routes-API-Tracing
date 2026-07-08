@@ -100,7 +100,7 @@ refresh**; unchanged trees keep serving from the warm cache.
 
 ```bash
 mvn clean package
-java -jar target/camel-route-tracer-1.0.0.jar
+java -jar target/traceguard-1.0.0.jar
 ```
 
 * **Node/npm are a build prerequisite.** The frontend in `src/main/frontend` is

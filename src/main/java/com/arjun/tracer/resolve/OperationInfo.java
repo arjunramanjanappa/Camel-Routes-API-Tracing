@@ -13,7 +13,18 @@ package com.arjun.tracer.resolve;
  * @param commandHandler true if the handler carries {@code @CommandHandler} (the UFW
  *                       form), regardless of whether it names a command — distinguishes
  *                       a migrated UFW endpoint from a legacy BAU one
+ * @param basePath       the controller's class-level {@code @RequestMapping} prefix
+ *                       (e.g. {@code /services/my}) — carries the country in multi-country repos
+ * @param packageName    the controller's Java package (e.g. {@code com.x.y.my}) — a
+ *                       secondary country signal when the {@code @RequestMapping} has none
  */
 public record OperationInfo(String path, String operationName, String command,
-                            String httpMethod, String controllerType, boolean commandHandler) {
+                            String httpMethod, String controllerType, boolean commandHandler,
+                            String basePath, String packageName) {
+
+    /** Backwards-compatible constructor for callers that don't carry controller context. */
+    public OperationInfo(String path, String operationName, String command,
+                         String httpMethod, String controllerType, boolean commandHandler) {
+        this(path, operationName, command, httpMethod, controllerType, commandHandler, "", "");
+    }
 }

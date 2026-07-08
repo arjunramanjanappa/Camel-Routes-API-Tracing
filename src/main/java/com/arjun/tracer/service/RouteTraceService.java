@@ -682,19 +682,59 @@ public class RouteTraceService {
      */
     private List<OperationInfo> operationsInScope(Prepared prepared) {
         List<OperationInfo> all = prepared.index().operations().all();
-        if (prepared.country() == null) {
+        String country = prepared.country();
+        if (country == null) {
             return all;
         }
-        // One pass over the scoped routes → the set of operations they cover; then an O(1)
-        // membership test per operation (instead of re-scanning every route per operation).
+        // Known country codes (bootstrap base names), lower-cased for matching.
+        Set<String> knownCountries = new java.util.HashSet<>();
+        for (String c : prepared.index().countries()) {
+            knownCountries.add(c.toLowerCase(java.util.Locale.ROOT));
+        }
+        // Fallback (BAU / Mighty) scoping — the operations covered by the country's bootstrap closure.
         Set<String> covered = prepared.registry().operationNames();
         List<OperationInfo> out = new ArrayList<>();
         for (OperationInfo op : all) {
-            if (covered.contains(op.operationName())) {
+            String opCountry = countryOf(op, knownCountries);
+            if (opCountry != null) {
+                // The controller itself declares a country (multi-country repo where the same method
+                // name / route serves several countries) — list it ONLY under that country.
+                if (opCountry.equalsIgnoreCase(country)) {
+                    out.add(op);
+                }
+            } else if (covered.contains(op.operationName())) {
+                // No country on the controller (a BAU endpoint, or a single-country app like Mighty) —
+                // fall back to the bootstrap-closure rule. Its route name is unique across countries,
+                // so the closure it lives in already ties it to the right country.
                 out.add(op);
             }
         }
         return out;
+    }
+
+    /**
+     * The country an operation belongs to, or null when its controller declares none. In priority:
+     * a known-country segment in the class-level {@code @RequestMapping} ({@code /services/my/…}),
+     * else the controller package ending in {@code .<country>} ({@code com.x.y.my}). Case-insensitive.
+     */
+    private static String countryOf(OperationInfo op, Set<String> knownCountries) {
+        if (op.basePath() != null) {
+            for (String seg : op.basePath().split("/")) {
+                String s = seg.trim().toLowerCase(java.util.Locale.ROOT);
+                if (!s.isEmpty() && knownCountries.contains(s)) {
+                    return s;
+                }
+            }
+        }
+        String pkg = op.packageName();
+        if (pkg != null && !pkg.isBlank()) {
+            int dot = pkg.lastIndexOf('.');
+            String last = (dot >= 0 ? pkg.substring(dot + 1) : pkg).trim().toLowerCase(java.util.Locale.ROOT);
+            if (knownCountries.contains(last)) {
+                return last;
+            }
+        }
+        return null;
     }
 
     /** The primary source plus the resolved dependency roots for this request. */

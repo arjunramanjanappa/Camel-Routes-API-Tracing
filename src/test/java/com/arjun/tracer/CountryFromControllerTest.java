@@ -1,5 +1,7 @@
 package com.arjun.tracer;
 
+import com.arjun.tracer.api.ApiDiff;
+import com.arjun.tracer.api.ApiImpact;
 import com.arjun.tracer.api.CatalogResponse;
 import com.arjun.tracer.api.TraceRequest;
 import com.arjun.tracer.api.TraceResponse;
@@ -75,6 +77,36 @@ class CountryFromControllerTest {
         assertThat(apisFor(service, "MY")).containsExactly("/services/my/public/security/softtoken");
         assertThat(apisFor(service, "SG")).containsExactly("/services/sg/public/security/softtoken");
         assertThat(apisFor(service, "ID")).containsExactly("/services/id/public/security/softtoken");
+    }
+
+    /**
+     * Country is mandatory on ALL three tabs and they all share {@code prepare()} (scoped registry) and
+     * {@code operationsInScope()} (controller-country filter) — so the same "only that country's copy"
+     * scoping must hold for Release Test (impact index) and Release Impact (version diff), not just
+     * Release Scope. Same 3-controllers-over-one-shared-route framework as above.
+     */
+    @Test
+    void controllerCountryScopingAppliesToImpactAndDiffTabsToo(@TempDir Path dir) throws Exception {
+        for (String c : new String[]{"SG", "MY", "ID"}) {
+            Files.writeString(dir.resolve(c + ".xml"), bootstrap());
+        }
+        Files.createDirectories(dir.resolve("shared"));
+        Files.writeString(dir.resolve("shared/routes.xml"), sharedRoutes());
+        Files.writeString(dir.resolve("SgController.java"), controller("com.x.y.sg", "/services/sg"));
+        Files.writeString(dir.resolve("MyController.java"), controller("com.x.y.my", "/services/my"));
+        Files.writeString(dir.resolve("IdController.java"), controller("com.x.y.id", "/services/id"));
+
+        RouteTraceService service = new RouteTraceService(dir.toString());
+
+        // Release Test (impact index): only MY's copy of the shared API.
+        assertThat(service.impactIndex(new TraceRequest(null, "9.14", null, null, "MY")).getApis())
+                .extracting(ApiImpact::api)
+                .containsExactly("/services/my/public/security/softtoken");
+
+        // Release Impact (version diff): only MY's copy of the shared API.
+        assertThat(service.versionDiff(new TraceRequest(null, "9.14", null, null, "MY")).getApis())
+                .extracting(ApiDiff::api)
+                .containsExactly("/services/my/public/security/softtoken");
     }
 
     @Test

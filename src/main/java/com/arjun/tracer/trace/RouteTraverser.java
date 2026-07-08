@@ -73,8 +73,14 @@ public class RouteTraverser {
     /** Service version from the most recent template {@code <to>}, applied to the next backend. */
     private String currentServiceVersion;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
-    /** Resolved route from the most recent DEST_ROUTE-style setProperty — target of a dynamic direct: toD. */
+    /** Resolved (existing) route from the most recent DEST_ROUTE-style setProperty — the dynamic toD target. */
     private String currentDestRoute;
+    /**
+     * The route name a DEST_ROUTE base DERIVES to (R&lt;version&gt;_base) when that route is NOT in scope —
+     * followed anyway so the dynamic toD is flagged as "Route not found: R&lt;version&gt;_base" (naming the
+     * missing route for review) rather than a generic "unresolved dynamic target".
+     */
+    private String currentDestMissing;
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
@@ -131,6 +137,7 @@ public class RouteTraverser {
             // it leaking to a later api that has no template of its own.
             currentHosturl = null;          // hosturl (the logged backend path) is scoped to this route body
             currentDestRoute = null;        // and the DEST_ROUTE base is per-route-body
+            currentDestMissing = null;
         }
         if (route == null) {
             if (firstVisit) {
@@ -332,15 +339,16 @@ public class RouteTraverser {
             String target = resolveDynamicName(remainder);
             if (target == null) {
                 // A dynamic direct: whose expression we can't read directly (e.g.
-                // ${exchangeProperty[FINAL_ROUTE_NAME]}). If a DEST_ROUTE-style base was set in scope
-                // and resolves to a real route at this version, follow that; otherwise flag for review.
+                // ${exchangeProperty[FINAL_ROUTE_NAME]}). If a DEST_ROUTE-style base was set, follow the
+                // route it derives to — resolving cleanly when that route is in scope, or being flagged
+                // BY NAME ("Route not found: R<version>_base") when the derived route is missing.
                 if (currentDestRoute != null) {
                     target = currentDestRoute;
+                } else if (currentDestMissing != null) {
+                    target = currentDestMissing;   // derived name; visitRoute will flag it as not-found
                 } else {
-                    // Name the route it's in: the needs-review list aggregates across every API the
-                    // Compare/Load traces, so without the route a generic ${...} target reads as if it
-                    // were the API you just viewed. This is usually a base name set by a bean (not an
-                    // XML <constant>), which can't be read statically.
+                    // No readable base at all — the base is set by a bean (not an XML <constant>), so it
+                    // can't be derived statically. Name the route it's in so the review item is specific.
                     response.getWarnings().add("Unresolved dynamic target in "
                             + routeLabel(currentNodeId) + ": " + uri);
                     return;
@@ -452,12 +460,14 @@ public class RouteTraverser {
         String savedServiceVersion = currentServiceVersion;
         String savedHosturl = currentHosturl;
         String savedDestRoute = currentDestRoute;   // each branch sets its own DEST_ROUTE → its own toD target
+        String savedDestMissing = currentDestMissing;
         try {
             return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
         } finally {
             currentServiceVersion = savedServiceVersion;
             currentHosturl = savedHosturl;
             currentDestRoute = savedDestRoute;
+            currentDestMissing = savedDestMissing;
         }
     }
 
@@ -543,7 +553,11 @@ public class RouteTraverser {
                 ? requestClientVersion : routeVersion(currentNodeId);
         String resolved = destRouteResolver.apply(v, version);
         if (resolved != null) {
-            currentDestRoute = resolved;
+            currentDestRoute = resolved;               // derives to a real route in scope
+        } else if (version != null && !version.isBlank()) {
+            // A readable base whose derived route isn't in scope: remember the name the bean would
+            // build (R<version>_base) so the dynamic toD flags it BY NAME as not-found for review.
+            currentDestMissing = "R" + version + "_" + v;
         }
     }
 

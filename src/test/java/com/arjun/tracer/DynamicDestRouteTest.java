@@ -160,6 +160,30 @@ class DynamicDestRouteTest {
     }
 
     @Test
+    void aDerivedDestRouteThatIsMissingIsFlaggedByNameForReview(@TempDir Path dir) throws Exception {
+        // DEST_ROUTE 'prospectDetails' derives to R9.14_prospectDetails, which is NOT defined. It must
+        // be flagged BY NAME as not-found for review — not a generic "unresolved dynamic target" — so
+        // the reviewer sees exactly which derived route is missing.
+        String routes = """
+                <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+                  <routeContext id="c">
+                    <route id="R9.14_prospectRoute">
+                      <from uri="direct:R9.14_prospect"/>
+                      <setProperty name="DEST_ROUTE"><constant>prospectDetails</constant></setProperty>
+                      <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
+                    </route>
+                  </routeContext>
+                </beans:beans>
+                """;
+        Files.writeString(dir.resolve("r.xml"), routes);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("R9.14_prospectRoute", "9.14", null, null));
+
+        assertThat(r.getNeedsReview()).contains("Route not found in source: R9.14_prospectDetails");
+        assertThat(r.getWarnings()).noneMatch(w -> w.startsWith("Unresolved dynamic target"));
+    }
+
+    @Test
     void anUnresolvableDynamicTargetIsStillFlaggedWhenNoDestRouteBaseWasSet(@TempDir Path dir) throws Exception {
         // A dynamic direct: with no preceding DEST_ROUTE-style constant → still flagged for review.
         String routes = """

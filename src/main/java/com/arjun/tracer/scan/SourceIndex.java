@@ -240,7 +240,11 @@ public class SourceIndex {
         // source of truth for what loads — always part of every country's scope.
         starts.addAll(sharedIncludeFiles);
         if (starts.isEmpty()) {
-            scopeWarnings.add("Unknown country '" + country + "'. Available: " + countries());
+            scopeWarnings.add(countries().isEmpty()
+                    ? "Country '" + country + "' matched no bootstrap: found no <country>.xml with a "
+                            + "<camelContext>, and no application*.yml routes-include-pattern that resolves "
+                            + "to any files. Check the source path/branch (and that the routes actually load)."
+                    : "Unknown country '" + country + "'. Available bootstraps: " + countries());
             return registry;
         }
         Set<FileInfo> closure = closureOf(starts, scopeWarnings);

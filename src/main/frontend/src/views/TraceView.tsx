@@ -22,7 +22,7 @@ const PERSIST = ['sourceDir', 'country', 'sourceType', 'repo', 'branch'] as cons
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 
 function loadParams(app: string): TraceParams {
-  const p: Record<string, string> = {};
+  const p: Record<string, string> = { version: 'N/A' };   // mandatory; N/A = latest per API, else base
   PERSIST.forEach((f) => {
     const v = localStorage.getItem(appKey(app, f));
     if (v !== null) p[f] = v;

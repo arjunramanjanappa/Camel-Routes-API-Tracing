@@ -25,7 +25,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   const [repo, setRepo] = useState(() => localStorage.getItem(appKey(app, 'repo')) ?? '');
   const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
-  const [version, setVersion] = useState('');   // per-test: starts empty, never persisted
+  const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const src: SourceState = { sourceType, sourceDir, repo, branch };
   const onSrc = (p: Partial<SourceState>) => {
@@ -186,13 +186,17 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
           <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
         </div>
-        <div style={{ width: 140 }}>
-          <label>Client version</label>
-          <input value={version} placeholder="9.4" onChange={(e) => setVersion(e.target.value)} />
+        <div style={{ width: 160 }}>
+          <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+          <input list="impactVersionList" value={version} placeholder="9.18 or N/A (latest / base)"
+                 onChange={(e) => setVersion(e.target.value)} />
+          <datalist id="impactVersionList">
+            <option value="N/A" label="latest per API, else base route (unversioned repos)" />
+          </datalist>
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-                disabled={loading || !country.trim() || !sourceValid(src)} onClick={load}
-                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Select a country first' : ''}>
+                disabled={loading || !country.trim() || !version.trim() || !sourceValid(src)} onClick={load}
+                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Select a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
           {loading ? 'Loading…' : 'Load'}
         </button>
       </div>
@@ -210,7 +214,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
       {!loading && !idx && !error && (
         <div className="impact-empty">
           <div className="impact-empty-title">Ready when you are</div>
-          <div className="sub">Set the source directory and <b>country</b> (and optional client version) above, then click <b>Load</b> to scan the framework and list this release&rsquo;s APIs.</div>
+          <div className="sub">Set the source directory, <b>country</b> and <b>client release version</b> (<b>N/A</b> = latest per API, else base) above, then click <b>Load</b> to scan the framework and list this release&rsquo;s APIs.</div>
         </div>
       )}
 

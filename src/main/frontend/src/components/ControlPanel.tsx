@@ -31,8 +31,8 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
       <input value={params.api || ''} placeholder="blank = catalog all APIs"
              onChange={(e) => onChange({ api: e.target.value })} />
 
-      <label>Client release version</label>
-      <input list="versionList" value={params.version || ''} placeholder="9.4 · N/A = latest/base · blank = all"
+      <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+      <input list="versionList" value={params.version || ''} placeholder="9.18 or N/A (latest / base)"
              onChange={(e) => onChange({ version: e.target.value })} />
       <datalist id="versionList">
         <option value="N/A" label="latest per API, else base route (unversioned repos)" />
@@ -47,8 +47,8 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
 
       <SourceFields value={src} onChange={onChange} />
 
-      <button className="trace" disabled={loading || !(params.country || '').trim() || !sourceValid(src)} onClick={onTrace}
-              title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !(params.country || '').trim() ? 'Enter a country first' : ''}>
+      <button className="trace" disabled={loading || !(params.country || '').trim() || !(params.version || '').trim() || !sourceValid(src)} onClick={onTrace}
+              title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !(params.country || '').trim() ? 'Enter a country first' : !(params.version || '').trim() ? 'Enter a client release version (or N/A)' : ''}>
         {loading ? 'Scanning…' : 'Trace'}
       </button>
     </div>

@@ -186,7 +186,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [repo, setRepo] = useState(() => localStorage.getItem(appKey(app, 'repo')) ?? '');
   const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
-  const [version, setVersion] = useState('');
+  const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const src: SourceState = { sourceType, sourceDir, repo, branch };
   const onSrc = (p: Partial<SourceState>) => {
@@ -294,9 +294,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
           <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
         </div>
-        <div style={{ width: 140 }}>
-          <label>Target version <span style={{ color: '#dc2626' }}>*</span></label>
-          <input list="diffVersionList" value={version} placeholder="9.18 or N/A" onChange={(e) => setVersion(e.target.value)}
+        <div style={{ width: 160 }}>
+          <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+          <input list="diffVersionList" value={version} placeholder="9.18 or N/A (latest / base)" onChange={(e) => setVersion(e.target.value)}
                  onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && sourceValid(src) && version.trim()) load(); }} />
           <datalist id="diffVersionList">
             <option value="N/A" label="latest per API, else base route (unversioned repos)" />
@@ -304,7 +304,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
                 disabled={loading || !country.trim() || !sourceValid(src) || !version.trim()} onClick={load}
-                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a target version' : ''}>
+                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
           {loading ? 'Comparing…' : 'Compare'}
         </button>
       </div>
@@ -320,7 +320,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       {!loading && !report && !error && (
         <div className="impact-empty">
           <div className="impact-empty-title">Compare a release against the one before it</div>
-          <div className="sub">Enter a target version (e.g. <b>9.18</b>) and click <b>Compare</b>. For every API the release touched, TraceGuard traces the whole flow at that version and at its immediate-lower version, then highlights exactly what changed — added, removed or modified — across the resolved Camel routes.</div>
+          <div className="sub">Enter a <b>client release version</b> (e.g. <b>9.18</b>, or <b>N/A</b> = each API's latest, else base) and click <b>Compare</b>. For every API the release touched, TraceGuard traces the whole flow at that version and at its immediate-lower version, then highlights exactly what changed — added, removed or modified — across the resolved Camel routes.</div>
         </div>
       )}
 

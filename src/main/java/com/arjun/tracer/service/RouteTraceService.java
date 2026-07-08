@@ -232,7 +232,10 @@ public class RouteTraceService {
         // that version. APIs that fall back to a lower version or BASE are not
         // impacted and are excluded, so the APIs / routes / backends shown are
         // scoped to the release (e.g. only R9.18_* routes), not the whole repo.
-        boolean versionGiven = request.version() != null && !request.version().isBlank();
+        // N/A = "latest per API, else base" — every API is in scope (nothing is a fall-back to exclude),
+        // so it is NOT a concrete "wanted" release version.
+        boolean latestMode = VersionResolver.isLatest(request.version());
+        boolean versionGiven = request.version() != null && !request.version().isBlank() && !latestMode;
         String wantedVersion = versionGiven ? request.version().trim() : null;
         int excluded = 0;
         var templateVersion = templateVersionResolver(request);
@@ -337,12 +340,34 @@ public class RouteTraceService {
         var templateKeys = templateKeysResolver(request);
         RouteRegistry registry = prepared.registry();
 
+        // N/A = "latest per API": diff each API's newest release against its predecessor. When the repo
+        // is unversioned (no R<version>_ routes anywhere), every API instead resolves to its base route
+        // with nothing to diff against — shown as a clean informational row, not a misleading "changed".
+        boolean latestMode = VersionResolver.isLatest(target);
+        boolean unversionedScope = registry.allVersions().isEmpty();
+
         int changed = 0;
         int added = 0;
         int unchanged = 0;
         for (OperationInfo op : operationsInScope(prepared)) {
-            ResolvedRoute targetResolved = versionResolver.resolve(registry, op.operationName(), target);
-            if (!target.equals(targetResolved.version())) {
+            // In latest mode the effective target is this API's own newest version (null → base-only).
+            String effTarget = target;
+            if (latestMode) {
+                effTarget = versionResolver.latestVersion(registry, op.operationName());
+                if (effTarget == null) {
+                    if (registry.contains(op.operationName())) {
+                        report.getApis().add(new ApiDiff(op.path(), op.operationName(),
+                                op.operationName(), BASE_GROUP, null, null,
+                                ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(), null,
+                                "Not versioned — resolves to the base route " + op.operationName()
+                                        + "; no prior version to compare.", List.of()));
+                        unchanged++;
+                    }
+                    continue;
+                }
+            }
+            ResolvedRoute targetResolved = versionResolver.resolve(registry, op.operationName(), effTarget);
+            if (!effTarget.equals(targetResolved.version())) {
                 // No route at the target version. If the API still resolves to a REAL
                 // lower route (a versioned one, or a BASE route), a client on the target
                 // release uses that — the release left this API untouched, so surface it
@@ -354,11 +379,15 @@ public class RouteTraceService {
                     continue;
                 }
                 String resolvedLabel = targetResolved.version() != null ? targetResolved.version() : BASE_GROUP;
+                String note = unversionedScope
+                        ? "Not versioned — resolves to the base route " + targetResolved.routeName()
+                                + "; no prior version to compare."
+                        : "No " + effTarget + " route — a " + effTarget + " client still resolves to "
+                                + targetResolved.routeName() + ".";
                 report.getApis().add(new ApiDiff(op.path(), op.operationName(),
                         targetResolved.routeName(), resolvedLabel, null, null,
                         ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(), null,
-                        "No " + target + " route — a " + target + " client still resolves to "
-                                + targetResolved.routeName() + ".", List.of()));
+                        note, List.of()));
                 unchanged++;
                 continue;
             }
@@ -366,7 +395,7 @@ public class RouteTraceService {
             harvested.addAll(targetTrace.getWarnings());
 
             // Immediate-lower baseline: highest versioned route below target, else BASE, else NEW.
-            String lowerVer = versionResolver.immediateLowerVersion(registry, op.operationName(), target);
+            String lowerVer = versionResolver.immediateLowerVersion(registry, op.operationName(), effTarget);
             ResolvedRoute lowerResolved;
             String lowerLabel;
             if (lowerVer != null) {
@@ -377,9 +406,9 @@ public class RouteTraceService {
                 lowerLabel = BASE_GROUP;
             } else {
                 // New API: blame the new release's routes in its flow to attribute who added it.
-                List<String> addedBy = flowAuthors(targetTrace.getFlow(), target, locations);
+                List<String> addedBy = flowAuthors(targetTrace.getFlow(), effTarget, locations);
                 report.getApis().add(new ApiDiff(op.path(), op.operationName(),
-                        targetResolved.routeName(), target, null, null,
+                        targetResolved.routeName(), effTarget, null, null,
                         ApiDiff.NEW, List.of(), List.of(), List.of(), List.of(), null, null, addedBy));
                 added++;
                 continue;
@@ -390,7 +419,7 @@ public class RouteTraceService {
             // the in-production BAU flow, traced only for the diff. A dynamic route that is new in the
             // target legitimately doesn't resolve at the lower version, so flagging it here is a false
             // alarm — only the target flow's gaps are actionable for THIS release.
-            ApiDiff diff = buildApiDiff(op, targetResolved, target, lowerResolved, lowerLabel,
+            ApiDiff diff = buildApiDiff(op, targetResolved, effTarget, lowerResolved, lowerLabel,
                     targetTrace, lowerTrace, bodies, locations, templateKeys);
             report.getApis().add(diff);
             if (ApiDiff.CHANGED.equals(diff.status())) {
@@ -935,7 +964,10 @@ public class RouteTraceService {
 
         RouteRegistry registry = prepared.registry();
         RouteGraph graph = new RouteGraph();
-        boolean versionGiven = request.version() != null && !request.version().isBlank();
+        // N/A = "latest per API, else base": one target per API (its latest, or the base route), and
+        // nothing is excluded as a fall-back — so it is not a concrete "wanted" release version.
+        boolean latestMode = VersionResolver.isLatest(request.version());
+        boolean versionGiven = request.version() != null && !request.version().isBlank() && !latestMode;
 
         List<OperationInfo> operations = operationsInScope(prepared);
         cat.setOperationCount(operations.size());
@@ -1002,6 +1034,11 @@ public class RouteTraceService {
                                            TraceRequest request, boolean versionGiven) {
         String name = op.operationName();
         List<ResolvedRoute> targets = new ArrayList<>();
+        if (VersionResolver.isLatest(request.version())) {
+            // N/A → a single entry at this API's latest route, or the base route if it has none.
+            targets.add(versionResolver.resolveLatest(registry, name));
+            return targets;
+        }
         if (versionGiven) {
             targets.add(versionResolver.resolve(registry, name, request.version()));
             return targets;

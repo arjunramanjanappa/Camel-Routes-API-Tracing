@@ -296,8 +296,11 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
         <div style={{ width: 140 }}>
           <label>Target version <span style={{ color: '#dc2626' }}>*</span></label>
-          <input value={version} placeholder="9.18" onChange={(e) => setVersion(e.target.value)}
+          <input list="diffVersionList" value={version} placeholder="9.18 or N/A" onChange={(e) => setVersion(e.target.value)}
                  onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && sourceValid(src) && version.trim()) load(); }} />
+          <datalist id="diffVersionList">
+            <option value="N/A" label="latest per API, else base route (unversioned repos)" />
+          </datalist>
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
                 disabled={loading || !country.trim() || !sourceValid(src) || !version.trim()} onClick={load}

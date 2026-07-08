@@ -183,6 +183,14 @@ changed) — and a light/dark theme toggle.
 * **Version scoping** — entering a **client release version** (e.g. `9.4`) shows
   only the APIs that release actually impacts (others, which resolve to a lower
   version or BASE, are excluded with a notice). Blank ⇒ whole catalog.
+* **`N/A` = latest, else base** — enter `N/A` (or `latest`) as the version to resolve
+  **each API to its highest available `R<version>_` route**, falling back to the **base
+  route** (no `R<version>_` prefix) when it has none. This is how you view an
+  **unversioned repo** — one whose routes never carry an `R<version>_` prefix, so every
+  API always uses its base route: `N/A` simply never finds a versioned route and lands on
+  base, on all three tabs. In Release Impact, `N/A` diffs each API's newest release against
+  its predecessor; a base-only API is shown as an informational *"not versioned — no prior
+  version to compare"* row rather than a misleading change.
 * **Graph** — React Flow with a layout switcher, minimap, zoom, role-coloured
   nodes, an entry-route ring, **all API entry nodes aligned in one column/row**,
   selected-path highlighting (BFS up + downstream), per-call host instances, node

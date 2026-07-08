@@ -32,9 +32,12 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
              onChange={(e) => onChange({ api: e.target.value })} />
 
       <label>Client release version</label>
-      <input list="versionList" value={params.version || ''} placeholder="9.4 (blank = BASE / all)"
+      <input list="versionList" value={params.version || ''} placeholder="9.4 · N/A = latest/base · blank = all"
              onChange={(e) => onChange({ version: e.target.value })} />
-      <datalist id="versionList">{meta.versions.map((v) => <option key={v} value={v} />)}</datalist>
+      <datalist id="versionList">
+        <option value="N/A" label="latest per API, else base route (unversioned repos)" />
+        {meta.versions.map((v) => <option key={v} value={v} />)}
+      </datalist>
 
       <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
       <input list="countryList" value={params.country || ''} placeholder="SG / MY / ID / TH / VN"

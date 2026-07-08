@@ -9,6 +9,9 @@ import java.util.List;
  *
  * <ol>
  *   <li>empty version → BASE route ({@code operationName})</li>
+ *   <li>the {@link #isLatest(String) latest token} ({@code N/A} / {@code latest}) → the highest
+ *       available {@code R<version>_<operation>}, or BASE if the repo has none (an unversioned repo
+ *       whose routes never carry an {@code R<version>_} prefix)</li>
  *   <li>otherwise pick the highest available {@code R<version>_<operation>}
  *       whose version is &le; the requested version (exact match, else fall back
  *       to lower minors: 9.4 → 9.3 → 9.2 → …)</li>
@@ -16,6 +19,19 @@ import java.util.List;
  * </ol>
  */
 public class VersionResolver {
+
+    /**
+     * The special client-version token meaning "latest available per API, else the base route".
+     * Typed as {@code N/A} in the UI; used to view an unversioned repo (routes with no
+     * {@code R<version>_} prefix), which always falls through to the base route.
+     */
+    public static boolean isLatest(String version) {
+        if (version == null) {
+            return false;
+        }
+        String t = version.trim();
+        return t.equalsIgnoreCase("N/A") || t.equalsIgnoreCase("NA") || t.equalsIgnoreCase("latest");
+    }
 
     /**
      * @param routeName    the route to enter, e.g. {@code R9.3_fundTransferSubmitV2Api}
@@ -29,6 +45,9 @@ public class VersionResolver {
     public ResolvedRoute resolve(RouteRegistry registry, String operationName, String requestedVersion) {
         if (requestedVersion == null || requestedVersion.isBlank()) {
             return new ResolvedRoute(operationName, null, true);
+        }
+        if (isLatest(requestedVersion)) {
+            return resolveLatest(registry, operationName);
         }
 
         Version requested = Version.parse(requestedVersion.trim());
@@ -48,6 +67,31 @@ public class VersionResolver {
             return new ResolvedRoute("R" + best.text() + "_" + operationName, best.text(), false);
         }
         return new ResolvedRoute(operationName, null, true);
+    }
+
+    /**
+     * The highest available {@code R<version>_<operation>} route, or the BASE route
+     * ({@code operationName}) when the operation has no versioned route at all — the resolution for
+     * the {@code N/A}/latest token, and the natural behaviour for an unversioned repo.
+     */
+    public ResolvedRoute resolveLatest(RouteRegistry registry, String operationName) {
+        String latest = latestVersion(registry, operationName);
+        if (latest != null) {
+            return new ResolvedRoute("R" + latest + "_" + operationName, latest, false);
+        }
+        return new ResolvedRoute(operationName, null, true);
+    }
+
+    /** The highest release version present for this operation, or null when it has no versioned route. */
+    public String latestVersion(RouteRegistry registry, String operationName) {
+        Version best = null;
+        for (String v : registry.availableVersionsFor(operationName)) {
+            Version c = Version.parse(v);
+            if (best == null || c.compareTo(best) > 0) {
+                best = c;
+            }
+        }
+        return best != null ? best.text() : null;
     }
 
     /**

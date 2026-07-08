@@ -125,6 +125,51 @@ directory and country are remembered per application**, so each app keeps its ow
 context (`tracer.<app>.*` in localStorage) — switching never leaks one app's settings
 into the other.
 
+## Source input — local path or Bitbucket branch
+
+Every tab reads the framework from a **Source**, chosen with a **Local path /
+Bitbucket branch** toggle (shared by all three tabs, remembered per application):
+
+* **Local path** — a directory on the machine running TraceGuard (the `sourceDir`
+  param, or the global `TRACER_SOURCE_DIR` / `tracer.source-dir` default).
+* **Bitbucket branch** — a **repo URL + branch/tag**; the server clones/fetches it
+  with **JGit** (pure Java — no `git` binary) into a per-repo/-branch cache under
+  `<java.io.tmpdir>/traceguard-repos`, checks out the ref, and analyses that checkout.
+  It re-**fetches** (throttled) and re-checks-out **only when the ref moved**, so an
+  unchanged branch stays on the warm cache. Nothing is installed locally — it all runs
+  server-side, so non-developers (release / QA) can point at a branch with no local
+  checkout. Sent as `repo` + `branch` params.
+
+  Auth for an internal Bitbucket is an **HTTP access token**, configured **inside the
+  utility** (not an env var): set `bitbucket.token` in `application.yml` — JGit sends it
+  as a `Bearer` header over HTTPS (`bitbucket.work-dir` optionally overrides the cache
+  dir). When a checkout fails (bad URL, wrong branch, missing/expired token) the reason
+  is surfaced under **Needs review** and the primary analysis still completes.
+
+### Dependency sources
+
+Some bootstraps `<import>` route XMLs — or dispatch (`direct:`) to host / shared
+routes — that ship in a **core/shared library**, not the primary source. Add that
+library as one or more **Dependency sources** (each its own Local-path / Bitbucket
+toggle). They are scanned and **merged into the same index**, so those imports resolve
+and the routes flow into the trace / diff exactly as if they were local. **Dependency
+routes are always in scope, independent of country or version** — they're
+country-agnostic shared infrastructure. The editor appears next to Source **only when a
+review item is outstanding** (a clean run never shows it); add more than one with
+**＋ Add dependency**. Sent as repeatable `dep` params (`local:<path>` or
+`bit:<repo>|<branch>`).
+
+### Needs review
+
+Anything the analysis couldn't resolve is highlighted in a distinct **Needs review**
+box (separate from the general warning banner) and echoed as its own section in every
+PDF report, so a reader always knows the analysis may be incomplete. It covers an
+unresolved **`<import>` / `<routeContextRef>`**, a **route not found** mid-flow — named,
+e.g. `Route not found in source: R9.14_acceptcoreinfo` — a **failed dependency load**,
+and a dynamic target with **no readable base**. Warnings are never silently dropped: you
+clear them by adding the dependency that provides the missing routes (or fixing the
+reference) and re-running.
+
 ## UI
 
 The workspace has three tabs — **Release Scope** (trace the impacted APIs),
@@ -253,11 +298,14 @@ are mapped to ASCII in the PDF.
 | `/internal/countries` | GET | Bootstrap (country) scopes |
 
 Common params (query or, for `log-analysis`, multipart form fields): `version`,
-`country`, `sourceDir`, plus `transferType` (route-graph). `log-analysis` also takes
-`apis` / `backends` (repeatable — the front-end APIs and/or backends to report),
-`all` (analyse the whole release), and `app` (`Mighty` / `SPL` — selects which log
-markers to parse). The impact index exposes a `backendVersions` map (backend URL →
-traced service version) per API.
+`country`, `sourceDir`, plus `transferType` (route-graph). Source can also be a
+**Bitbucket branch** via `repo` + `branch` (the server clones/fetches it), and one or
+more **dependency sources** via repeatable `dep` (`local:<path>` or `bit:<repo>|<branch>`)
+— both accepted on every endpoint. `log-analysis` also takes `apis` / `backends`
+(repeatable — the front-end APIs and/or backends to report), `all` (analyse the whole
+release), and `app` (`Mighty` / `SPL` — selects which log markers to parse). The impact
+index exposes a `backendVersions` map (backend URL → traced service version) per API.
+Every response carries a `needsReview` list (unresolved imports / routes / dependencies).
 
 `route-graph` carries a `mode` discriminator:
 
@@ -397,6 +445,23 @@ no `R<ver>_`) is both the base and — when it's the only route — the latest, 
 client resolves to it. The same machinery powers Release Impact's **immediate-lower**
 pick (highest versioned route strictly below the target, else BASE).
 
+### Dynamic route derivation
+Besides the `direct:${exchangeProperty[operationName]}` redirect, a route may dispatch
+to a route whose name a bean builds from **client version + a base name** — e.g.
+`<setProperty name="DEST_ROUTE"><constant>acceptcoreinfo</constant></setProperty>` then
+`<toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>`, where `FINAL_ROUTE_NAME`
+= `R<version>_<DEST_ROUTE>` (a de-duplication pattern). The traverser reproduces this
+statically: it tracks the most recent route-resolving `<constant>` in scope (property
+names vary by module, so it keys on *"a constant that resolves to a route"*, not a fixed
+name) and resolves it through the **same VersionResolver** used for entry routes. The
+version is the **requested client version** when given, else the **calling route's own**
+`R<ver>_` version — so it resolves with no user input, on every tab. Each `<when>` that
+sets its own base **fans out** to its own resolved route. If the derived route isn't in
+scope it's flagged **by name** (`Route not found: R<version>_<base>`) for review, not a
+generic message; only a base set entirely by a bean (no XML `<constant>` to read) stays a
+plain *"unresolved dynamic target"*. It's a purely additive flavour — active only when a
+route contains `direct:${exchangeProperty[FINAL_ROUTE_NAME]}`.
+
 ### Release impact
 For each API whose entry resolves to exactly the target version, the whole flow is
 traced at the **target** and at the **immediate-lower** version; the two flows'
@@ -438,7 +503,8 @@ A code base often has one bootstrap per country (`SG.xml`, `MY.xml`, …), each 
 Selecting a `country` restricts analysis to that bootstrap's **assembly closure**:
 starting from `<country>.xml`, the tracer follows its imports and context refs
 transitively and loads only those routes. With no `country`, every route in the
-tree is considered.
+tree is considered. Routes from **Dependency sources** are always included regardless
+of the country closure — they're shared/core infrastructure, not country-specific.
 
 ---
 

@@ -28,8 +28,13 @@ public class SourceIndex {
 
     /** routeContext id → the file that defines it. */
     private final Map<String, FileInfo> contextIdToFile = new LinkedHashMap<>();
-    /** bootstrap (country) name → its file. Case-insensitive: the UI-typed country ↔ the filename/profile. */
-    private final Map<String, FileInfo> countryToFile = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    /**
+     * bootstrap (country) name → its file(s). Case-insensitive (the UI-typed country ↔ the
+     * filename/profile). A country usually has one bootstrap ({@code SG.xml}), but a
+     * routes-include-pattern country can resolve to several files (e.g. {@code routes/sg/*.xml} plus a
+     * shared {@code routes.xml}), so the value is a list.
+     */
+    private final Map<String, List<FileInfo>> countryToFiles = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     /** Dependency-source files (shared/core host routes), collected once — always in every country scope. */
     private final List<FileInfo> dependencyFiles = new ArrayList<>();
     /** camel routes-include-pattern entries from application*.yml — the second bootstrap-discovery way. */
@@ -62,45 +67,52 @@ public class SourceIndex {
                 contextIdToFile.putIfAbsent(ctx, f);
             }
             if (f.metadata().hasCamelContext()) {
-                countryToFile.putIfAbsent(f.baseName(), f);
+                countryToFiles.computeIfAbsent(f.baseName(), k -> new ArrayList<>()).add(f);
             }
             if (f.fromDependency()) {
                 dependencyFiles.add(f);
             }
         }
-        // Second way (used ONLY when the filename way found no bootstrap): the countries come from the
-        // camel routes-include-pattern in application*.yml — either a ${country} placeholder in the
-        // route filename (secure-<country>.xml) or the profile of an application-<profile>.yml.
-        if (countryToFile.isEmpty()) {
+        // Second way (ONLY when the filename way found no bootstrap): the countries come from the camel
+        // routes-include-pattern in application*.yml.
+        if (countryToFiles.isEmpty()) {
             detectCountriesFromIncludes();
         }
     }
 
-    /** Resolve routes-include-pattern entries to country → bootstrap-file, populating {@link #countryToFile}. */
+    /** Resolve routes-include-pattern entries to country → bootstrap-file(s), populating {@link #countryToFiles}. */
     private void detectCountriesFromIncludes() {
+        boolean hasProfiles = includePatterns.stream().anyMatch(i -> i.profile() != null);
         for (RouteIncludePattern inc : includePatterns) {
+            // application-<country>.yml take priority; the default application.yml is used only when
+            // there are no profile-specific configs.
+            if (hasProfiles && inc.profile() == null) {
+                continue;
+            }
             String pattern = stripScheme(inc.pattern());
-            boolean hasPlaceholder = pattern.contains("${");
             if (inc.profile() != null) {
-                // application-<profile>.yml → country = profile; the route file is the pattern with any
-                // ${...} filled in by the profile (or the direct filename as-is).
-                String concrete = hasPlaceholder ? substitutePlaceholder(pattern, inc.profile()) : pattern;
-                FileInfo f = matchFile(concrete);
-                if (f != null) {
-                    countryToFile.putIfAbsent(inc.profile(), f);
-                }
-            } else if (hasPlaceholder) {
-                // plain application.yml with a ${country} placeholder → expand against the real files; the
-                // segment matching the placeholder is the country (e.g. secure-my.xml → "my").
+                // application-<profile>.yml → country = profile; scope = every file its patterns resolve to
+                // (a routes/<country>/*.xml wildcard, plus a shared routes.xml — both listed in the config).
+                String concrete = pattern.contains("${") ? substitutePlaceholder(pattern, inc.profile()) : pattern;
+                addFiles(inc.profile(), matchFiles(concrete));
+            } else if (pattern.contains("${")) {
+                // default application.yml with a ${country} placeholder → the segment matching the
+                // placeholder is the country (secure-my.xml → "my", or routes/my/*.xml → "my").
                 java.util.regex.Pattern rx = placeholderRegex(pattern);
                 for (FileInfo f : files) {
                     java.util.regex.Matcher m = rx.matcher(f.relPath().replace('\\', '/'));
                     if (m.matches()) {
-                        countryToFile.putIfAbsent(m.group(1), f);
+                        addFiles(m.group(1), List.of(f));
                     }
                 }
             }
-            // else: a direct file with no profile and no placeholder → a shared file, no country → skipped.
+            // else: a default direct/shared file with no placeholder → no country signal → skipped.
+        }
+    }
+
+    private void addFiles(String country, List<FileInfo> matched) {
+        if (!matched.isEmpty()) {
+            countryToFiles.computeIfAbsent(country, k -> new ArrayList<>()).addAll(matched);
         }
     }
 
@@ -112,26 +124,62 @@ public class SourceIndex {
         return pattern.replaceAll("\\$\\{[^}]*\\}", java.util.regex.Matcher.quoteReplacement(value));
     }
 
+    /** Every scanned file matching an Ant-style path pattern (handles {@code *}, {@code **}, {@code ?}). */
+    private List<FileInfo> matchFiles(String pattern) {
+        String want = pattern.replace('\\', '/');
+        List<FileInfo> out = new ArrayList<>();
+        if (want.indexOf('*') < 0 && want.indexOf('?') < 0) {
+            for (FileInfo f : files) {
+                if (f.relPath().equals(want) || f.relPath().endsWith("/" + want)) {
+                    out.add(f);
+                }
+            }
+            return out;
+        }
+        java.util.regex.Pattern rx = java.util.regex.Pattern.compile("(?:^|.*/)" + antBody(want) + "$");
+        for (FileInfo f : files) {
+            if (rx.matcher(f.relPath().replace('\\', '/')).matches()) {
+                out.add(f);
+            }
+        }
+        return out;
+    }
+
     /** A regex matching a file path whose tail is the pattern, the {@code ${…}} placeholder captured as group 1. */
     private static java.util.regex.Pattern placeholderRegex(String pattern) {
         int start = pattern.indexOf("${");
         int end = pattern.indexOf('}', start);
         String prefix = pattern.substring(0, start);
         String suffix = end >= 0 ? pattern.substring(end + 1) : "";
-        return java.util.regex.Pattern.compile(".*" + java.util.regex.Pattern.quote(prefix)
-                + "([A-Za-z0-9_-]+)" + java.util.regex.Pattern.quote(suffix) + "$");
+        // prefix/suffix may themselves carry wildcards (e.g. routes/${country}/*.xml).
+        return java.util.regex.Pattern.compile("(?:^|.*/)" + antBody(prefix)
+                + "([A-Za-z0-9_-]+)" + antBody(suffix) + "$");
     }
 
-    /** The scanned file whose relative path is (or ends with) the given path; null if none. */
-    private FileInfo matchFile(String path) {
-        String want = path.replace('\\', '/');
-        for (FileInfo f : files) {
-            String rel = f.relPath();
-            if (rel.equals(want) || rel.endsWith("/" + want)) {
-                return f;
+    /** Convert an Ant glob body to a regex body: {@code **}→any, {@code *}→non-slash, {@code ?}→one non-slash. */
+    private static String antBody(String glob) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < glob.length(); i++) {
+            char c = glob.charAt(i);
+            if (c == '*') {
+                if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
+                    sb.append(".*");
+                    i++;
+                    if (i + 1 < glob.length() && glob.charAt(i + 1) == '/') {
+                        i++;   // consume the slash of **/
+                    }
+                } else {
+                    sb.append("[^/]*");
+                }
+            } else if (c == '?') {
+                sb.append("[^/]");
+            } else if ("\\.[]{}()+-^$|".indexOf(c) >= 0) {
+                sb.append('\\').append(c);
+            } else {
+                sb.append(c);
             }
         }
-        return null;
+        return sb.toString();
     }
 
     public OperationResolver operations() {
@@ -144,7 +192,7 @@ public class SourceIndex {
 
     /** Bootstrap names available as scopes, sorted (e.g. ID, MY, SG, TH, VN). */
     public List<String> countries() {
-        return new ArrayList<>(new TreeSet<>(countryToFile.keySet()));
+        return new ArrayList<>(new TreeSet<>(countryToFiles.keySet()));
     }
 
     /** A registry containing every route in the tree (no country filter). */
@@ -164,12 +212,12 @@ public class SourceIndex {
      */
     public RouteRegistry scopedRegistry(String country, List<String> scopeWarnings) {
         RouteRegistry registry = new RouteRegistry();
-        FileInfo start = countryToFile.get(country);
-        if (start == null) {
+        List<FileInfo> starts = countryToFiles.get(country);
+        if (starts == null || starts.isEmpty()) {
             scopeWarnings.add("Unknown country '" + country + "'. Available: " + countries());
             return registry;
         }
-        Set<FileInfo> closure = closureOf(start, scopeWarnings);
+        Set<FileInfo> closure = closureOf(starts, scopeWarnings);
         // Dependency files are country- and version-agnostic shared/core routes (host resolution),
         // not country bootstraps — so they are ALWAYS in scope, even when the country bootstrap
         // reaches them via direct: rather than an <import>. Union them into the closure so a host
@@ -190,11 +238,10 @@ public class SourceIndex {
         return registry;
     }
 
-    /** Transitive set of files reachable from a bootstrap via imports + context refs. */
-    private Set<FileInfo> closureOf(FileInfo start, List<String> scopeWarnings) {
+    /** Transitive set of files reachable from the bootstrap file(s) via imports + context refs. */
+    private Set<FileInfo> closureOf(java.util.Collection<FileInfo> starts, List<String> scopeWarnings) {
         Set<FileInfo> visited = new HashSet<>();
-        Deque<FileInfo> queue = new ArrayDeque<>();
-        queue.add(start);
+        Deque<FileInfo> queue = new ArrayDeque<>(starts);
         while (!queue.isEmpty()) {
             FileInfo f = queue.poll();
             if (!visited.add(f)) {

@@ -514,6 +514,26 @@ transitively and loads only those routes. With no `country`, every route in the
 tree is considered. Routes from **Dependency sources** are always included regardless
 of the country closure — they're shared/core infrastructure, not country-specific.
 
+**Bootstrap discovery has two ways** (filename first, YAML as a fallback — never both):
+
+1. **Filename** — a `<country>.xml` file (`SG.xml`, `MY.xml`) containing a `<camelContext>`.
+2. **`application.yml` `routes-include-pattern`** — when no filename bootstrap exists, the
+   countries and their route files come from the camel `routes-include-pattern` (under
+   `camel: main:`). The config is the **source of truth** for what loads; the tracer resolves
+   the pattern to files and loads them, using `<country>` only to fill in dynamic filenames:
+   * **`${country}` placeholder** — `classpath:routes-${country}.xml` (or `routes/${country}/*.xml`):
+     each file the placeholder matches becomes that country's scope (`routes-MY.xml` → `MY`).
+   * **`application-<country>.yml` profiles** — the profile name is the country; its own
+     `routes-include-pattern` lists that country's files.
+   * **Country-less entries** — a shared `routes.xml`, a glob (`routes/*.xml`), or a literal
+     list are **always loaded for every country** (a shared file listed alongside a
+     `${country}` placeholder loads too). Route XMLs may use Camel's native `<routes>` DSL,
+     Spring `<camelContext>`, or `<routeContext>` — all are parsed.
+
+  When the config carries no country dimension (a plain glob or literal list), every listed
+  file loads and the **controller-country** rule (`@RequestMapping("/services/<country>")` or a
+  `.<country>` package) scopes which APIs are *shown* per country.
+
 ---
 
 ## Layout

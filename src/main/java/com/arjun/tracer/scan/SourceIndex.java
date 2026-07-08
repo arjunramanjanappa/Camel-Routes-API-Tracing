@@ -37,6 +37,13 @@ public class SourceIndex {
     private final Map<String, List<FileInfo>> countryToFiles = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     /** Dependency-source files (shared/core host routes), collected once — always in every country scope. */
     private final List<FileInfo> dependencyFiles = new ArrayList<>();
+    /**
+     * Files from a default {@code application.yml} {@code routes-include-pattern} entry that carries no
+     * country dimension — a shared {@code routes.xml}, a glob ({@code routes/*.xml}), or a literal list.
+     * The application config is the source of truth for what loads, so these are ALWAYS in every
+     * country's scope (the controller-country filter then scopes which APIs are shown).
+     */
+    private final Set<FileInfo> sharedIncludeFiles = new java.util.LinkedHashSet<>();
     /** camel routes-include-pattern entries from application*.yml — the second bootstrap-discovery way. */
     private final List<RouteIncludePattern> includePatterns;
 
@@ -105,8 +112,14 @@ public class SourceIndex {
                         addFiles(m.group(1), List.of(f));
                     }
                 }
+            } else {
+                // default application.yml entry with no ${country} and no profile — a shared routes.xml,
+                // a glob (routes/*.xml), or a literal list. It has no country signal of its own; the config
+                // is the source of truth, so it loads for EVERY country (controller-country then scopes
+                // which APIs are shown). This is also what pulls in a shared routes.xml that is listed
+                // alongside a ${country} placeholder in the same pattern.
+                sharedIncludeFiles.addAll(matchFiles(pattern));
             }
-            // else: a default direct/shared file with no placeholder → no country signal → skipped.
         }
     }
 
@@ -212,8 +225,15 @@ public class SourceIndex {
      */
     public RouteRegistry scopedRegistry(String country, List<String> scopeWarnings) {
         RouteRegistry registry = new RouteRegistry();
-        List<FileInfo> starts = countryToFiles.get(country);
-        if (starts == null || starts.isEmpty()) {
+        List<FileInfo> starts = new ArrayList<>();
+        List<FileInfo> countrySpecific = countryToFiles.get(country);
+        if (countrySpecific != null) {
+            starts.addAll(countrySpecific);
+        }
+        // The default application.yml's country-less files (shared routes.xml, glob, literal list) are the
+        // source of truth for what loads — always part of every country's scope.
+        starts.addAll(sharedIncludeFiles);
+        if (starts.isEmpty()) {
             scopeWarnings.add("Unknown country '" + country + "'. Available: " + countries());
             return registry;
         }

@@ -28,17 +28,26 @@ public class SourceIndex {
 
     /** routeContext id → the file that defines it. */
     private final Map<String, FileInfo> contextIdToFile = new LinkedHashMap<>();
-    /** bootstrap (country) name → its file. */
-    private final Map<String, FileInfo> countryToFile = new LinkedHashMap<>();
+    /** bootstrap (country) name → its file. Case-insensitive: the UI-typed country ↔ the filename/profile. */
+    private final Map<String, FileInfo> countryToFile = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     /** Dependency-source files (shared/core host routes), collected once — always in every country scope. */
     private final List<FileInfo> dependencyFiles = new ArrayList<>();
+    /** camel routes-include-pattern entries from application*.yml — the second bootstrap-discovery way. */
+    private final List<RouteIncludePattern> includePatterns;
 
     public SourceIndex(OperationResolver operations, List<FileInfo> files,
                        List<java.nio.file.Path> allFiles, List<String> warnings) {
+        this(operations, files, allFiles, warnings, List.of());
+    }
+
+    public SourceIndex(OperationResolver operations, List<FileInfo> files,
+                       List<java.nio.file.Path> allFiles, List<String> warnings,
+                       List<RouteIncludePattern> includePatterns) {
         this.operations = operations;
         this.files = files;
         this.allFiles = allFiles;
         this.warnings = warnings;
+        this.includePatterns = includePatterns;
         index();
     }
 
@@ -59,6 +68,70 @@ public class SourceIndex {
                 dependencyFiles.add(f);
             }
         }
+        // Second way (used ONLY when the filename way found no bootstrap): the countries come from the
+        // camel routes-include-pattern in application*.yml — either a ${country} placeholder in the
+        // route filename (secure-<country>.xml) or the profile of an application-<profile>.yml.
+        if (countryToFile.isEmpty()) {
+            detectCountriesFromIncludes();
+        }
+    }
+
+    /** Resolve routes-include-pattern entries to country → bootstrap-file, populating {@link #countryToFile}. */
+    private void detectCountriesFromIncludes() {
+        for (RouteIncludePattern inc : includePatterns) {
+            String pattern = stripScheme(inc.pattern());
+            boolean hasPlaceholder = pattern.contains("${");
+            if (inc.profile() != null) {
+                // application-<profile>.yml → country = profile; the route file is the pattern with any
+                // ${...} filled in by the profile (or the direct filename as-is).
+                String concrete = hasPlaceholder ? substitutePlaceholder(pattern, inc.profile()) : pattern;
+                FileInfo f = matchFile(concrete);
+                if (f != null) {
+                    countryToFile.putIfAbsent(inc.profile(), f);
+                }
+            } else if (hasPlaceholder) {
+                // plain application.yml with a ${country} placeholder → expand against the real files; the
+                // segment matching the placeholder is the country (e.g. secure-my.xml → "my").
+                java.util.regex.Pattern rx = placeholderRegex(pattern);
+                for (FileInfo f : files) {
+                    java.util.regex.Matcher m = rx.matcher(f.relPath().replace('\\', '/'));
+                    if (m.matches()) {
+                        countryToFile.putIfAbsent(m.group(1), f);
+                    }
+                }
+            }
+            // else: a direct file with no profile and no placeholder → a shared file, no country → skipped.
+        }
+    }
+
+    private static String stripScheme(String pattern) {
+        return pattern.trim().replaceFirst("(?i)^(classpath\\*?|file):", "").replace('\\', '/');
+    }
+
+    private static String substitutePlaceholder(String pattern, String value) {
+        return pattern.replaceAll("\\$\\{[^}]*\\}", java.util.regex.Matcher.quoteReplacement(value));
+    }
+
+    /** A regex matching a file path whose tail is the pattern, the {@code ${…}} placeholder captured as group 1. */
+    private static java.util.regex.Pattern placeholderRegex(String pattern) {
+        int start = pattern.indexOf("${");
+        int end = pattern.indexOf('}', start);
+        String prefix = pattern.substring(0, start);
+        String suffix = end >= 0 ? pattern.substring(end + 1) : "";
+        return java.util.regex.Pattern.compile(".*" + java.util.regex.Pattern.quote(prefix)
+                + "([A-Za-z0-9_-]+)" + java.util.regex.Pattern.quote(suffix) + "$");
+    }
+
+    /** The scanned file whose relative path is (or ends with) the given path; null if none. */
+    private FileInfo matchFile(String path) {
+        String want = path.replace('\\', '/');
+        for (FileInfo f : files) {
+            String rel = f.relPath();
+            if (rel.equals(want) || rel.endsWith("/" + want)) {
+                return f;
+            }
+        }
+        return null;
     }
 
     public OperationResolver operations() {

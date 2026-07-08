@@ -51,19 +51,29 @@ public class SourceScanner {
         List<FileInfo> files = new ArrayList<>();
         List<Path> allFiles = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        List<RouteIncludePattern> includes = new ArrayList<>();
 
-        scanInto(primary, operations, files, allFiles, warnings, false);
+        scanInto(primary, operations, files, allFiles, warnings, includes, false);
         for (Path dep : deps) {
             if (dep != null) {
-                scanInto(dep, operations, files, allFiles, warnings, true);
+                scanInto(dep, operations, files, allFiles, warnings, includes, true);
             }
         }
-        return new SourceIndex(operations, files, allFiles, warnings);
+        return new SourceIndex(operations, files, allFiles, warnings, includes);
     }
 
-    /** Walk one root and add its controllers / route XMLs to the accumulating index state. */
+    // application.yml / application-<profile>.yml / .yaml / .properties — the config that can carry a
+    // camel routes-include-pattern (the second bootstrap-discovery way).
+    private static final java.util.regex.Pattern APP_CONFIG =
+            java.util.regex.Pattern.compile("application(?:-([A-Za-z0-9_-]+))?\\.(?:yml|yaml|properties)");
+    // routes-include-pattern: <value>   (yaml)   OR   ...routes-include-pattern=<value>   (properties)
+    private static final java.util.regex.Pattern INCLUDE_PATTERN =
+            java.util.regex.Pattern.compile("routes-include-pattern\\s*[:=]\\s*(.+)");
+
+    /** Walk one root and add its controllers / route XMLs / config include-patterns to the index state. */
     private void scanInto(Path root, OperationResolver operations, List<FileInfo> files,
-                          List<Path> allFiles, List<String> warnings, boolean fromDependency) {
+                          List<Path> allFiles, List<String> warnings, List<RouteIncludePattern> includes,
+                          boolean fromDependency) {
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !isUnderSkippedDir(root, p))
@@ -82,10 +92,32 @@ public class SourceScanner {
                         } else if (name.endsWith(".xml")) {
                             readQuietly(p).ifPresent(xml ->
                                     files.add(toFileInfo(root, p, xml, warnings, fromDependency)));
+                        } else {
+                            java.util.regex.Matcher cfg = APP_CONFIG.matcher(name);
+                            if (cfg.matches()) {
+                                readQuietly(p).ifPresent(text ->
+                                        collectIncludes(cfg.group(1), text, includes));
+                            }
                         }
                     });
         } catch (IOException e) {
             throw new IllegalStateException("Failed to scan source directory: " + root, e);
+        }
+    }
+
+    /** Pull every {@code routes-include-pattern} value out of one config file (comma-separated split). */
+    private void collectIncludes(String profile, String text, List<RouteIncludePattern> includes) {
+        for (String line : text.split("\\R")) {
+            java.util.regex.Matcher m = INCLUDE_PATTERN.matcher(line);
+            if (m.find()) {
+                String value = m.group(1).trim();
+                for (String one : value.split(",")) {
+                    String v = one.trim();
+                    if (!v.isEmpty()) {
+                        includes.add(new RouteIncludePattern(profile, v));
+                    }
+                }
+            }
         }
     }
 

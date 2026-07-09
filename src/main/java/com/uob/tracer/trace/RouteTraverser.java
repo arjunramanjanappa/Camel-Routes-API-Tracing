@@ -51,7 +51,10 @@ public class RouteTraverser {
 
     private final Set<String> expandedRoutes = new HashSet<>();
     private final List<String> backendsSeen = new ArrayList<>();
-    private int consumerSeq = 0;   // gives each host/terminal call its own instance node
+    // Gives each host/terminal call its own instance node. Shared (a 1-element holder) across a
+    // catalog's per-API traversers so instance ids stay unique — otherwise two APIs that both call the
+    // same host would collide on route:host#1 and their backends would merge onto one node.
+    private final int[] consumerSeq;
 
     /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (or null). */
     private final java.util.function.Function<String, String> templateVersion;
@@ -86,14 +89,14 @@ public class RouteTraverser {
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion) {
         this(registry, graph, response, transferType, operationRouteName, templateVersion,
-                (base, version) -> null, null);
+                (base, version) -> null, null, new int[1]);
     }
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion,
                           java.util.function.BiFunction<String, String, String> destRouteResolver,
-                          String requestClientVersion) {
+                          String requestClientVersion, int[] consumerSeq) {
         this.registry = registry;
         this.graph = graph;
         this.response = response;
@@ -102,6 +105,7 @@ public class RouteTraverser {
         this.templateVersion = templateVersion != null ? templateVersion : uri -> null;
         this.destRouteResolver = destRouteResolver != null ? destRouteResolver : (base, version) -> null;
         this.requestClientVersion = requestClientVersion;
+        this.consumerSeq = consumerSeq != null ? consumerSeq : new int[1];
     }
 
     /** Trace from the entry route, attaching it under the given API node. */
@@ -186,7 +190,7 @@ public class RouteTraverser {
     private void emitConsumerInstance(RouteModel route, String endpoint, String callerNodeId,
                                       String edgeLabel, List<PendingApi> inherited) {
         String identity = route.routeId() != null ? route.routeId() : endpoint;
-        String instanceId = "route:" + identity + "#" + (++consumerSeq);
+        String instanceId = "route:" + identity + "#" + (++consumerSeq[0]);
         graph.addNode(new GraphNode(instanceId, identity, GraphNode.TYPE_ROUTE,
                 java.util.Map.of("source", route.source(), "host", route.host())));
         graph.addEdge(callerNodeId, instanceId, edgeLabel);

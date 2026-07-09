@@ -242,8 +242,8 @@ public class RouteTraceService {
         List<String> harvested = new ArrayList<>();
 
         for (OperationInfo op : operationsInScope(prepared)) {
-            ResolvedRoute resolved =
-                    versionResolver.resolve(prepared.registry(), entryOperation(op, prepared.registry()), request.version());
+            ResolvedRoute resolved = versionResolver.resolve(prepared.registry(),
+                    entryOperation(op, prepared.registry(), prepared.index().isCommandDispatch()), request.version());
             if (wantedVersion != null && !wantedVersion.equals(resolved.version())) {
                 excluded++;
                 continue;   // resolves to a lower version or BASE — not impacted by this release
@@ -349,8 +349,9 @@ public class RouteTraceService {
         int changed = 0;
         int added = 0;
         int unchanged = 0;
+        boolean commandDispatch = prepared.index().isCommandDispatch();
         for (OperationInfo op : operationsInScope(prepared)) {
-            String routeOp = entryOperation(op, registry);   // send<command>Route or the method name
+            String routeOp = entryOperation(op, registry, commandDispatch);   // send<ControllerClass>Route or the method name
             // In latest mode the effective target is this API's own newest version (null → base-only).
             String effTarget = target;
             if (latestMode) {
@@ -732,7 +733,7 @@ public class RouteTraceService {
                 if (opCountry.equalsIgnoreCase(country)) {
                     out.add(op);
                 }
-            } else if (covered.contains(entryOperation(op, prepared.registry()))) {
+            } else if (covered.contains(entryOperation(op, prepared.registry(), prepared.index().isCommandDispatch()))) {
                 // No country on the controller (a BAU endpoint, or a single-country app like Mighty) —
                 // fall back to the bootstrap-closure rule. Its route name is unique across countries,
                 // so the closure it lives in already ties it to the right country.
@@ -744,17 +745,18 @@ public class RouteTraceService {
 
     /**
      * The route an operation enters. Normally the handler method name (Mighty/SPL/BAU: a route named
-     * after the method, entered as {@code direct:<method>}). Some frameworks intercept every UFW call
-     * through a fixed {@code redirectRoute} that dispatches by command —
-     * {@code <toD uri="direct:send${header.operationName}Route"/>} — to a route named
-     * {@code send<command>Route}. When the operation carries a {@code @CommandHandler} command AND that
-     * route actually exists in the (scoped) source, resolve to it; otherwise fall back to the method
-     * name. Because it fires ONLY when {@code send<command>Route} exists, repos without that convention
-     * (Mighty/SPL and every other tested repo) are unaffected.
+     * after the method, entered as {@code direct:<method>}). The "spl-secure" flavour intercepts every
+     * UFW call through a fixed {@code redirectRoute} (a {@code RestEndpointRouteAspect}) that dispatches
+     * by the CONTROLLER CLASS name — {@code <toD uri="direct:send${header.operationName}Route"/>} where
+     * {@code operationName = target.getClass().getSimpleName()} — to a route named
+     * {@code send<ControllerClass>Route}. That flavour is detected from the source ({@code commandDispatch},
+     * the dispatcher marker); when it is present AND {@code send<ControllerClass>Route} actually exists in
+     * the scoped registry, resolve to it. Otherwise fall back to the method name. Gated on BOTH the marker
+     * and the route existing, so Mighty/SPL and every other tested repo are unaffected.
      */
-    private String entryOperation(OperationInfo op, RouteRegistry registry) {
-        if (op.command() != null && !op.command().isBlank()) {
-            String dispatch = "send" + op.command().trim() + "Route";
+    private String entryOperation(OperationInfo op, RouteRegistry registry, boolean commandDispatch) {
+        if (commandDispatch && op.controllerType() != null && !op.controllerType().isBlank()) {
+            String dispatch = "send" + op.controllerType().trim() + "Route";
             if (registry.contains(dispatch) || !registry.availableVersionsFor(dispatch).isEmpty()) {
                 return dispatch;
             }
@@ -960,7 +962,8 @@ public class RouteTraceService {
             response.setCommand(op.command());
         }
 
-        String routeOp = (op != null) ? entryOperation(op, prepared.registry()) : operationName;
+        String routeOp = (op != null)
+                ? entryOperation(op, prepared.registry(), prepared.index().isCommandDispatch()) : operationName;
         ResolvedRoute resolved =
                 versionResolver.resolve(prepared.registry(), routeOp, request.version());
         RouteGraph graph = new RouteGraph();
@@ -1012,7 +1015,7 @@ public class RouteTraceService {
         var templateVersion = templateVersionResolver(request);
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
         for (OperationInfo op : operations) {
-            for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven)) {
+            for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven, prepared.index().isCommandDispatch())) {
                 if (target == null) {
                     TraceResponse entry = newEntry(op, request.transferType());
                     entry.getWarnings().add("No route found for operation '" + op.operationName() + "'.");
@@ -1053,8 +1056,8 @@ public class RouteTraceService {
 
     /** The route targets to trace for an operation in catalog mode. */
     private List<ResolvedRoute> targetsFor(OperationInfo op, RouteRegistry registry,
-                                           TraceRequest request, boolean versionGiven) {
-        String name = entryOperation(op, registry);   // the route the op enters (send<command>Route or method)
+                                           TraceRequest request, boolean versionGiven, boolean commandDispatch) {
+        String name = entryOperation(op, registry, commandDispatch);   // send<ControllerClass>Route or the method name
         List<ResolvedRoute> targets = new ArrayList<>();
         if (VersionResolver.isLatest(request.version())) {
             // N/A → a single entry at this API's latest route, or the base route if it has none.

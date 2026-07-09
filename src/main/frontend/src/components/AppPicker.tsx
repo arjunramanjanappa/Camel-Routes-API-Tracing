@@ -10,6 +10,7 @@ interface AppDef {
 const APPS: AppDef[] = [
   { id: 'Mighty', name: 'Mighty', desc: 'Trace, impact-analyse and verify the Mighty application.', accent: '#2563eb' },
   { id: 'SPL', name: 'SPL', desc: 'Trace, impact-analyse and verify the SPL application.', accent: '#0891b2' },
+  { id: 'SPL-Secure', name: 'SPL-Secure', desc: 'SPL variant whose UFW calls dispatch through send<command>Route.', accent: '#7c3aed' },
 ];
 
 /** The TraceGuard mark: a shield (guard) wrapping a small route graph (trace). */
@@ -43,7 +44,7 @@ export default function AppPicker({ onPick }: { onPick: (app: string) => void })
         <div className="app-picker-tagline">Trace the flow. Guard the release.</div>
         <div className="app-picker-ai">✨ Powered by AI</div>
         <div className="app-picker-sub">
-          Choose an application to work with. Release Scope, Release Test and Release Impact work the same for both.
+          Choose an application to work with. Release Scope, Release Test and Release Impact work the same across all.
         </div>
         <div className="app-cards">
           {APPS.map((a) => (

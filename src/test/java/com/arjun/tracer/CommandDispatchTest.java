@@ -14,25 +14,24 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The "spl-secure" flavour: a {@code RestEndpointRouteAspect} intercepts every UFW call and forces it
- * through a fixed {@code direct:redirectRoute} that dispatches by the CONTROLLER CLASS name —
- * {@code <toD uri="direct:send${header.operationName}Route"/>} where
- * {@code operationName = target.getClass().getSimpleName()} — to a route named
- * {@code send<ControllerClass>Route}. Countries load via {@code secure-${country}.xml}; routes use the
- * native {@code <routes>} DSL.
+ * The <b>SPL-Secure</b> application: a {@code RestEndpointRouteAspect} intercepts every UFW call and
+ * forces it through a fixed {@code direct:redirectRoute} that dispatches by
+ * {@code <toD uri="direct:send${header.operationName}Route"/>}, where {@code operationName} is the
+ * {@code @CommandHandler} command (primary) or the handler method name (fallback). So the entry route
+ * is {@code send<command>Route}, else {@code send<method>Route}. All countries' APIs live in the same
+ * controller; scope is purely which {@code send…Route} routes are in {@code secure-<country>.xml}.
  *
- * <p>Resolution is gated on the dispatcher marker (auto-detected from the source) AND the
- * {@code send<ControllerClass>Route} existing; otherwise it falls back to the method-name rule, so
- * Mighty/SPL/BAU are unaffected.
+ * <p>Applied ONLY when the SPL-Secure app is selected — Mighty/SPL/BAU never enter this path.
  */
 class CommandDispatchTest {
+
+    private static final String APP = "SPL-Secure";
 
     private static String route(String id, String backend) {
         return "<route id=\"" + id + "\"><from uri=\"direct:" + id + "\"/>"
                 + "<setProperty name=\"api\"><simple>" + backend + "</simple></setProperty></route>";
     }
 
-    /** The fixed dispatcher (the marker) + this country's routes, in the native <routes> DSL. */
     private static String secureRoutes(String... routeXml) {
         StringBuilder sb = new StringBuilder("<routes>"
                 + "<route id=\"redirectRoute\"><from uri=\"direct:redirectRoute\"/>"
@@ -43,90 +42,84 @@ class CommandDispatchTest {
         return sb.append("</routes>").toString();
     }
 
-    /** One controller class per command, named after the command (so send<Class>Route is the route). */
-    private static String controller(String className, String path, String method) {
-        return "package com.x.secure;\n"
-                + "import org.springframework.web.bind.annotation.*;\n"
-                + "@RestController @RequestMapping(\"/services\")\n"
-                + "public class " + className + " {\n"
-                + "  @CommandHandler @PostMapping(\"" + path + "\")\n"
-                + "  public Object " + method + "(Object b){ return null; }\n"
-                + "}\n";
+    /** One shared controller carrying every country's UFW endpoints. */
+    private static final String CONTROLLER = """
+            package com.x.secure;
+            import org.springframework.web.bind.annotation.*;
+            @RestController @RequestMapping("/services")
+            public class PublicApiController {
+                @CommandHandler(command="ValidateNotificationCommand") @PostMapping("/public/get/push")
+                public Object validateNotification(Object b){ return null; }
+
+                @CommandHandler @PostMapping("/enquiry")
+                public Object enquiry(Object b){ return null; }          // bare marker → method-name fallback
+
+                @CommandHandler(command="SgOnlyCommand") @PostMapping("/sg/only")
+                public Object sgOnly(Object b){ return null; }
+            }
+            """;
+
+    private RouteTraceService secureRepo(Path dir) throws Exception {
+        Files.createDirectories(dir.resolve("routes"));
+        // MY: the command route + a method-named route (fallback). No SgOnly route.
+        Files.writeString(dir.resolve("routes/secure-MY.xml"), secureRoutes(
+                route("sendValidateNotificationCommandRoute", "/bfs/validate"),
+                route("sendenquiryRoute", "/bfs/enquiry")));
+        // SG: has the SgOnly command route only — must NOT leak into MY.
+        Files.writeString(dir.resolve("routes/secure-SG.xml"), secureRoutes(
+                route("sendSgOnlyCommandRoute", "/bfs/sg")));
+        Files.createDirectories(dir.resolve("config"));
+        Files.writeString(dir.resolve("config/application.yml"), """
+                camel:
+                  main:
+                    routes-include-pattern: classpath:routes/secure-${country:}.xml
+                """);
+        Files.writeString(dir.resolve("PublicApiController.java"), CONTROLLER);
+        return new RouteTraceService(dir.toString());
+    }
+
+    /** Catalog request for a country in a given app flavour. */
+    private static TraceRequest catalog(String country, String app) {
+        return new TraceRequest(null, "N/A", null, null, country, null, null, List.of(), app);
     }
 
     private static TraceResponse api(List<TraceResponse> traces, String path) {
         return traces.stream().filter(t -> path.equals(t.getApi())).findFirst().orElse(null);
     }
 
+    private static List<TraceResponse> catalogTraces(RouteTraceService service, String country, String app) {
+        CatalogResponse cat = (CatalogResponse) service.analyze(catalog(country, app));
+        return cat.getGroups().stream().flatMap(g -> g.traces().stream()).toList();
+    }
+
     @Test
-    void resolvesByControllerClassNameAndScopesByCountry(@TempDir Path dir) throws Exception {
-        Files.createDirectories(dir.resolve("routes"));
-        // MY: the class-named dispatch route + a plain method-named route (fallback case). No SgOnly route.
-        Files.writeString(dir.resolve("routes/secure-MY.xml"), secureRoutes(
-                route("sendValidateNotificationCommandRoute", "/bfs/validate"),
-                route("legacyMethod", "/bfs/legacy")));
-        // SG has the SgOnly class route — must NOT leak into MY.
-        Files.writeString(dir.resolve("routes/secure-SG.xml"), secureRoutes(
-                route("sendSgOnlyRoute", "/bfs/sg")));
-        Files.createDirectories(dir.resolve("config"));
-        Files.writeString(dir.resolve("config/application.yml"), """
-                camel:
-                  main:
-                    routes-include-pattern: classpath:routes/secure-${country:}.xml
-                """);
-        Files.writeString(dir.resolve("ValidateNotificationCommand.java"),
-                controller("ValidateNotificationCommand", "/public/get/push", "handle"));
-        Files.writeString(dir.resolve("LegacyBau.java"),
-                controller("LegacyBau", "/bau/legacy", "legacyMethod"));  // no sendLegacyBauRoute → fallback
-        Files.writeString(dir.resolve("SgOnly.java"),
-                controller("SgOnly", "/sg/only", "handle"));
-        RouteTraceService service = new RouteTraceService(dir.toString());
+    void splSecureResolvesByCommandThenMethodAndScopesByCountry(@TempDir Path dir) throws Exception {
+        RouteTraceService service = secureRepo(dir);
+        List<TraceResponse> traces = catalogTraces(service, "MY", APP);
 
-        CatalogResponse cat = (CatalogResponse) service.analyze(new TraceRequest(null, "N/A", null, null, "MY"));
-        List<TraceResponse> traces = cat.getGroups().stream().flatMap(g -> g.traces().stream()).toList();
-
-        // Dispatch: the op resolves to send<ControllerClass>Route (class ValidateNotificationCommand).
+        // Primary: the @CommandHandler command → send<command>Route.
         TraceResponse validate = api(traces, "/services/public/get/push");
         assertThat(validate).isNotNull();
         assertThat(validate.getResolvedRoute()).isEqualTo("sendValidateNotificationCommandRoute");
         assertThat(validate.getBackendApis()).contains("/bfs/validate");
 
-        // Fallback: class LegacyBau has no sendLegacyBauRoute, so it resolves by the method name.
-        TraceResponse legacy = api(traces, "/services/bau/legacy");
-        assertThat(legacy).isNotNull();
-        assertThat(legacy.getResolvedRoute()).isEqualTo("legacyMethod");
+        // Fallback: bare @CommandHandler (no command) → send<methodName>Route.
+        TraceResponse enquiry = api(traces, "/services/enquiry");
+        assertThat(enquiry).isNotNull();
+        assertThat(enquiry.getResolvedRoute()).isEqualTo("sendenquiryRoute");
 
-        // Country isolation: SgOnly's route lives only in secure-SG.xml, so it is NOT in MY's view.
+        // Country isolation: SgOnly's route is only in secure-SG.xml, so it is NOT in MY's view.
         assertThat(api(traces, "/services/sg/only")).isNull();
     }
 
     @Test
-    void withoutTheDispatcherMarkerResolvesByMethodNameEvenIfSendRouteExists(@TempDir Path dir) throws Exception {
-        // No redirectRoute / send${...}Route dispatcher anywhere → NOT the spl-secure flavour. A route that
-        // happens to be named sendFooRoute must be ignored; resolution stays method-name (Mighty/SPL rule).
-        Files.createDirectories(dir.resolve("routes"));
-        Files.writeString(dir.resolve("routes/secure-MY.xml"),
-                "<routes>"
-                        + route("sendFooRoute", "/bfs/foo-dispatch")   // a lookalike, but no dispatcher present
-                        + route("bar", "/bfs/bar")
-                        + "</routes>");
-        Files.createDirectories(dir.resolve("config"));
-        Files.writeString(dir.resolve("config/application.yml"), """
-                camel:
-                  main:
-                    routes-include-pattern: classpath:routes/secure-${country:}.xml
-                """);
-        Files.writeString(dir.resolve("Foo.java"),
-                "package com.x.legacy;\n"
-                        + "import org.springframework.web.bind.annotation.*;\n"
-                        + "@RestController @RequestMapping(\"/x\")\n"
-                        + "public class Foo {\n"
-                        + "  @CommandHandler @PostMapping(\"/bar\") public Object bar(Object b){ return null; }\n"
-                        + "}\n");
-        RouteTraceService service = new RouteTraceService(dir.toString());
+    void withoutSplSecureAppTheSendRoutesAreNotUsed(@TempDir Path dir) throws Exception {
+        RouteTraceService service = secureRepo(dir);
+        // Same repo, but the SPL app (not SPL-Secure): resolution stays method-name, which matches no
+        // route here (routes are send<…>Route), so none of these endpoints land in scope.
+        List<TraceResponse> traces = catalogTraces(service, "MY", "SPL");
 
-        TraceResponse r = service.trace(new TraceRequest("/x/bar", "N/A", null, null, "MY"));
-        assertThat(r.getResolvedRoute()).isEqualTo("bar");          // method name, NOT sendFooRoute
-        assertThat(r.getBackendApis()).contains("/bfs/bar");
+        assertThat(api(traces, "/services/public/get/push")).isNull();
+        assertThat(api(traces, "/services/enquiry")).isNull();
     }
 }

@@ -26,16 +26,16 @@ export async function fetchMeta(sourceDir?: string, country?: string, repo?: str
   return (await res.json()) as Meta;
 }
 
-export async function fetchImpactIndex(sourceDir?: string, country?: string, version?: string, repo?: string, branch?: string, dep?: string[]): Promise<ImpactIndex> {
-  const res = await fetch('/internal/impact-index?' + qs({ sourceDir, country, version, repo, branch, dep }));
+export async function fetchImpactIndex(sourceDir?: string, country?: string, version?: string, repo?: string, branch?: string, dep?: string[], app?: string): Promise<ImpactIndex> {
+  const res = await fetch('/internal/impact-index?' + qs({ sourceDir, country, version, repo, branch, dep, app }));
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
   return data as ImpactIndex;
 }
 
 /** Release diff: what a target version changed per API vs its immediate-lower version. */
-export async function fetchVersionDiff(sourceDir?: string, country?: string, version?: string, repo?: string, branch?: string, dep?: string[]): Promise<VersionDiffReport> {
-  const res = await fetch('/internal/version-diff?' + qs({ sourceDir, country, version, repo, branch, dep }));
+export async function fetchVersionDiff(sourceDir?: string, country?: string, version?: string, repo?: string, branch?: string, dep?: string[], app?: string): Promise<VersionDiffReport> {
+  const res = await fetch('/internal/version-diff?' + qs({ sourceDir, country, version, repo, branch, dep, app }));
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
   return data as VersionDiffReport;

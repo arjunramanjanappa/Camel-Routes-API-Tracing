@@ -49,8 +49,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String repo,
             @RequestParam(required = false) String branch,
-            @RequestParam(required = false) List<String> dep) {
-        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country, repo, branch, dep));
+            @RequestParam(required = false) List<String> dep,
+            @RequestParam(required = false) String app) {
+        return service.analyze(new TraceRequest(api, version, transferType, sourceDir, country, repo, branch, dep, app));
     }
 
     @PostMapping("/internal/route-graph")
@@ -89,8 +90,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String transferType,
             @RequestParam(required = false) String repo,
             @RequestParam(required = false) String branch,
-            @RequestParam(required = false) List<String> dep) {
-        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country, repo, branch, dep));
+            @RequestParam(required = false) List<String> dep,
+            @RequestParam(required = false) String app) {
+        return service.impactIndex(new TraceRequest(null, version, transferType, sourceDir, country, repo, branch, dep, app));
     }
 
     /**
@@ -105,8 +107,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String repo,
             @RequestParam(required = false) String branch,
-            @RequestParam(required = false) List<String> dep) {
-        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch, dep));
+            @RequestParam(required = false) List<String> dep,
+            @RequestParam(required = false) String app) {
+        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch, dep, app));
     }
 
     /**

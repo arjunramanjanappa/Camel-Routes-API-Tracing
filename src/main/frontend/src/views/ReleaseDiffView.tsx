@@ -215,7 +215,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     setLoading(true); setError(null);
     try {
       const sp = sourceParams(src);
-      const data = await fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps));
+      const data = await fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app);
       setReport(data);
       setExpanded(new Set());
       setQuery('');
@@ -394,7 +394,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
 
       {flowApi && (
         <ApiFlowModal api={flowApi.api} version={flowApi.version} sourceDir={sourceParams(src).sourceDir}
-                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country}
+                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country} app={app}
                       deps={depParams(deps)} colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>

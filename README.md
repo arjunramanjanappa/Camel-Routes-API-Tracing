@@ -443,18 +443,21 @@ was converted from (no `@CommandHandler`) are ignored, so the same API never sho
 twice. A source tree with **no** `@CommandHandler` anywhere (a pre-UFW codebase) keeps
 every endpoint, so the tool still works there.
 
-**Command-dispatch flavour ("spl-secure").** Some frameworks add a `RestEndpointRouteAspect`
-that intercepts every UFW call and forces it through a fixed `direct:redirectRoute`, which
-dispatches **by the controller class name** —
-`<toD uri="direct:send${header.operationName}Route"/>` where
-`operationName = target.getClass().getSimpleName()` — to a route named
-`send<ControllerClass>Route` (e.g. controller class `ValidateNotificationCommand` →
-`sendValidateNotificationCommandRoute`). The entry route is the **class name**, not the method
-name. The tracer **auto-detects** this flavour from the dispatcher **marker** in the scanned
-routes (`direct:redirectRoute` / a dynamic `send${…}Route` toD); when the marker is present
-**and** `send<ControllerClass>Route` exists in the scoped source, the op resolves there,
-otherwise it falls back to the method-name rule above. Gated on both the marker and the route
-existing, so Mighty/SPL and every other repo are unaffected.
+**SPL-Secure application.** A separate app (chosen on the landing page) for the SPL variant whose
+`RestEndpointRouteAspect` intercepts every UFW call and forces it through a fixed
+`direct:redirectRoute` that dispatches by `<toD uri="direct:send${header.operationName}Route"/>`.
+There the entry route is **`send<X>Route`**, where `X` is the `@CommandHandler` **command** value
+(primary) or the handler **method name** (fallback) — e.g. `command="ValidateNotificationCommand"` →
+`sendValidateNotificationCommandRoute`. Resolution:
+
+1. `send<command>Route` if that route exists in the country scope, else
+2. `send<method>Route` if that exists, else
+3. no route for the API.
+
+Every country's endpoints live in the **same controller**; scope is purely which `send…Route` routes
+are defined in `secure-<country>.xml` (via `routes-include-pattern`), so an API belongs to the country
+whose `secure-<country>.xml` carries its route. This resolution runs **only when the SPL-Secure app is
+selected** (`app=SPL-Secure`), so Mighty/SPL and every other repo keep the plain method-name rule above.
 
 ### Version resolution
 `R<version>_<operation>` exact match → otherwise the **highest available lower**

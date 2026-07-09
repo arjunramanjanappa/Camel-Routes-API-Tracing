@@ -58,7 +58,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     setLoading(true); setError(null);
     try {
       const sp = sourceParams(src);
-      const data = await fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps));
+      const data = await fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app);
       setIdx(data);
       setManualRoutes(new Set());
       setManualBackends(new Set());
@@ -363,7 +363,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
       {flowApi && (
         <ApiFlowModal api={flowApi} version={version} sourceDir={sourceParams(src).sourceDir}
-                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country}
+                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country} app={app}
                       deps={depParams(deps)} colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>

@@ -10,7 +10,7 @@ import Legend from './Legend';
  * React Flow graph as the Trace tab — so the Impact tab can stay a quick list with
  * the detailed flow one click away.
  */
-export default function ApiFlowModal({ api, version, sourceDir, repo, branch, country, deps, colorMode, onClose }: {
+export default function ApiFlowModal({ api, version, sourceDir, repo, branch, country, deps, app, colorMode, onClose }: {
   api: string;
   version?: string;
   sourceDir?: string;
@@ -18,6 +18,7 @@ export default function ApiFlowModal({ api, version, sourceDir, repo, branch, co
   branch?: string;
   country?: string;
   deps?: string[];
+  app?: string;
   colorMode: 'light' | 'dark';
   onClose: () => void;
 }) {
@@ -32,13 +33,13 @@ export default function ApiFlowModal({ api, version, sourceDir, repo, branch, co
     let alive = true;
     setLoading(true);
     setError(null);
-    analyze({ api, version, sourceDir, repo, branch, country, dep: deps })
+    analyze({ api, version, sourceDir, repo, branch, country, dep: deps, app })
       .then((d) => { if (alive) setData(d); })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, version, sourceDir, repo, branch, country, depKey]);
+  }, [api, version, sourceDir, repo, branch, country, depKey, app]);
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

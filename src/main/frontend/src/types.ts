@@ -112,6 +112,8 @@ export interface TraceParams {
   branch?: string;
   /** Encoded dependency sources: `local:<path>` or `bit:<repo>|<branch>`. */
   dep?: string[];
+  /** Selected application flavour (Mighty / SPL / SPL-Secure) — drives framework-specific resolution. */
+  app?: string;
 }
 
 // --- release diff (version comparison) ---

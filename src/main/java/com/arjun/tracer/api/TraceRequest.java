@@ -18,29 +18,38 @@ import java.util.List;
  *                     library). Each entry is encoded as {@code local:<path>} or
  *                     {@code bit:<repoUrl>|<branch>}; scanned and merged so those imports
  *                     resolve. Empty means primary source only.
+ * @param app          the selected application flavour (e.g. {@code Mighty}, {@code SPL},
+ *                     {@code SPL-Secure}); drives framework-specific route resolution. Null/blank
+ *                     means the default method-name resolution (Mighty/SPL/BAU).
  */
 public record TraceRequest(String api, String version, String transferType,
                            String sourceDir, String country, String repo, String branch,
-                           List<String> dependencies) {
+                           List<String> dependencies, String app) {
 
     /** Normalise a null dependency list to an immutable empty one. */
     public TraceRequest {
         dependencies = dependencies == null ? List.of() : List.copyOf(dependencies);
     }
 
+    /** Bitbucket-source + dependencies, no app flavour (default resolution). */
+    public TraceRequest(String api, String version, String transferType,
+                        String sourceDir, String country, String repo, String branch, List<String> dependencies) {
+        this(api, version, transferType, sourceDir, country, repo, branch, dependencies, null);
+    }
+
     /** Bitbucket-source constructor without dependencies. */
     public TraceRequest(String api, String version, String transferType,
                         String sourceDir, String country, String repo, String branch) {
-        this(api, version, transferType, sourceDir, country, repo, branch, List.of());
+        this(api, version, transferType, sourceDir, country, repo, branch, List.of(), null);
     }
 
     /** Backwards-compatible constructor with a country scope but no Bitbucket source. */
     public TraceRequest(String api, String version, String transferType, String sourceDir, String country) {
-        this(api, version, transferType, sourceDir, country, null, null, List.of());
+        this(api, version, transferType, sourceDir, country, null, null, List.of(), null);
     }
 
     /** Backwards-compatible constructor without a country scope. */
     public TraceRequest(String api, String version, String transferType, String sourceDir) {
-        this(api, version, transferType, sourceDir, null, null, null, List.of());
+        this(api, version, transferType, sourceDir, null, null, null, List.of(), null);
     }
 }

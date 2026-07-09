@@ -63,7 +63,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     try {
       const res = await analyze({ ...p, ...sourceParams({
         sourceType: p.sourceType || 'local', sourceDir: p.sourceDir || '', repo: p.repo || '', branch: p.branch || '',
-      }), dep: depParams(deps) });
+      }), dep: depParams(deps), app });
       setData(res);
       if (res.availableCountries && res.availableCountries.length) {
         setMeta((m) => ({ ...m, countries: res.availableCountries }));
@@ -105,7 +105,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     setExporting(true);
     setError(null);
     try {
-      const cat = await analyze({ ...params, api: '', dep: depParams(deps) });
+      const cat = await analyze({ ...params, api: '', dep: depParams(deps), app });
       if (cat.mode === 'catalog') await exportApiTracePdf(cat, app);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

@@ -73,18 +73,34 @@ public class SourceIndex {
             for (String ctx : f.metadata().definedContexts()) {
                 contextIdToFile.putIfAbsent(ctx, f);
             }
-            if (f.metadata().hasCamelContext()) {
+            // A filename bootstrap (SG.xml/MY.xml) counts only if it actually brings routes. An empty
+            // <camelContext> shell — a repo whose real routes load via application.yml
+            // routes-include-pattern, with a vestigial MY.xml carrying no routes — is ignored, so the
+            // routes-include-pattern way is used instead (the same as deleting MY.xml).
+            if (f.metadata().hasCamelContext() && bootstrapBringsRoutes(f)) {
                 countryToFiles.computeIfAbsent(f.baseName(), k -> new ArrayList<>()).add(f);
             }
             if (f.fromDependency()) {
                 dependencyFiles.add(f);
             }
         }
-        // Second way (ONLY when the filename way found no bootstrap): the countries come from the camel
-        // routes-include-pattern in application*.yml.
+        // Second way (ONLY when the filename way found no non-empty bootstrap): the countries come from
+        // the camel routes-include-pattern in application*.yml.
         if (countryToFiles.isEmpty()) {
             detectCountriesFromIncludes();
         }
+    }
+
+    /**
+     * A filename bootstrap actually brings routes if it defines its own {@code <route>}s, or pulls
+     * some in via {@code <import>} / {@code <routeContextRef>}. An empty {@code <camelContext>} shell
+     * (a repo that loads routes purely through {@code application.yml routes-include-pattern}) brings
+     * none, so it must not shadow the routes-include-pattern discovery.
+     */
+    private static boolean bootstrapBringsRoutes(FileInfo f) {
+        return !f.routes().isEmpty()
+                || !f.metadata().imports().isEmpty()
+                || !f.metadata().contextRefs().isEmpty();
     }
 
     /** Resolve routes-include-pattern entries to country → bootstrap-file(s), populating {@link #countryToFiles}. */

@@ -532,7 +532,11 @@ of the country closure — they're shared/core infrastructure, not country-speci
 
 **Bootstrap discovery has two ways** (filename first, YAML as a fallback — never both):
 
-1. **Filename** — a `<country>.xml` file (`SG.xml`, `MY.xml`) containing a `<camelContext>`.
+1. **Filename** — a `<country>.xml` file (`SG.xml`, `MY.xml`) containing a `<camelContext>` **that
+   actually brings routes** (its own `<route>`s, or an `<import>` / `<routeContextRef>`). An empty
+   `<camelContext>` shell — a repo whose real routes load via `application.yml routes-include-pattern`,
+   with only a vestigial `MY.xml` — is ignored, so the YAML way (below) is used instead (the same as
+   deleting `MY.xml`).
 2. **`application.yml` `routes-include-pattern`** — when no filename bootstrap exists, the
    countries and their route files come from the camel `routes-include-pattern` (under
    `camel: main:`). The config is the **source of truth** for what loads; the tracer resolves

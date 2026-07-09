@@ -87,6 +87,32 @@ class YamlBootstrapTest {
     }
 
     @Test
+    void emptyBootstrapShellFallsBackToRoutesIncludePattern(@TempDir Path dir) throws Exception {
+        // Vestigial <camelContext> shells with NO routes/imports/routeContextRef — a repo whose real
+        // routes load via application.yml routes-include-pattern. These must NOT shadow the YAML way
+        // (previously MY.xml "won" and the scope had no routes; deleting it was the only workaround).
+        String emptyBootstrap = "<beans xmlns=\"http://www.springframework.org/schema/beans\">"
+                + "<camelContext id=\"ctx\" xmlns=\"http://camel.apache.org/schema/spring\"/></beans>";
+        Files.writeString(dir.resolve("MY.xml"), emptyBootstrap);
+        Files.writeString(dir.resolve("SG.xml"), emptyBootstrap);
+        writeRoutes(dir);
+        Files.createDirectories(dir.resolve("config"));
+        Files.writeString(dir.resolve("config/application.yml"), """
+                camel:
+                  main:
+                    routes-include-pattern: classpath:routes/secure-${country:}.xml
+                """);
+        RouteTraceService service = new RouteTraceService(dir.toString());
+
+        // Countries + routes come from the routes-include-pattern; the empty MY.xml/SG.xml are ignored.
+        assertThat(service.listCountries(new TraceRequest(null, null, null, null)))
+                .containsExactlyInAnyOrder("my", "sg");
+        TraceResponse my = service.trace(new TraceRequest("myOnly", "9.14", null, null, "MY"));
+        assertThat(my.getFlow()).contains("R9.14_myOnly");
+        assertThat(my.getBackendApis()).contains("/bfs/my");
+    }
+
+    @Test
     void wildcardFolderPlusSharedFilePerProfile(@TempDir Path dir) throws Exception {
         Files.createDirectories(dir.resolve("routes/sg"));
         Files.createDirectories(dir.resolve("routes/my"));

@@ -40,7 +40,7 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
   if (apis.length === 0) { r.emptyNote('No APIs in the current view.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
 
   const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
-  apis.forEach((a) => grouped[a.status].push(a));
+  apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status].push(a); });
 
   for (const status of STATUS_ORDER) {
     const list = grouped[status];

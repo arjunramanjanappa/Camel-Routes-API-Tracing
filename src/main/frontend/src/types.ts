@@ -142,7 +142,8 @@ export interface ApiDiff {
   targetVersion?: string | null;
   lowerRoute?: string | null;
   lowerVersion?: string | null;
-  status: DiffStatus;
+  /** Diff status, or 'SNAPSHOT' for an N/A snapshot row (not a comparison). */
+  status: DiffStatus | 'SNAPSHOT';
   routeDiffs: RouteStepDiff[];
   addedRoutes: string[];
   removedRoutes: string[];
@@ -164,6 +165,9 @@ export interface VersionDiffReport {
   changedCount: number;
   newCount: number;
   unchangedCount: number;
+  /** True for the N/A snapshot: `apis` are the latest/base routes in scope, not a diff. */
+  snapshot?: boolean;
+  snapshotCount?: number;
   apis: ApiDiff[];
   warnings: string[];
   needsReview?: string[];

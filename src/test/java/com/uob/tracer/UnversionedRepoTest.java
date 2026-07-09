@@ -99,17 +99,20 @@ class UnversionedRepoTest {
     }
 
     @Test
-    void diffWithNaShowsCleanNotVersionedRowsNotMisleadingNotes(@TempDir Path dir) throws Exception {
+    void diffWithNaReturnsABaseRouteSnapshotNotADiff(@TempDir Path dir) throws Exception {
         RouteTraceService service = unversionedRepo(dir);
 
+        // N/A on Release Impact is a snapshot, not a diff — every API resolves to its base route (BASE),
+        // nothing is changed/new/unchanged (there is no prior release to compare on an unversioned repo).
         VersionDiffReport diff = service.versionDiff(new TraceRequest(null, "N/A", null, null, "SG"));
+        assertThat(diff.isSnapshot()).isTrue();
         assertThat(diff.getChangedCount()).isZero();
         assertThat(diff.getNewCount()).isZero();
-        assertThat(diff.getUnchangedCount()).isEqualTo(2);
+        assertThat(diff.getUnchangedCount()).isZero();
+        assertThat(diff.getApis()).isNotEmpty();
         assertThat(diff.getApis()).allSatisfy(a -> {
-            assertThat(a.status()).isEqualTo(ApiDiff.UNCHANGED);
-            assertThat(a.note()).contains("Not versioned");
-            assertThat(a.note()).doesNotContain("No N/A route");
+            assertThat(a.status()).isEqualTo(ApiDiff.SNAPSHOT);
+            assertThat(a.targetVersion()).isEqualTo("BASE");
         });
     }
 

@@ -104,7 +104,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
           {showPill && (
             <span className="ver-pill"><b>{d.lowerVersion}</b><span className="ver-arrow">→</span><b>{d.targetVersion}</b></span>
           )}
-          <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status)}</span>
+          <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
       </div>
 
@@ -243,6 +243,13 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       .filter((a) => !q || searchHaystack(a).includes(q));
   }, [report, activeGroup, query]);
 
+  // N/A snapshot: every API resolved to its latest/base route — a flat list, not the diff nav.
+  const snapshotVisible = useMemo(() => {
+    if (!report?.snapshot) return [];
+    const q = query.trim().toLowerCase();
+    return report.apis.filter((a) => !q || searchHaystack(a).includes(q));
+  }, [report, query]);
+
   const expandableKeys = useMemo(
     () => visible.filter((d) => d.routeDiffs?.length > 0).map(cardKey), [visible]);
   const allOpen = expandableKeys.length > 0 && expandableKeys.every((k) => expanded.has(k));
@@ -324,7 +331,53 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
       )}
 
-      {!loading && report && (
+      {!loading && report && report.snapshot && (
+        <div className="impact-body">
+          <div className="diff-main">
+            <NeedsReviewBox items={report.needsReview ?? []} />
+            {(() => {
+              const review = new Set(report.needsReview ?? []);
+              const other = report.warnings.filter((w) => !review.has(w));
+              return other.length > 0 ? (
+                <div className="warnbox">{other.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
+              ) : null;
+            })()}
+            <div className="warnbox info">ℹ <b>N/A</b> — the latest route each API resolves to (else its base route). A snapshot of the routes in scope{report.country ? ` · ${report.country}` : ''}, not a release comparison.</div>
+            <div className="diff-main-head row between">
+              <h2 style={{ margin: 0 }}>Latest routes <span className="muted">{snapshotVisible.length}</span></h2>
+              <input className="diff-search" placeholder="🔍 filter by path, route or operation"
+                     value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+            {snapshotVisible.length === 0 ? (
+              <div className="impact-empty">
+                <div className="impact-empty-title">{report.apis.length === 0 ? 'No routes in scope' : 'No matches'}</div>
+                <div className="sub">{report.apis.length === 0 ? 'No API resolves to a route in this scope.' : `Nothing matches “${query.trim()}”.`}</div>
+              </div>
+            ) : (
+              <div className="diff-list">
+                {snapshotVisible.map((a) => (
+                  <div className="diff-card snapshot" key={a.api + '|' + a.operation}>
+                    <div className="diff-card-head row between">
+                      <div className="diff-card-id"><code>{a.api}</code><span className="muted op">{a.operation}</span></div>
+                      <span className="diff-badge" title="the version this API's latest route resolves to">
+                        {a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion}
+                      </span>
+                    </div>
+                    <div className="diff-verdict">
+                      <span className="tag route">{a.targetRoute}</span>
+                    </div>
+                    <div className="diff-actions">
+                      <button className="linkbtn" onClick={() => setFlowApi({ api: a.api, version: report.version || undefined })}>View flow ▸</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!loading && report && !report.snapshot && (
         <div className="impact-body diff-layout">
           <div className="diff-nav">
             <div className="diff-nav-head">Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</div>

@@ -344,10 +344,12 @@ public class RouteTraceService {
         var templateKeys = templateKeysResolver(request);
         RouteRegistry registry = prepared.registry();
 
-        // N/A = "latest per API": diff each API's newest release against its predecessor. When the repo
-        // is unversioned (no R<version>_ routes anywhere), every API instead resolves to its base route
-        // with nothing to diff against — shown as a clean informational row, not a misleading "changed".
-        boolean latestMode = VersionResolver.isLatest(target);
+        // N/A is not a diff — there is no prior release to compare against. It is a SNAPSHOT of the latest
+        // (else base) route each in-scope API resolves to, for unversioned repos or to review the latest
+        // routes in scope. A specific version below stays a real diff (target vs its immediate-lower).
+        if (VersionResolver.isLatest(target)) {
+            return latestSnapshot(prepared, registry, report, harvested);
+        }
         boolean unversionedScope = registry.allVersions().isEmpty();
 
         int changed = 0;
@@ -356,22 +358,7 @@ public class RouteTraceService {
         boolean commandDispatch = prepared.commandDispatch();
         for (OperationInfo op : operationsInScope(prepared)) {
             String routeOp = entryOperation(op, registry, commandDispatch);   // send<command>/send<method>Route or the method name
-            // In latest mode the effective target is this API's own newest version (null → base-only).
             String effTarget = target;
-            if (latestMode) {
-                effTarget = versionResolver.latestVersion(registry, routeOp);
-                if (effTarget == null) {
-                    if (registry.contains(routeOp)) {
-                        report.getApis().add(new ApiDiff(op.path(), op.operationName(),
-                                routeOp, BASE_GROUP, null, null,
-                                ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(), null,
-                                "Not versioned — resolves to the base route " + routeOp
-                                        + "; no prior version to compare.", List.of()));
-                        unchanged++;
-                    }
-                    continue;
-                }
-            }
             ResolvedRoute targetResolved = versionResolver.resolve(registry, routeOp, effTarget);
             if (!effTarget.equals(targetResolved.version())) {
                 // No route at the target version. If the API still resolves to a REAL
@@ -447,6 +434,36 @@ public class RouteTraceService {
         report.getApis().sort(Comparator
                 .comparingInt((ApiDiff a) -> statusRank(a.status()))
                 .thenComparing(ApiDiff::api));
+        return report;
+    }
+
+    /**
+     * The N/A snapshot for Release Impact: every in-scope API resolved to its latest {@code R<ver>_}
+     * route (else its base route) — a scope snapshot of the current routes, NOT a release comparison.
+     * No prior version is diffed, so nothing is marked changed/new/unchanged; each row just states what
+     * the API resolves to (a version like {@code 9.18}, or {@code BASE}). Applies to any repo.
+     */
+    private VersionDiffReport latestSnapshot(Prepared prepared, RouteRegistry registry,
+                                             VersionDiffReport report, List<String> harvested) {
+        boolean commandDispatch = prepared.commandDispatch();
+        for (OperationInfo op : operationsInScope(prepared)) {
+            String routeOp = entryOperation(op, registry, commandDispatch);
+            ResolvedRoute resolved = versionResolver.resolveLatest(registry, routeOp);
+            if (!registry.contains(resolved.routeName())) {
+                continue;   // this API has no route in scope at all — nothing to snapshot
+            }
+            String label = resolved.version() != null ? resolved.version() : BASE_GROUP;
+            report.getApis().add(new ApiDiff(op.path(), op.operationName(),
+                    resolved.routeName(), label, null, null,
+                    ApiDiff.SNAPSHOT, List.of(), List.of(), List.of(), List.of(), null, null, List.of()));
+        }
+        report.setSnapshot(true);
+        report.setSnapshotCount(report.getApis().size());
+        report.getApis().sort(Comparator.comparing(ApiDiff::api));
+        if (report.getApis().isEmpty()) {
+            report.getWarnings().add("No API resolves to a route in this scope.");
+        }
+        applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         return report;
     }
 

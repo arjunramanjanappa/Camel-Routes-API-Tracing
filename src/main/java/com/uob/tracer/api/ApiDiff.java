@@ -43,4 +43,6 @@ public record ApiDiff(String api, String operation,
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
     public static final String UNCHANGED = "UNCHANGED";
+    /** Not a diff: an N/A snapshot row — the latest (else base) route this API resolves to in scope. */
+    public static final String SNAPSHOT = "SNAPSHOT";
 }

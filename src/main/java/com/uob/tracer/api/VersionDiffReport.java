@@ -17,6 +17,9 @@ public class VersionDiffReport {
     private int changedCount;
     private int newCount;
     private int unchangedCount;
+    /** True for the N/A snapshot: {@link #apis} are the latest/base routes in scope, NOT a diff. */
+    private boolean snapshot;
+    private int snapshotCount;
     private final List<ApiDiff> apis = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
     /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
@@ -36,6 +39,12 @@ public class VersionDiffReport {
 
     public int getUnchangedCount() { return unchangedCount; }
     public void setUnchangedCount(int unchangedCount) { this.unchangedCount = unchangedCount; }
+
+    public boolean isSnapshot() { return snapshot; }
+    public void setSnapshot(boolean snapshot) { this.snapshot = snapshot; }
+
+    public int getSnapshotCount() { return snapshotCount; }
+    public void setSnapshotCount(int snapshotCount) { this.snapshotCount = snapshotCount; }
 
     public List<ApiDiff> getApis() { return apis; }
     public List<String> getWarnings() { return warnings; }

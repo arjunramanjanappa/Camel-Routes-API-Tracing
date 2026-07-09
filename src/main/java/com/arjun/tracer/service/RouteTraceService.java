@@ -243,7 +243,7 @@ public class RouteTraceService {
 
         for (OperationInfo op : operationsInScope(prepared)) {
             ResolvedRoute resolved =
-                    versionResolver.resolve(prepared.registry(), op.operationName(), request.version());
+                    versionResolver.resolve(prepared.registry(), entryOperation(op, prepared.registry()), request.version());
             if (wantedVersion != null && !wantedVersion.equals(resolved.version())) {
                 excluded++;
                 continue;   // resolves to a lower version or BASE — not impacted by this release
@@ -350,23 +350,24 @@ public class RouteTraceService {
         int added = 0;
         int unchanged = 0;
         for (OperationInfo op : operationsInScope(prepared)) {
+            String routeOp = entryOperation(op, registry);   // send<command>Route or the method name
             // In latest mode the effective target is this API's own newest version (null → base-only).
             String effTarget = target;
             if (latestMode) {
-                effTarget = versionResolver.latestVersion(registry, op.operationName());
+                effTarget = versionResolver.latestVersion(registry, routeOp);
                 if (effTarget == null) {
-                    if (registry.contains(op.operationName())) {
+                    if (registry.contains(routeOp)) {
                         report.getApis().add(new ApiDiff(op.path(), op.operationName(),
-                                op.operationName(), BASE_GROUP, null, null,
+                                routeOp, BASE_GROUP, null, null,
                                 ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(), null,
-                                "Not versioned — resolves to the base route " + op.operationName()
+                                "Not versioned — resolves to the base route " + routeOp
                                         + "; no prior version to compare.", List.of()));
                         unchanged++;
                     }
                     continue;
                 }
             }
-            ResolvedRoute targetResolved = versionResolver.resolve(registry, op.operationName(), effTarget);
+            ResolvedRoute targetResolved = versionResolver.resolve(registry, routeOp, effTarget);
             if (!effTarget.equals(targetResolved.version())) {
                 // No route at the target version. If the API still resolves to a REAL
                 // lower route (a versioned one, or a BASE route), a client on the target
@@ -374,7 +375,7 @@ public class RouteTraceService {
                 // as UNCHANGED (behind the toggle) with a note. If there's no route at all
                 // for the API, there is nothing to show — skip it.
                 boolean hasRealResolution = targetResolved.version() != null
-                        || registry.contains(op.operationName());
+                        || registry.contains(routeOp);
                 if (!hasRealResolution) {
                     continue;
                 }
@@ -395,14 +396,14 @@ public class RouteTraceService {
             harvested.addAll(targetTrace.getWarnings());
 
             // Immediate-lower baseline: highest versioned route below target, else BASE, else NEW.
-            String lowerVer = versionResolver.immediateLowerVersion(registry, op.operationName(), effTarget);
+            String lowerVer = versionResolver.immediateLowerVersion(registry, routeOp, effTarget);
             ResolvedRoute lowerResolved;
             String lowerLabel;
             if (lowerVer != null) {
-                lowerResolved = new ResolvedRoute("R" + lowerVer + "_" + op.operationName(), lowerVer, false);
+                lowerResolved = new ResolvedRoute("R" + lowerVer + "_" + routeOp, lowerVer, false);
                 lowerLabel = lowerVer;
-            } else if (registry.contains(op.operationName())) {
-                lowerResolved = new ResolvedRoute(op.operationName(), null, true);   // BASE baseline
+            } else if (registry.contains(routeOp)) {
+                lowerResolved = new ResolvedRoute(routeOp, null, true);   // BASE baseline
                 lowerLabel = BASE_GROUP;
             } else {
                 // New API: blame the new release's routes in its flow to attribute who added it.
@@ -731,7 +732,7 @@ public class RouteTraceService {
                 if (opCountry.equalsIgnoreCase(country)) {
                     out.add(op);
                 }
-            } else if (covered.contains(op.operationName())) {
+            } else if (covered.contains(entryOperation(op, prepared.registry()))) {
                 // No country on the controller (a BAU endpoint, or a single-country app like Mighty) —
                 // fall back to the bootstrap-closure rule. Its route name is unique across countries,
                 // so the closure it lives in already ties it to the right country.
@@ -739,6 +740,26 @@ public class RouteTraceService {
             }
         }
         return out;
+    }
+
+    /**
+     * The route an operation enters. Normally the handler method name (Mighty/SPL/BAU: a route named
+     * after the method, entered as {@code direct:<method>}). Some frameworks intercept every UFW call
+     * through a fixed {@code redirectRoute} that dispatches by command —
+     * {@code <toD uri="direct:send${header.operationName}Route"/>} — to a route named
+     * {@code send<command>Route}. When the operation carries a {@code @CommandHandler} command AND that
+     * route actually exists in the (scoped) source, resolve to it; otherwise fall back to the method
+     * name. Because it fires ONLY when {@code send<command>Route} exists, repos without that convention
+     * (Mighty/SPL and every other tested repo) are unaffected.
+     */
+    private String entryOperation(OperationInfo op, RouteRegistry registry) {
+        if (op.command() != null && !op.command().isBlank()) {
+            String dispatch = "send" + op.command().trim() + "Route";
+            if (registry.contains(dispatch) || !registry.availableVersionsFor(dispatch).isEmpty()) {
+                return dispatch;
+            }
+        }
+        return op.operationName();
     }
 
     /**
@@ -939,8 +960,9 @@ public class RouteTraceService {
             response.setCommand(op.command());
         }
 
+        String routeOp = (op != null) ? entryOperation(op, prepared.registry()) : operationName;
         ResolvedRoute resolved =
-                versionResolver.resolve(prepared.registry(), operationName, request.version());
+                versionResolver.resolve(prepared.registry(), routeOp, request.version());
         RouteGraph graph = new RouteGraph();
         traverseInto(response, request.api(), operationName, resolved,
                 request.transferType(), prepared.registry(), graph, templateVersionResolver(request),
@@ -1032,7 +1054,7 @@ public class RouteTraceService {
     /** The route targets to trace for an operation in catalog mode. */
     private List<ResolvedRoute> targetsFor(OperationInfo op, RouteRegistry registry,
                                            TraceRequest request, boolean versionGiven) {
-        String name = op.operationName();
+        String name = entryOperation(op, registry);   // the route the op enters (send<command>Route or method)
         List<ResolvedRoute> targets = new ArrayList<>();
         if (VersionResolver.isLatest(request.version())) {
             // N/A → a single entry at this API's latest route, or the base route if it has none.

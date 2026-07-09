@@ -443,6 +443,16 @@ was converted from (no `@CommandHandler`) are ignored, so the same API never sho
 twice. A source tree with **no** `@CommandHandler` anywhere (a pre-UFW codebase) keeps
 every endpoint, so the tool still works there.
 
+**Command-dispatch flavour.** Some frameworks intercept every UFW call through a fixed
+`redirectRoute` that dispatches **by command** —
+`<toD uri="direct:send${header.operationName}Route"/>` — to a route named
+`send<command>Route`. There the operation is identified by the `@CommandHandler`
+**command** (e.g. `command="ValidateNotificationCommand"`), not the method name, so the
+entry route is `sendValidateNotificationCommandRoute`. The tracer auto-detects this: when
+an operation carries a command **and** `send<command>Route` exists in the scoped source, it
+resolves there; otherwise it falls back to the method-name rule above. Because it fires only
+when `send<command>Route` actually exists, repos without that convention are unaffected.
+
 ### Version resolution
 `R<version>_<operation>` exact match → otherwise the **highest available lower**
 minor `≤` the requested version (`9.4 → 9.3 → 9.2 …`) → otherwise the **BASE**

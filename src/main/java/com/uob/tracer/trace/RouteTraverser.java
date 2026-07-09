@@ -51,10 +51,13 @@ public class RouteTraverser {
 
     private final Set<String> expandedRoutes = new HashSet<>();
     private final List<String> backendsSeen = new ArrayList<>();
-    // Gives each host/terminal call its own instance node. Shared (a 1-element holder) across a
-    // catalog's per-API traversers so instance ids stay unique — otherwise two APIs that both call the
-    // same host would collide on route:host#1 and their backends would merge onto one node.
-    private final int[] consumerSeq;
+    // Host/terminal instance ids are keyed by the CALLING route, not a running counter. Calls from the
+    // same caller route to the same host share one instance — so a shared intermediate route reached by
+    // many APIs draws its downstream host ONCE (not once per API), while different caller routes (e.g.
+    // each API's entry) still get distinct instances so their backends never merge. This map counts
+    // per-(caller,host) multiplicity so a caller that calls the same host twice gets two instances,
+    // consistently across the catalog's per-API traversers (each walks the caller body the same way).
+    private final java.util.Map<String, Integer> callerHostSeq = new java.util.HashMap<>();
 
     /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (or null). */
     private final java.util.function.Function<String, String> templateVersion;
@@ -89,14 +92,14 @@ public class RouteTraverser {
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion) {
         this(registry, graph, response, transferType, operationRouteName, templateVersion,
-                (base, version) -> null, null, new int[1]);
+                (base, version) -> null, null);
     }
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
                           java.util.function.Function<String, String> templateVersion,
                           java.util.function.BiFunction<String, String, String> destRouteResolver,
-                          String requestClientVersion, int[] consumerSeq) {
+                          String requestClientVersion) {
         this.registry = registry;
         this.graph = graph;
         this.response = response;
@@ -105,7 +108,6 @@ public class RouteTraverser {
         this.templateVersion = templateVersion != null ? templateVersion : uri -> null;
         this.destRouteResolver = destRouteResolver != null ? destRouteResolver : (base, version) -> null;
         this.requestClientVersion = requestClientVersion;
-        this.consumerSeq = consumerSeq != null ? consumerSeq : new int[1];
     }
 
     /** Trace from the entry route, attaching it under the given API node. */
@@ -190,7 +192,12 @@ public class RouteTraverser {
     private void emitConsumerInstance(RouteModel route, String endpoint, String callerNodeId,
                                       String edgeLabel, List<PendingApi> inherited) {
         String identity = route.routeId() != null ? route.routeId() : endpoint;
-        String instanceId = "route:" + identity + "#" + (++consumerSeq[0]);
+        // One instance per (caller route, host); a second call from the same caller to the same host
+        // gets ".2", etc. Deterministic per caller, so the same shared caller in another API's traversal
+        // resolves to the SAME instance id and de-duplicates in the shared catalog graph.
+        String callerId = callerNodeId != null ? callerNodeId.replaceFirst("^route:", "") : "root";
+        int n = callerHostSeq.merge(callerId + ' ' + identity, 1, Integer::sum);
+        String instanceId = "route:" + identity + "#" + callerId + (n > 1 ? "." + n : "");
         graph.addNode(new GraphNode(instanceId, identity, GraphNode.TYPE_ROUTE,
                 java.util.Map.of("source", route.source(), "host", route.host())));
         graph.addEdge(callerNodeId, instanceId, edgeLabel);

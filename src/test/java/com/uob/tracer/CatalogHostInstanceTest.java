@@ -83,4 +83,45 @@ class CatalogHostInstanceTest {
         assertThat(backendsFrom(g, fe)).containsExactly("backend:/ntn/fetch");
         assertThat(backendsFrom(g, pu)).containsExactly("backend:/ntn/put");
     }
+
+    private static final String SHARED_ROUTES = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="ctx">
+                <route id="getA"><from uri="direct:getA"/><to uri="direct:sendNotify"/></route>
+                <route id="getB"><from uri="direct:getB"/><to uri="direct:sendNotify"/></route>
+                <route id="sendNotify"><from uri="direct:sendNotify"/>
+                  <setProperty name="api"><simple>/api/notify</simple></setProperty>
+                  <to uri="direct:call3DS"/></route>
+                <route id="call3DS"><from uri="direct:call3DS"/>
+                  <setHeader name="CamelHttpUri"><simple>${exchangeProperty.api}</simple></setHeader>
+                  <toD uri="${header.CamelHttpUri}"/></route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    private static final String SHARED_CONTROLLER = """
+            package com.x;
+            import org.springframework.web.bind.annotation.*;
+            @RestController
+            public class C2 {
+                @PostMapping("/get/a") public Object getA(Object b){ return null; }
+                @PostMapping("/get/b") public Object getB(Object b){ return null; }
+            }
+            """;
+
+    @Test
+    void aSharedIntermediateDrawsItsDownstreamHostOnceNotPerApi(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("r.xml"), SHARED_ROUTES);
+        Files.writeString(dir.resolve("C.java"), SHARED_CONTROLLER);
+        CatalogResponse cat = (CatalogResponse) new RouteTraceService(dir.toString())
+                .analyze(new TraceRequest(null, "", null, null));
+        RouteGraph g = cat.getGraph();
+
+        // getA and getB both route through the shared sendNotify → call3DS. Because both reach call3DS
+        // from the SAME caller route (sendNotify), it must be ONE host instance, not one per API.
+        List<String> call3ds = g.getNodes().stream().map(n -> n.id())
+                .filter(id -> id.startsWith("route:call3DS#")).distinct().toList();
+        assertThat(call3ds).hasSize(1);
+        assertThat(backendsFrom(g, call3ds.get(0))).containsExactly("backend:/api/notify");
+    }
 }

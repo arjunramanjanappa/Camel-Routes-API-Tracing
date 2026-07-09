@@ -1031,10 +1031,6 @@ public class RouteTraceService {
 
         var templateVersion = templateVersionResolver(request);
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
-        // Shared host-instance counter: every API traces into the SAME catalog graph, so per-call host
-        // instances (route:host#N) must be numbered across all APIs — otherwise two APIs calling the same
-        // host collide on #1 and their distinct backends merge onto one node.
-        int[] hostSeq = new int[1];
         for (OperationInfo op : operations) {
             for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven, prepared.commandDispatch())) {
                 if (target == null) {
@@ -1050,7 +1046,7 @@ public class RouteTraceService {
                 TraceResponse entry = newEntry(op, request.transferType());
                 traverseInto(entry, op.path(), op.operationName(), target,
                         request.transferType(), registry, graph, templateVersion,
-                        versionGiven ? request.version() : target.version(), hostSeq);
+                        versionGiven ? request.version() : target.version());
                 String key = target.version() != null ? target.version() : BASE_GROUP;
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
@@ -1119,21 +1115,6 @@ public class RouteTraceService {
                               RouteRegistry registry, RouteGraph graph,
                               java.util.function.Function<String, String> templateVersion,
                               String clientVersion) {
-        traverseInto(response, api, operationName, resolved, transferType, registry, graph,
-                templateVersion, clientVersion, new int[1]);
-    }
-
-    /**
-     * @param hostSeq the per-call host-instance counter. Pass ONE shared holder across a catalog's
-     *                per-API traversals (they share a graph) so {@code route:host#N} ids don't collide
-     *                and merge different APIs' backends onto one node; a fresh {@code new int[1]} is fine
-     *                for single/impact/diff where each API has its own graph.
-     */
-    private void traverseInto(TraceResponse response, String api, String operationName,
-                              ResolvedRoute resolved, String transferType,
-                              RouteRegistry registry, RouteGraph graph,
-                              java.util.function.Function<String, String> templateVersion,
-                              String clientVersion, int[] hostSeq) {
         response.setResolvedRoute(resolved.routeName());
         response.setResolvedVersion(resolved.version());
         response.setBaseFallback(resolved.baseFallback());
@@ -1142,7 +1123,7 @@ public class RouteTraceService {
         String apiLabel = (api != null ? api : operationName) + "  [" + operationName + "]";
         graph.addNode(new GraphNode(apiNodeId, apiLabel, GraphNode.TYPE_API));
         new RouteTraverser(registry, graph, response, transferType, resolved.routeName(),
-                templateVersion, destRouteResolver(registry), clientVersion, hostSeq)
+                templateVersion, destRouteResolver(registry), clientVersion)
                 .trace(resolved.routeName(), apiNodeId);
     }
 

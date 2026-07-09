@@ -57,7 +57,7 @@ export default function ApiFlowModal({ api, version, sourceDir, repo, branch, co
     <div className="flow-modal-backdrop" onClick={onClose}>
       <div className="flow-modal" onClick={(e) => e.stopPropagation()}>
         <div className="flow-modal-head">
-          <span className="flow-modal-title">Flow · <code>{api}</code>{version ? ` · R${version}` : ''}</span>
+          <span className="flow-modal-title">Flow · <code>{api}</code>{version ? ` · Release ${version}` : ''}</span>
           <span className="row" style={{ gap: 6 }}>
             <input className="search-mini" style={{ width: 170 }} placeholder="Search nodes…"
                    value={search} onChange={(e) => setSearch(e.target.value)} />

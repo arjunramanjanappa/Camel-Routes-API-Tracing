@@ -72,7 +72,7 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
         <div className="catalog-stats">
           <div className="cstat impacted">
             <span className="cstat-num">{impacted}</span>
-            <span className="cstat-label">Impacted API{impacted === 1 ? '' : 's'}{reqVer ? ` · R${reqVer}` : ''}</span>
+            <span className="cstat-label">Impacted API{impacted === 1 ? '' : 's'}{reqVer ? ` · Release ${reqVer}` : ''}</span>
           </div>
           {noRoute > 0 && (
             <div className="cstat muted">

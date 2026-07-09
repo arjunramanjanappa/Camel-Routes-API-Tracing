@@ -742,6 +742,34 @@ public class RouteTraceService {
     }
 
     /**
+     * Explain why a country scope caught NO operations, so a routes-include-pattern / bootstrap repo
+     * can be debugged from the warning alone: is the scope empty (pattern matched no route files), or
+     * does it have routes the discovered operations simply don't map onto by name?
+     */
+    private String scopeDiagnostic(Prepared prepared, int discovered) {
+        RouteRegistry reg = prepared.registry();
+        int routeCount = reg.size();
+        List<String> sampleRoutes = reg.operationNames().stream().limit(8).toList();
+        List<String> sampleOps = prepared.index().operations().all().stream()
+                .map(OperationInfo::operationName).distinct().limit(8).toList();
+        StringBuilder sb = new StringBuilder();
+        sb.append(discovered).append(" controller endpoint(s) were discovered, but none are in '")
+                .append(prepared.country()).append("'s scope. ");
+        if (routeCount == 0) {
+            sb.append("That country's scope resolved 0 routes — no <country>.xml <camelContext> and no "
+                    + "application.yml routes-include-pattern matched any route files for it. ");
+        } else {
+            sb.append("Its scope has ").append(routeCount).append(" route(s) (e.g. ").append(sampleRoutes)
+                    .append("), but none is reached by the discovered operations (e.g. ").append(sampleOps)
+                    .append(") — an operation must resolve to a route by name (its <from uri=\"direct:NAME\"/>"
+                            + " equal to the handler method name), or its controller must carry the country "
+                            + "in @RequestMapping(\"/services/<country>\") or a .<country> package. ");
+        }
+        sb.append("Bootstraps detected: ").append(prepared.index().countries()).append('.');
+        return sb.toString();
+    }
+
+    /**
      * The country an operation belongs to, or null when its controller declares none. In priority:
      * a known-country segment in the class-level {@code @RequestMapping} ({@code /services/my/…}),
      * else the controller package ending in {@code .<country>} ({@code com.x.y.my}). Case-insensitive.
@@ -971,11 +999,16 @@ public class RouteTraceService {
 
         List<OperationInfo> operations = operationsInScope(prepared);
         cat.setOperationCount(operations.size());
-        if (operations.isEmpty()) {
+        int discovered = prepared.index().operations().all().size();
+        if (operations.isEmpty() && discovered == 0) {
             cat.getWarnings().add("No controller endpoints discovered in the source directory.");
+        } else if (operations.isEmpty() && prepared.country() != null) {
+            // Ops WERE discovered but none landed in this country's scope — say precisely why,
+            // so the user can see whether the scope is empty or the operation↔route names mismatch.
+            cat.getWarnings().add(scopeDiagnostic(prepared, discovered));
         }
-        int notInCountry = prepared.index().operations().all().size() - operations.size();
-        if (notInCountry > 0) {
+        int notInCountry = discovered - operations.size();
+        if (!operations.isEmpty() && notInCountry > 0) {
             cat.getWarnings().add(notInCountry + " API(s) are not wired into " + prepared.country()
                     + "'s bootstrap and were omitted from this country view.");
         }

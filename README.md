@@ -443,8 +443,8 @@ was converted from (no `@CommandHandler`) are ignored, so the same API never sho
 twice. A source tree with **no** `@CommandHandler` anywhere (a pre-UFW codebase) keeps
 every endpoint, so the tool still works there.
 
-**SPL-Secure application.** A separate app (chosen on the landing page) for the SPL variant whose
-`RestEndpointRouteAspect` intercepts every UFW call and forces it through a fixed
+**Intercepted-UFW variant (auto-detected, under SPL).** Some SPL repos add a
+`RestEndpointRouteAspect` that intercepts every UFW call and forces it through a fixed
 `direct:redirectRoute` that dispatches by `<toD uri="direct:send${header.operationName}Route"/>`.
 There the entry route is **`send<X>Route`**, where `X` is the `@CommandHandler` **command** value
 (primary) or the handler **method name** (fallback) — e.g. `command="ValidateNotificationCommand"` →
@@ -456,8 +456,9 @@ There the entry route is **`send<X>Route`**, where `X` is the `@CommandHandler` 
 
 Every country's endpoints live in the **same controller**; scope is purely which `send…Route` routes
 are defined in `secure-<country>.xml` (via `routes-include-pattern`), so an API belongs to the country
-whose `secure-<country>.xml` carries its route. This resolution runs **only when the SPL-Secure app is
-selected** (`app=SPL-Secure`), so Mighty/SPL and every other repo keep the plain method-name rule above.
+whose `secure-<country>.xml` carries its route. This is **auto-detected** from the dispatcher **marker**
+in the scanned routes (`direct:redirectRoute` / a `send${…}Route` toD) — no separate app: a repo without
+that marker keeps the plain method-name rule above, so Mighty and regular SPL are unaffected.
 
 ### Version resolution
 `R<version>_<operation>` exact match → otherwise the **highest available lower**

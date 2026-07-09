@@ -141,9 +141,12 @@ public class RouteTraceService {
         versionDiffCache.keySet().removeIf(k -> k.equals(key) || k.startsWith(key + "|"));
     }
 
-    /** Scan result plus the registry chosen for this request's country scope + the app flavour. */
-    private record Prepared(SourceIndex index, RouteRegistry registry, List<String> warnings, String country,
-                            boolean splSecure) {
+    /** Scan result plus the registry chosen for this request's country scope. */
+    private record Prepared(SourceIndex index, RouteRegistry registry, List<String> warnings, String country) {
+        /** Auto-detected SPL-Secure flavour (the intercepted-UFW dispatcher marker in the source). */
+        boolean commandDispatch() {
+            return index.isCommandDispatch();
+        }
     }
 
     /** Entry point used by the controller: returns a {@link TraceResponse} or {@link CatalogResponse}. */
@@ -244,7 +247,7 @@ public class RouteTraceService {
 
         for (OperationInfo op : operationsInScope(prepared)) {
             ResolvedRoute resolved = versionResolver.resolve(prepared.registry(),
-                    entryOperation(op, prepared.registry(), prepared.splSecure()), request.version());
+                    entryOperation(op, prepared.registry(), prepared.commandDispatch()), request.version());
             if (wantedVersion != null && !wantedVersion.equals(resolved.version())) {
                 excluded++;
                 continue;   // resolves to a lower version or BASE — not impacted by this release
@@ -350,9 +353,9 @@ public class RouteTraceService {
         int changed = 0;
         int added = 0;
         int unchanged = 0;
-        boolean splSecure = prepared.splSecure();
+        boolean commandDispatch = prepared.commandDispatch();
         for (OperationInfo op : operationsInScope(prepared)) {
-            String routeOp = entryOperation(op, registry, splSecure);   // send<command>Route / send<method>Route or the method name
+            String routeOp = entryOperation(op, registry, commandDispatch);   // send<command>/send<method>Route or the method name
             // In latest mode the effective target is this API's own newest version (null → base-only).
             String effTarget = target;
             if (latestMode) {
@@ -702,7 +705,7 @@ public class RouteTraceService {
         RouteRegistry registry = country != null
                 ? index.scopedRegistry(country, warnings)
                 : index.fullRegistry();
-        return new Prepared(index, registry, warnings, country, isSplSecure(request.app()));
+        return new Prepared(index, registry, warnings, country);
     }
 
     /**
@@ -734,7 +737,7 @@ public class RouteTraceService {
                 if (opCountry.equalsIgnoreCase(country)) {
                     out.add(op);
                 }
-            } else if (covered.contains(entryOperation(op, prepared.registry(), prepared.splSecure()))) {
+            } else if (covered.contains(entryOperation(op, prepared.registry(), prepared.commandDispatch()))) {
                 // No country on the controller (a BAU endpoint, or a single-country app like Mighty) —
                 // fall back to the bootstrap-closure rule. Its route name is unique across countries,
                 // so the closure it lives in already ties it to the right country.
@@ -744,24 +747,20 @@ public class RouteTraceService {
         return out;
     }
 
-    /** True for the SPL-Secure application flavour (matches "SPL-Secure" / "spl secure" / "splsecure"). */
-    private static boolean isSplSecure(String app) {
-        return app != null && app.replaceAll("[^A-Za-z]", "").equalsIgnoreCase("splsecure");
-    }
-
     /**
      * The route an operation enters. Normally the handler method name (Mighty/SPL/BAU: a route named
      * after the method, entered as {@code direct:<method>}).
      *
-     * <p>The <b>SPL-Secure</b> app is different: a {@code RestEndpointRouteAspect} intercepts every UFW
-     * call and forces it through a fixed {@code direct:redirectRoute} that dispatches by
-     * {@code <toD uri="direct:send${header.operationName}Route"/>}, where {@code operationName} is the
-     * {@code @CommandHandler} command (primary), else the handler method name (fallback). So the entry
-     * route is {@code send<command>Route}, else {@code send<method>Route}. Only applied when the SPL-Secure
-     * app is selected, so Mighty/SPL and every other repo are never affected.
+     * <p>The <b>SPL-Secure</b> flavour is different and <b>auto-detected</b> (the {@code commandDispatch}
+     * marker: a {@code RestEndpointRouteAspect} intercepts every UFW call and forces it through a fixed
+     * {@code direct:redirectRoute} that dispatches by {@code <toD uri="direct:send${header.operationName}Route"/>}).
+     * There {@code operationName} is the {@code @CommandHandler} command (primary), else the handler method
+     * name (fallback) — so the entry route is {@code send<command>Route}, else {@code send<method>Route}.
+     * Applied only when the dispatcher marker is present in the source, so plain Mighty/SPL repos (no such
+     * dispatcher) keep the method-name rule and are never affected.
      */
-    private String entryOperation(OperationInfo op, RouteRegistry registry, boolean splSecure) {
-        if (splSecure) {
+    private String entryOperation(OperationInfo op, RouteRegistry registry, boolean commandDispatch) {
+        if (commandDispatch) {
             if (op.command() != null && !op.command().isBlank()) {
                 String byCommand = "send" + op.command().trim() + "Route";
                 if (routeExists(registry, byCommand)) {
@@ -981,7 +980,7 @@ public class RouteTraceService {
         }
 
         String routeOp = (op != null)
-                ? entryOperation(op, prepared.registry(), prepared.splSecure()) : operationName;
+                ? entryOperation(op, prepared.registry(), prepared.commandDispatch()) : operationName;
         ResolvedRoute resolved =
                 versionResolver.resolve(prepared.registry(), routeOp, request.version());
         RouteGraph graph = new RouteGraph();
@@ -1033,7 +1032,7 @@ public class RouteTraceService {
         var templateVersion = templateVersionResolver(request);
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
         for (OperationInfo op : operations) {
-            for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven, prepared.splSecure())) {
+            for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven, prepared.commandDispatch())) {
                 if (target == null) {
                     TraceResponse entry = newEntry(op, request.transferType());
                     entry.getWarnings().add("No route found for operation '" + op.operationName() + "'.");
@@ -1074,8 +1073,8 @@ public class RouteTraceService {
 
     /** The route targets to trace for an operation in catalog mode. */
     private List<ResolvedRoute> targetsFor(OperationInfo op, RouteRegistry registry,
-                                           TraceRequest request, boolean versionGiven, boolean splSecure) {
-        String name = entryOperation(op, registry, splSecure);   // send<command>/send<method>Route or the method name
+                                           TraceRequest request, boolean versionGiven, boolean commandDispatch) {
+        String name = entryOperation(op, registry, commandDispatch);   // send<command>/send<method>Route or the method name
         List<ResolvedRoute> targets = new ArrayList<>();
         if (VersionResolver.isLatest(request.version())) {
             // N/A → a single entry at this API's latest route, or the base route if it has none.

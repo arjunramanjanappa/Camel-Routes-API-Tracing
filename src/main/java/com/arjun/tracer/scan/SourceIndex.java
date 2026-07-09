@@ -46,6 +46,12 @@ public class SourceIndex {
     private final Set<FileInfo> sharedIncludeFiles = new java.util.LinkedHashSet<>();
     /** camel routes-include-pattern entries from application*.yml — the second bootstrap-discovery way. */
     private final List<RouteIncludePattern> includePatterns;
+    /**
+     * True when the source shows the intercepted-UFW dispatcher (a {@code direct:redirectRoute} /
+     * dynamic {@code send${...}Route} toD). Auto-selects the SPL-Secure resolver for this repo:
+     * an API's entry route is {@code send<command>Route} / {@code send<method>Route}.
+     */
+    private boolean commandDispatch;
 
     public SourceIndex(OperationResolver operations, List<FileInfo> files,
                        List<java.nio.file.Path> allFiles, List<String> warnings) {
@@ -82,6 +88,9 @@ public class SourceIndex {
             }
             if (f.fromDependency()) {
                 dependencyFiles.add(f);
+            }
+            if (f.metadata().commandDispatch()) {
+                commandDispatch = true;
             }
         }
         // Second way (ONLY when the filename way found no non-empty bootstrap): the countries come from
@@ -223,6 +232,14 @@ public class SourceIndex {
 
     public List<String> warnings() {
         return warnings;
+    }
+
+    /**
+     * True when the scanned source uses the intercepted-UFW dispatcher — the SPL-Secure flavour,
+     * auto-detected. Its APIs resolve to {@code send<command>Route} / {@code send<method>Route}.
+     */
+    public boolean isCommandDispatch() {
+        return commandDispatch;
     }
 
     /** Bootstrap names available as scopes, sorted (e.g. ID, MY, SG, TH, VN). */

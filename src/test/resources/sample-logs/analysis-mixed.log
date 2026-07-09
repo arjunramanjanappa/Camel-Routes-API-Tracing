@@ -1,4 +1,4 @@
-2026-06-11 18.39.59.000 [XNIO-1 task-1] INFO  com.arjun.something - app started, this line has no marker and must be ignored
+2026-06-11 18.39.59.000 [XNIO-1 task-1] INFO  com.uob.something - app started, this line has no marker and must be ignored
 2026-06-11 18.40.00.100 [XNIO-1 task-2] INFO [MightyMessage][MTY][sess0][user0][9.4][C2][IOS][]-/mty-banking/services/sg/payment/v2/fund/submit -Request - {"serviceRequest":{"amount":99}}
 2026-06-11 18.40.00.220 [XNIO-1 task-2] INFO [MightyHostMessage][MTY][sess0][user0][9.4][C2][IOS][]-/bfs/ft/own/submit -[Request] - {"req":1}
 2026-06-11 18.40.00.410 [XNIO-1 task-2] INFO [MightyHostMessage][MTY][sess0][user0][9.4][C2][IOS][180ms]-/bfs/ft/own/submit -[Response] - {"serviceResponse":{"responseCode":"0000000","responseDescription":"Success"}}

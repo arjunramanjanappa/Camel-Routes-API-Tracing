@@ -332,7 +332,14 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       )}
 
       {!loading && report && report.snapshot && (
-        <div className="impact-body">
+        <div className="impact-body diff-layout">
+          <div className="diff-nav">
+            <div className="diff-nav-head">Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</div>
+            <div className="diff-nav-item active">
+              <span className="diff-nav-label">Latest routes</span>
+              <span className="diff-nav-count">{report.snapshotCount ?? report.apis.length}</span>
+            </div>
+          </div>
           <div className="diff-main">
             <NeedsReviewBox items={report.needsReview ?? []} />
             {(() => {

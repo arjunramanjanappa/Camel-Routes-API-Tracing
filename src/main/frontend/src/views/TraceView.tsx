@@ -115,21 +115,25 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   };
 
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        <ControlPanel params={params} meta={meta} loading={loading}
-                      onChange={onChange} onTrace={onTrace} onCatalogAll={onCatalogAll} />
-        {(data?.needsReview?.length ?? 0) > 0 && (
-          <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
-        )}
-        {error && <div className="err">Error: {error}</div>}
-        {data && data.needsReview && data.needsReview.length > 0 && (
-          <NeedsReviewBox items={data.needsReview} />
-        )}
-        {selectedNode && <DetailPanel node={selectedNode} onClose={() => setSelectedId(null)} />}
-        {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}
-      </aside>
-      <div className="main">
+    <div className="scope">
+      <ControlPanel params={params} meta={meta} loading={loading}
+                    onChange={onChange} onTrace={onTrace} onCatalogAll={onCatalogAll} />
+      <div className="layout">
+        <aside className="sidebar">
+          {(data?.needsReview?.length ?? 0) > 0 && (
+            <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
+          )}
+          {error && <div className="err">Error: {error}</div>}
+          {data && data.needsReview && data.needsReview.length > 0 && (
+            <NeedsReviewBox items={data.needsReview} />
+          )}
+          {selectedNode && <DetailPanel node={selectedNode} onClose={() => setSelectedId(null)} />}
+          {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}
+          {!data && !error && (
+            <div className="sub" style={{ padding: '4px 2px' }}>Set the source, country and version above, then <b>Trace</b> — results appear here.</div>
+          )}
+        </aside>
+        <div className="main">
         {derived && <RouteGraph ref={graphRef} derived={derived} selectedId={selectedId} search={search} colorMode={colorMode} onSelect={setSelectedId} />}
         <div className="toolbar">
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -149,6 +153,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           </div></div>
         )}
         <Legend />
+        </div>
       </div>
     </div>
   );

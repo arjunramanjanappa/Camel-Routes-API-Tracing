@@ -15,6 +15,8 @@ function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string 
 export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], filtered: boolean, app?: string) {
   const r = await ReportDoc.create();
 
+  if (report.snapshot) { await exportSnapshotPdf(r, report, apis, app); return; }
+
   r.header('Release Impact Report',
     `${app ? app + '  -  ' : ''}Release ${report.version || 'BASE'}${report.country ? '  -  ' + report.country : ''}`,
     `Each API is compared against its immediately-preceding version. Generated ${new Date().toLocaleString()}.`);
@@ -49,6 +51,38 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
     r.section(meta.title, list.length, meta.ramp, meta.blurb);
     list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
   }
+
+  r.reviewSection(report.needsReview);
+  r.save(fileName(report), footer);
+}
+
+/** N/A snapshot report: each API and the latest (else base) route it resolves to — not a diff. */
+async function exportSnapshotPdf(r: ReportDoc, report: VersionDiffReport, apis: ApiDiff[], app?: string) {
+  r.header('Release Impact - Latest routes',
+    `${app ? app + '  -  ' : ''}Release ${report.version || 'N/A'}${report.country ? '  -  ' + report.country : ''}`,
+    `The latest route each API resolves to (else its base route) - a snapshot of the routes in scope, `
+    + `not a release comparison. Generated ${new Date().toLocaleString()}.`);
+
+  r.statBand([{ n: apis.length, label: 'Latest routes', ramp: PAL.blue }]);
+  r.paragraph(`N/A resolves each API to its highest R<version>_ route, else its base route. `
+    + `${apis.length} API(s) in scope${report.country ? ' for ' + report.country : ''}.`);
+
+  const footer = `TraceGuard - Latest routes ${report.version || 'N/A'}${app ? ' - ' + app : ''}`;
+  if (apis.length === 0) { r.emptyNote('No API resolves to a route in this scope.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
+
+  r.section('Latest routes', apis.length, PAL.blue, 'Each API and the route it currently resolves to (Base = un-versioned).');
+  apis.forEach((a, idx) => {
+    if (idx > 0) r.separator();
+    r.ensure(30);
+    const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
+    r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
+    const label = a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion;
+    const vw = r.width(label, 'bold', 8) + 12;
+    r.pill(label, PAGE.w - M - vw, PAL.blue.fill, PAL.blue.text, 8);
+    r.y += 16;
+    r.para(`Resolves to ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+    r.y += 6;
+  });
 
   r.reviewSection(report.needsReview);
   r.save(fileName(report), footer);
@@ -103,5 +137,6 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
 }
 
 function fileName(report: VersionDiffReport): string {
-  return `release-impact-${report.version || 'base'}-${stamp()}.pdf`;
+  const v = (report.version || 'base').replace(/[^a-zA-Z0-9._-]+/g, '-');   // N/A -> N-A (no path chars)
+  return `release-impact-${v}-${stamp()}.pdf`;
 }

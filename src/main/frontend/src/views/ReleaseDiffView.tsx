@@ -339,6 +339,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
               <span className="diff-nav-label">Latest routes</span>
               <span className="diff-nav-count">{report.snapshotCount ?? report.apis.length}</span>
             </div>
+            {report.apis.length > 0 && (
+              <button className="minibtn diff-nav-export" onClick={exportPdf} title="Download the latest-routes snapshot as a PDF">⤓ Export PDF</button>
+            )}
           </div>
           <div className="diff-main">
             <NeedsReviewBox items={report.needsReview ?? []} />

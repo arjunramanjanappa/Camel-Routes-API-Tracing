@@ -75,13 +75,13 @@ class UnversionedRepoTest {
     }
 
     @Test
-    void catalogWithNaListsEveryApiUnderBase(@TempDir Path dir) throws Exception {
+    void catalogWithNaListsEveryApiInOneGroup(@TempDir Path dir) throws Exception {
         RouteTraceService service = unversionedRepo(dir);
 
         CatalogResponse cat = (CatalogResponse) service.analyze(
                 new TraceRequest(null, "N/A", null, null, "SG"));
-        // One BASE group holding both APIs — not excluded as "not impacted".
-        assertThat(cat.getVersionsFound()).containsExactly("BASE");
+        // N/A consolidates every API into ONE group (not split per version), each resolving to its base.
+        assertThat(cat.getVersionsFound()).containsExactly("N/A");
         assertThat(cat.getGroups()).hasSize(1);
         assertThat(cat.getGroups().get(0).traces())
                 .extracting(TraceResponse::getApi)

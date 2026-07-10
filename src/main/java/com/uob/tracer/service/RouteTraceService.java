@@ -1064,7 +1064,11 @@ public class RouteTraceService {
                 traverseInto(entry, op.path(), op.operationName(), target,
                         request.transferType(), registry, graph, templateVersion,
                         versionGiven ? request.version() : target.version());
-                String key = target.version() != null ? target.version() : BASE_GROUP;
+                // N/A = latest per API: consolidate every API into ONE group (like a specific version
+                // shows one group) instead of splitting by each API's own latest version. Each entry still
+                // shows its resolved route, so its version is visible per row.
+                String key = latestMode ? request.version().trim()
+                        : (target.version() != null ? target.version() : BASE_GROUP);
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
         }

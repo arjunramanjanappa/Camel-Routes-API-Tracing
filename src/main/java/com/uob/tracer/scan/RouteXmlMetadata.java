@@ -26,10 +26,10 @@ import java.util.Set;
  * @param hasCamelContext true if a {@code <camelContext>} is present
  * @param hostRouteIds   ids of {@code <route>}s that reference {@code CamelHttpUri}
  *                       (they perform the backend HTTP call)
- * @param commandDispatch true if this file shows the intercepted-UFW dispatcher — a fixed
- *                       {@code direct:redirectRoute} and/or a dynamic
+ * @param commandDispatch true if this file shows the intercepted-UFW dispatcher — a dynamic
  *                       {@code <toD uri="direct:send${...}Route"/>} — the marker that auto-selects the
- *                       SPL-Secure resolver ({@code send<command>/send<method>Route})
+ *                       SPL-Secure resolver ({@code send<command>/send<method>Route}). A bare
+ *                       {@code direct:redirectRoute} does NOT qualify: standard central routers use one too.
  */
 public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
                                Set<String> definedContexts, boolean hasCamelContext,
@@ -38,9 +38,14 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
     /** Lower-cased so detection is case-insensitive (CamelHttpUri / camelHttpUri / …). */
     private static final String HTTP_URI_MARKER = "camelhttpuri";
 
-    /** The intercepted-UFW dispatcher: a fixed redirectRoute or a dynamic send${...}Route toD. */
+    /**
+     * The intercepted-UFW dispatcher: a dynamic {@code direct:send${...}Route} toD. A bare
+     * {@code direct:redirectRoute} is NOT sufficient — standard Mighty/SPL central routers use a
+     * redirectRoute too (a recipientList to {@code ${operationName}}); only the send-route dispatch
+     * (which resolves to {@code send<command>/send<method>Route}) is unique to the SPL-Secure flavour.
+     */
     private static final java.util.regex.Pattern COMMAND_DISPATCH = java.util.regex.Pattern.compile(
-            "direct:(redirectRoute|send\\$?\\{[^}]*\\}Route)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            "direct:send\\$?\\{[^}]*\\}Route", java.util.regex.Pattern.CASE_INSENSITIVE);
 
     public static RouteXmlMetadata parse(String xml) {
         try {

@@ -790,16 +790,21 @@ public class LogAnalysisService {
         return null;
     }
 
-    // Success = an all-zeros business code. The SPL-Secure repo additionally uses HTTP "200" as a
-    // success responseCode (both 200 and 0000000 mean OK there), so accept it under that flavour.
-    private static boolean isSuccessCode(String code, boolean secure) {
+    /** Front-end success: an all-zeros business responseCode (both apps and the secure flavour). */
+    private static boolean isSuccessCode(String code) {
+        return code != null && ALL_ZEROS.matcher(code).matches();
+    }
+
+    /**
+     * Backend success. Mighty/SPL backends log an all-zeros business responseCode. The SPL-Secure
+     * backend is a downstream HTTP call whose responseCode is "200" for OK — anything else (an
+     * all-zeros value included) is an error.
+     */
+    private static boolean isBackendSuccess(String code, boolean secure) {
         if (code == null) {
             return false;
         }
-        if (ALL_ZEROS.matcher(code).matches()) {
-            return true;
-        }
-        return secure && "200".equals(code.trim());
+        return secure ? "200".equals(code.trim()) : ALL_ZEROS.matcher(code).matches();
     }
 
     // --- transaction assembly ---
@@ -1020,7 +1025,7 @@ public class LogAnalysisService {
         if (c.code() == null) {
             return LogStatus.INDETERMINATE;
         }
-        return isSuccessCode(c.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
+        return isBackendSuccess(c.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
     }
 
     /** Front-end path match: the log path ends with (or contains) the traced controller path. */
@@ -1151,7 +1156,7 @@ public class LogAnalysisService {
                             + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")." : "."),
                     backends);
         }
-        if (!isSuccessCode(code, secure)) {
+        if (!isSuccessCode(code)) {
             return new Eval(LogStatus.FAILED,
                     "Front-end responseCode " + code
                             + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."), backends);
@@ -1188,7 +1193,7 @@ public class LogAnalysisService {
             }
             LogStatus st = !hit.hasResponse() ? LogStatus.TIMEOUT
                     : hit.code() == null ? LogStatus.INDETERMINATE
-                    : isSuccessCode(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
+                    : isBackendSuccess(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
             boolean timedOut = st == LogStatus.TIMEOUT;
             out.add(new BackendCallResult(tb, hit.path(), st,
                     timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), timedOut ? null : hit.desc(),

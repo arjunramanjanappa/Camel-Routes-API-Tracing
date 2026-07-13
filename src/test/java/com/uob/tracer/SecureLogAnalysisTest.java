@@ -67,7 +67,7 @@ class SecureLogAnalysisTest {
                 "2026-06-11 18.43.45.102 " + CORR + "|" + SPAN + "| [http-1] [INFO ] [SPLAppLog] - /services/get/push - Request - {\"amount\":10}",
                 // BE request/response — standard SPLHostMessage, country MY + release 9.14 in the brackets.
                 "2026-06-11 18.43.45.150 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Request]: {\"serviceVersionNumber\":\"2.0\"}",
-                "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"responseCode\":\"0000\"}",
+                "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"responseCode\":\"200\"}",
                 // FE response — NO path (tied to its request by corrId); empty "||" prefix, id only
                 // in the TRACE-ID header, payload wrapped as status/body/headers.
                 "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - Response: status=200, body={\"responseCode\":\"0000000\"}, headers={CONTENT-TYPE=application/json, TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
@@ -106,14 +106,15 @@ class SecureLogAnalysisTest {
     }
 
     @Test
-    void secureBackendResponseCode200IsSuccess(@TempDir Path dir) throws Exception {
-        // In the secure repo a backend responseCode of 200 (HTTP OK) is success, the same as
-        // all-zeros. Before this, 200 failed the all-zeros rule → backend FAILED → overall PARTIAL.
+    void secureBackendSuccessIs200OnlyAllZerosIsError(@TempDir Path dir) throws Exception {
+        // In the secure repo the backend is a downstream HTTP call: only responseCode 200 is a
+        // success — an all-zeros value is an ERROR. So a green front end with an all-zeros backend
+        // is PARTIAL (the happy path with backend 200 is covered by the end-to-end test above).
         writeSecureRepo(dir);
         String log = String.join("\n",
                 "2026-06-11 18.43.45.102 " + CORR + "|" + SPAN + "| [http-1] [INFO ] [SPLAppLog] - /services/get/push - Request - {\"amount\":10}",
                 "2026-06-11 18.43.45.150 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Request]: {\"serviceVersionNumber\":\"2.0\"}",
-                "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"responseCode\":\"200\"}",
+                "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"responseCode\":\"0000000\"}",
                 "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - Response: status=200, body={\"responseCode\":\"0000000\"}, headers={TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
 
         LogAnalysisService service = new LogAnalysisService(new RouteTraceService(dir.toString()));
@@ -124,11 +125,10 @@ class SecureLogAnalysisTest {
 
         ApiLogResult api = r.apis().stream()
                 .filter(a -> a.api().equals("/services/get/push")).findFirst().orElseThrow();
-        assertThat(api.status()).isEqualTo(LogStatus.SUCCESS);   // not PARTIAL — 200 is a success code here
+        assertThat(api.status()).isEqualTo(LogStatus.PARTIAL);   // FE ok (0000000), backend not 200
         assertThat(api.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/validate");
-            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
-            assertThat(b.responseCode()).isEqualTo("200");
+            assertThat(b.status()).isEqualTo(LogStatus.FAILED);   // all-zeros is not a secure backend success
         });
     }
 

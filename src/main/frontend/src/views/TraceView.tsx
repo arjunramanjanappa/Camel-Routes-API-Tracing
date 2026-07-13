@@ -105,7 +105,12 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     setExporting(true);
     setError(null);
     try {
-      const cat = await analyze({ ...params, api: '', dep: depParams(deps), app });
+      // Normalise the source exactly like a Trace (send only the active mode's fields) — otherwise
+      // a stale `repo` from a previous Bitbucket session leaks in, the backend picks Bitbucket, and
+      // the catalog resolves an empty/wrong source (0 impacted APIs) instead of the on-screen scope.
+      const cat = await analyze({ ...params, ...sourceParams({
+        sourceType: params.sourceType || 'local', sourceDir: params.sourceDir || '', repo: params.repo || '', branch: params.branch || '',
+      }), api: '', dep: depParams(deps), app });
       if (cat.mode === 'catalog') await exportApiTracePdf(cat, app);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

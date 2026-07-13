@@ -504,7 +504,9 @@ Starts at the resolved entry route and follows `direct:` calls recursively
 `direct:${exchangeProperty[operationName]}`, honours `<choice>` branches
 (filtered by `transferType`, or all branches when omitted), follows async
 `seda:`/`vm:` calls, records external `CamelHttpUri` host calls as per-call
-instances, and collects backend endpoints from `setProperty name="api"`. A
+instances, and collects backend endpoints from `setProperty name="api"` (or any
+property whose name **ends with** `api`, e.g. `backendApi` — case-insensitive; the
+logged host URL is likewise `hosturl` or any name ending with `hosturl`). A
 framework template `<to>` (`.ftl`/`.vm`) near a backend contributes its **service
 version** to that backend.
 

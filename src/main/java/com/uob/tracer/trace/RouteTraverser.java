@@ -502,14 +502,20 @@ public class RouteTraverser {
         }
     }
 
+    /** The backend API property: {@code name="api"} or any name ENDING in "api" (e.g. backendApi,
+     *  targetApi) — case-insensitive — so every repo's naming is covered. */
     private static boolean isApi(SetPropertyElement sp) {
-        return sp.name() != null && sp.name().equalsIgnoreCase("api")
-                && sp.value() != null && !sp.value().isBlank();
+        return endsWith(sp, "api") && sp.value() != null && !sp.value().isBlank();
     }
 
+    /** The host-URL property: {@code name="hosturl"} or any name ENDING in "hosturl" (e.g.
+     *  backendHosturl) — case-insensitive. Checked before {@link #isApi} in the walk. */
     private static boolean isHosturl(SetPropertyElement sp) {
-        return sp.name() != null && sp.name().equalsIgnoreCase("hosturl")
-                && sp.value() != null && !sp.value().isBlank();
+        return endsWith(sp, "hosturl") && sp.value() != null && !sp.value().isBlank();
+    }
+
+    private static boolean endsWith(SetPropertyElement sp, String suffix) {
+        return sp.name() != null && sp.name().trim().toLowerCase(java.util.Locale.ROOT).endsWith(suffix);
     }
 
     private void addBackend(String value, String routeNodeId, String branch, boolean into,

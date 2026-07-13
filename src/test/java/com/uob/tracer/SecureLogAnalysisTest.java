@@ -105,6 +105,27 @@ class SecureLogAnalysisTest {
     }
 
     @Test
+    void feResponseWithoutResponseCodeInBodyIsIndeterminate(@TempDir Path dir) throws Exception {
+        // The HTTP status (200) is NOT used as a success signal — a 200 can wrap a business
+        // failure. When body={…} carries no responseCode, the front-end verdict is indeterminate.
+        writeSecureRepo(dir);
+        String log = String.join("\n",
+                "2026-06-11 18.43.45.102 " + CORR + "|" + SPAN + "| [http-1] [INFO ] [SPLAppLog] - /services/get/push - Request - {\"amount\":10}",
+                "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - /services/get/push - Response: status=200, body={\"data\":\"ok\"}, headers={TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
+
+        LogAnalysisService service = new LogAnalysisService(new RouteTraceService(dir.toString()));
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = service.analyze(in, "secure.log", "N/A", "MY", dir.toString(), null, null, true, "SPL");
+        }
+
+        ApiLogResult api = r.apis().stream()
+                .filter(a -> a.api().equals("/services/get/push")).findFirst().orElseThrow();
+        assertThat(api.status()).isEqualTo(LogStatus.INDETERMINATE);   // status=200 not treated as success
+        assertThat(api.responseCode()).isNull();
+    }
+
+    @Test
     void sameSecureLogAnalysedAsMightyFindsNothing(@TempDir Path dir) throws Exception {
         // The secure FE loggers are recognised only because the SOURCE auto-detects as secure.
         // Analysed as Mighty against a NON-secure repo, the standard parser looks for

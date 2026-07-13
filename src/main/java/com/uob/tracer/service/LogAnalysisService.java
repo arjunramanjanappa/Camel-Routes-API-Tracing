@@ -105,7 +105,6 @@ public class LogAnalysisService {
     // Correlation id: a 32-hex trace id (the span id is 16-hex, so a {32} match never picks it up).
     private static final Pattern SECURE_CORR = Pattern.compile("\\b([0-9a-fA-F]{32})\\b");
     private static final Pattern TRACE_ID_HDR = Pattern.compile("TRACE-ID\\s*[=:]\\s*([0-9a-fA-F]{32})", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HTTP_STATUS = Pattern.compile("status\\s*[=:]\\s*(\\d{3})", Pattern.CASE_INSENSITIVE);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
@@ -636,8 +635,9 @@ public class LogAnalysisService {
      * carry no version field — the release is read from the SPLHostMessage (backend) line in
      * the same transaction — and put the correlation id in a "corrId|spanId|" prefix on the
      * request but in a TRACE-ID header on the response. The response wraps the payload as
-     * "status=…, body={json}, headers={…}", so the verdict is read from the body JSON (the same
-     * responseCode contract as the other apps), falling back to the HTTP status only if absent.
+     * "status=…, body={json}, headers={…}"; the verdict is read from the body JSON's responseCode
+     * (the same contract as the other apps). The HTTP status is deliberately ignored — a 200 can
+     * wrap a business failure — so a body without a responseCode reads as indeterminate.
      */
     private LogLine parseSecureFe(String line) {
         Matcher m = SECURE_FE.matcher(line);
@@ -667,7 +667,8 @@ public class LogAnalysisService {
             svc = firstGroup(SVC_VERSION, rest);
         } else {
             // "status=…, body={json}, headers={…}" — the body is the same response payload as the
-            // other apps, so read the verdict from it; only then fall back to the HTTP status.
+            // other apps, so the verdict is read from it. The HTTP status is not consulted (a 200
+            // can carry a failing responseCode); a body without a responseCode → indeterminate.
             String body = extractBraced(rest, "body");
             JsonNode tree = tryParseJson(body);
             if (tree != null) {
@@ -678,14 +679,6 @@ public class LogAnalysisService {
                 code = firstGroup(CODE, body);
                 desc = firstGroup(DESC, body);
                 svc = firstGroup(SVC_VERSION, body);
-            }
-            if (code == null) {
-                String status = firstGroup(HTTP_STATUS, rest);
-                if (status != null) {
-                    // 2xx → success (normalised to the all-zeros success code); otherwise the
-                    // HTTP status itself stands in as the (non-zero) failing code.
-                    code = status.startsWith("2") ? "0" : status;
-                }
             }
         }
         return new LogLine(ts, true, request, null, corr, null, null, path, code, desc, svc);

@@ -15,6 +15,12 @@ public class ImpactIndex {
 
     private String version;
     private String country;
+    /**
+     * True when the source was auto-detected as the SPL-Secure (intercepted-UFW command
+     * dispatch) flavour. Consumers that parse this app's logs use it to select the secure
+     * log shape; Mighty and regular SPL leave it false.
+     */
+    private boolean commandDispatch;
     private final List<ApiImpact> apis = new ArrayList<>();
     private final List<String> allRoutes = new ArrayList<>();
     private final List<String> allBackends = new ArrayList<>();
@@ -30,6 +36,9 @@ public class ImpactIndex {
 
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+
+    public boolean isCommandDispatch() { return commandDispatch; }
+    public void setCommandDispatch(boolean commandDispatch) { this.commandDispatch = commandDispatch; }
 
     public List<ApiImpact> getApis() { return apis; }
     public List<String> getAllRoutes() { return allRoutes; }

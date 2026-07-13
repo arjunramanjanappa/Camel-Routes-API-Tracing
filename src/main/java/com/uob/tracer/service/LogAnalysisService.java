@@ -8,6 +8,7 @@ import com.uob.tracer.api.ImpactIndex;
 import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.LogStatus;
 import com.uob.tracer.api.TraceRequest;
+import com.uob.tracer.resolve.VersionResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -90,6 +91,21 @@ public class LogAnalysisService {
     private static final Pattern CODE = Pattern.compile("[\"']?responseCode[\"']?\\s*:\\s*[\"']?([0-9A-Za-z]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern DESC = Pattern.compile("[\"']?responseDescription[\"']?\\s*:\\s*[\"']?([^\"',}]*)", Pattern.CASE_INSENSITIVE);
     private static final Pattern SVC_VERSION = Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)", Pattern.CASE_INSENSITIVE);
+
+    // --- SPL-Secure (intercepted-UFW) front-end shapes; auto-detected, never used for Mighty/SPL ---
+    // Request:  <ts> <corrId>|<spanId>| [thread] [LEVEL] [SPLAppLog]   - <path> - Request  - {json}
+    // Response: <ts> ||                 [thread] [LEVEL] [SPLWSAppLog] - <path> - Response : status=200, body={json}, headers={…,TRACE-ID=<corrId>,…}
+    // The backend stays SPLHostMessage and is parsed by the standard LINE pattern above.
+    private static final Pattern SECURE_FE = Pattern.compile(
+            "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
+                    + "(?:([^\\[\\s]\\S*)\\s+)?"                     // optional "corrId|spanId|" / "||" prefix (never starts with '[')
+                    + "\\[[^\\]]*\\]\\s+\\[[^\\]]*\\]\\s+"           // [thread] [LEVEL]
+                    + "\\[(?:SPLAppLog|SPLWSAppLog)\\]\\s*-\\s*"     // the secure front-end logger
+                    + "(\\S+)\\s*-\\s*(Request|Response)\\s*[-:]\\s*(.*)$");
+    // Correlation id: a 32-hex trace id (the span id is 16-hex, so a {32} match never picks it up).
+    private static final Pattern SECURE_CORR = Pattern.compile("\\b([0-9a-fA-F]{32})\\b");
+    private static final Pattern TRACE_ID_HDR = Pattern.compile("TRACE-ID\\s*[=:]\\s*([0-9a-fA-F]{32})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTTP_STATUS = Pattern.compile("status\\s*[=:]\\s*(\\d{3})", Pattern.CASE_INSENSITIVE);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
@@ -130,10 +146,21 @@ public class LogAnalysisService {
         InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
                 ? new GZIPInputStream(raw) : raw;
 
+        // Footprint (controller path + traced backends per API) for this release. Computed up
+        // front because its auto-detection also tells us whether this is the SPL-Secure flavour
+        // (intercepted-UFW command dispatch), which logs its front-end lines differently — that
+        // choice drives the marker set and the FE parser below.
+        ImpactIndex idx = traceService.impactIndex(
+                new TraceRequest(null, version, null, sourceDir, country, repo, branch, dependencies));
+        boolean secure = idx.isCommandDispatch();
+
         // The two applications differ only in the log marker: Mighty → MightyMessage /
         // MightyHostMessage, SPL → SPLMessage / SPLHostMessage. Everything else is identical.
+        // For an auto-detected SPL-Secure source we ADDITIONALLY recognise its front-end loggers
+        // (SPLAppLog / SPLWSAppLog) on top of the chosen app's markers — additive, so a repo that
+        // happens to be command-dispatch but whose logs are still standard keeps parsing normally.
         String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
-        Markers markers = new Markers(application + "Message", application + "HostMessage");
+        Markers markers = new Markers(application + "Message", application + "HostMessage", secure);
 
         int[] counters = new int[2];   // [0] = records scanned, [1] = marked-but-unparsed
         List<LogLine> lines = new ArrayList<>();
@@ -217,9 +244,6 @@ public class LogAnalysisService {
             txns.add(buildTxn(group));
         }
 
-        // Footprint (controller path + traced backends per API) for this release.
-        ImpactIndex idx = traceService.impactIndex(
-                new TraceRequest(null, version, null, sourceDir, country, repo, branch, dependencies));
         boolean apiSel = selectedApis != null && !selectedApis.isEmpty();
         boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
 
@@ -269,7 +293,7 @@ public class LogAnalysisService {
         if (s == null) {
             return;
         }
-        if (s.indexOf(markers.fe()) < 0 && s.indexOf(markers.be()) < 0) {
+        if (!markers.present(s)) {
             return;   // cheap pre-filter: skip the noise without touching the regex
         }
         LogLine parsed = null;
@@ -290,8 +314,7 @@ public class LogAnalysisService {
         if (t.startsWith("[") || t.startsWith("{")) {
             return "SPLUNK_JSON";
         }
-        boolean marker = t.contains(markers.fe()) || t.contains(markers.be());
-        if (marker) {
+        if (markers.present(t)) {
             return "RAW_LOG";   // the very first line is already an event
         }
         String low = t.toLowerCase();
@@ -321,7 +344,7 @@ public class LogAnalysisService {
             cell = cells.get(rawIdx);
         } else {
             for (String c : cells) {
-                if (c.contains(markers.fe()) || c.contains(markers.be())) {
+                if (markers.present(c)) {
                     cell = c;
                     break;
                 }
@@ -498,6 +521,11 @@ public class LogAnalysisService {
     // --- parsing ---
 
     private LogLine parseLine(String line, Markers markers) {
+        if (markers.secure() && (line.indexOf("SPLAppLog") >= 0 || line.indexOf("SPLWSAppLog") >= 0)) {
+            // SPL-Secure front-end line. The backend (SPLHostMessage) and any standard marker
+            // fall through to the parser below — their shapes match LINE unchanged.
+            return parseSecureFe(line);
+        }
         Matcher m = LINE.matcher(line);
         if (!m.find()) {
             return null;
@@ -601,6 +629,105 @@ public class LogAnalysisService {
             }
         }
         return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc);
+    }
+
+    /**
+     * Parse an SPL-Secure front-end line (SPLAppLog request / SPLWSAppLog response). These
+     * carry no version field — the release is read from the SPLHostMessage (backend) line in
+     * the same transaction — and put the correlation id in a "corrId|spanId|" prefix on the
+     * request but in a TRACE-ID header on the response. The response wraps the payload as
+     * "status=…, body={json}, headers={…}", so the verdict is read from the body JSON (the same
+     * responseCode contract as the other apps), falling back to the HTTP status only if absent.
+     */
+    private LogLine parseSecureFe(String line) {
+        Matcher m = SECURE_FE.matcher(line);
+        if (!m.find()) {
+            return null;
+        }
+        String ts = m.group(1);
+        String prefix = m.group(2);
+        String path = m.group(3);
+        boolean request = "Request".equalsIgnoreCase(m.group(4));
+        String rest = m.group(5);
+        if (path == null || path.indexOf('/') < 0) {
+            return null;   // the URL token must look like a path
+        }
+        // corrId: request → the leading "corrId|spanId|" prefix; response → the TRACE-ID header.
+        String corr = firstGroup(SECURE_CORR, prefix);
+        if (corr == null) {
+            corr = firstGroup(TRACE_ID_HDR, rest);
+        }
+        if (corr == null) {
+            corr = firstGroup(SECURE_CORR, rest);   // last resort: the only 32-hex on the line
+        }
+        String code = null;
+        String desc = null;
+        String svc = null;
+        if (request) {
+            svc = firstGroup(SVC_VERSION, rest);
+        } else {
+            // "status=…, body={json}, headers={…}" — the body is the same response payload as the
+            // other apps, so read the verdict from it; only then fall back to the HTTP status.
+            String body = extractBraced(rest, "body");
+            JsonNode tree = tryParseJson(body);
+            if (tree != null) {
+                code = jsonFind(tree, "responseCode");
+                desc = jsonFind(tree, "responseDescription");
+                svc = jsonFind(tree, "serviceVersionNumber");
+            } else if (body != null) {
+                code = firstGroup(CODE, body);
+                desc = firstGroup(DESC, body);
+                svc = firstGroup(SVC_VERSION, body);
+            }
+            if (code == null) {
+                String status = firstGroup(HTTP_STATUS, rest);
+                if (status != null) {
+                    // 2xx → success (normalised to the all-zeros success code); otherwise the
+                    // HTTP status itself stands in as the (non-zero) failing code.
+                    code = status.startsWith("2") ? "0" : status;
+                }
+            }
+        }
+        return new LogLine(ts, true, request, null, corr, null, null, path, code, desc, svc);
+    }
+
+    /**
+     * The balanced <code>{…}</code> value of <code>key=…</code> in a string, tolerant of nested
+     * braces and of braces inside JSON string values. Null if the key or its brace is absent.
+     */
+    private static String extractBraced(String s, String key) {
+        if (s == null) {
+            return null;
+        }
+        int k = s.indexOf(key + "=");
+        if (k < 0) {
+            return null;
+        }
+        int open = s.indexOf('{', k);
+        if (open < 0) {
+            return null;
+        }
+        int depth = 0;
+        boolean inStr = false;
+        char prev = 0;
+        for (int i = open; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (inStr) {
+                if (c == '"' && prev != '\\') {
+                    inStr = false;
+                }
+            } else if (c == '"') {
+                inStr = true;
+            } else if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                if (--depth == 0) {
+                    return s.substring(open, i + 1);
+                }
+            }
+            prev = c;
+        }
+        return s.substring(open);   // truncated line — return what we have
     }
 
     private static String blankToNull(String s) {
@@ -718,7 +845,19 @@ public class LogAnalysisService {
                 : (!beReq.isEmpty() ? beReq.get(0) : (!beResp.isEmpty() ? beResp.get(0) : null)));
         String corr = anchor != null ? anchor.correlationId() : null;
         String ts = group.stream().map(LogLine::ts).min(Comparator.naturalOrder()).orElse(null);
+        // Version normally comes from the anchor (front-end). SPL-Secure front-end lines carry
+        // no version field, so fall back to any line that has one — the SPLHostMessage (backend)
+        // lines carry the client release (e.g. 9.14). Mighty/SPL front-end lines always set a
+        // version (base = 0.0), so this fallback never changes their behaviour.
         String version = anchor != null ? anchor.version() : null;
+        if (version == null) {
+            for (LogLine l : group) {
+                if (l.version() != null) {
+                    version = l.version();
+                    break;
+                }
+            }
+        }
         String platform = anchor != null ? anchor.platform() : null;
         String fePath = feReq != null ? feReq.path() : (feResp != null ? feResp.path() : null);
         return new Txn(corr, ts, version, platform, fePath, feReq, feResp, calls);
@@ -733,7 +872,9 @@ public class LogAnalysisService {
                 matched.add(t);
             }
         }
-        boolean versionScoped = version != null && !version.isBlank();
+        // N/A ("latest per API, else base") is not a concrete release — like the impact catalog,
+        // it means "every release in scope", so the log lines are not restricted by version.
+        boolean versionScoped = version != null && !version.isBlank() && !VersionResolver.isLatest(version);
         List<Txn> forVersion = new ArrayList<>();
         for (Txn t : matched) {
             if (!versionScoped || version.trim().equals(t.version())) {
@@ -784,7 +925,8 @@ public class LogAnalysisService {
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
     private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion,
                                               Collection<String> candidates, Map<String, String> hosturls) {
-        boolean versionScoped = version != null && !version.isBlank();
+        // N/A means "every release in scope" — don't restrict the host lines by a concrete version.
+        boolean versionScoped = version != null && !version.isBlank() && !VersionResolver.isLatest(version);
         List<BackendHit> hits = new ArrayList<>();
         Set<String> seen = new TreeSet<>();
         boolean anyPathMatch = false;
@@ -1064,8 +1206,20 @@ public class LogAnalysisService {
     private record BackendHit(Txn txn, BackendCall call) {
     }
 
-    /** The front-end and backend log markers for the selected application. */
-    private record Markers(String fe, String be) {
+    /**
+     * The front-end and backend log markers for the selected application. For the auto-detected
+     * SPL-Secure flavour ({@code secure=true}) the front-end uses a different logger
+     * (SPLAppLog request / SPLWSAppLog response) while the backend stays SPLHostMessage.
+     */
+    private record Markers(String fe, String be, boolean secure) {
+        /** Cheap pre-filter: does this candidate line carry any marker we care about? */
+        boolean present(String s) {
+            if (s.indexOf(fe) >= 0 || s.indexOf(be) >= 0) {
+                return true;
+            }
+            // Additive: an SPL-Secure source also uses these front-end loggers.
+            return secure && (s.indexOf("SPLAppLog") >= 0 || s.indexOf("SPLWSAppLog") >= 0);
+        }
     }
 
     private record Txn(String correlationId, String ts, String version, String platform,

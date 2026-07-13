@@ -224,6 +224,7 @@ public class RouteTraceService {
         ImpactIndex out = new ImpactIndex();
         out.setVersion(request.version());
         out.setCountry(prepared.country());
+        out.setCommandDispatch(prepared.commandDispatch());   // auto-detected SPL-Secure flavour, for log-shape selection
         out.getWarnings().addAll(prepared.warnings());
 
         Set<String> routes = new TreeSet<>();

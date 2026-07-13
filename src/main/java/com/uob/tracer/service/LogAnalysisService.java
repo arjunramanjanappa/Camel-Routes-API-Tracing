@@ -94,14 +94,16 @@ public class LogAnalysisService {
 
     // --- SPL-Secure (intercepted-UFW) front-end shapes; auto-detected, never used for Mighty/SPL ---
     // Request:  <ts> <corrId>|<spanId>| [thread] [LEVEL] [SPLAppLog]   - <path> - Request  - {json}
-    // Response: <ts> ||                 [thread] [LEVEL] [SPLWSAppLog] - <path> - Response : status=200, body={json}, headers={…,TRACE-ID=<corrId>,…}
-    // The backend stays SPLHostMessage and is parsed by the standard LINE pattern above.
+    // Response: <ts> ||                 [thread] [LEVEL] [SPLWSAppLog] -          Response : status=200, body={json}, headers={…,TRACE-ID=<corrId>,…}
+    // The path is OPTIONAL: the response usually omits it and is tied to its request by corrId
+    // alone. The backend stays SPLHostMessage and is parsed by the standard LINE pattern above.
     private static final Pattern SECURE_FE = Pattern.compile(
             "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
                     + "(?:([^\\[\\s]\\S*)\\s+)?"                     // optional "corrId|spanId|" / "||" prefix (never starts with '[')
                     + "\\[[^\\]]*\\]\\s+\\[[^\\]]*\\]\\s+"           // [thread] [LEVEL]
                     + "\\[(?:SPLAppLog|SPLWSAppLog)\\]\\s*-\\s*"     // the secure front-end logger
-                    + "(\\S+)\\s*-\\s*(Request|Response)\\s*[-:]\\s*(.*)$");
+                    + "(?:(\\S+)\\s*-\\s*)?"                         // optional path (the response identifies by corrId)
+                    + "(Request|Response)\\s*[-:]\\s*(.*)$");
     // Correlation id: a 32-hex trace id (the span id is 16-hex, so a {32} match never picks it up).
     private static final Pattern SECURE_CORR = Pattern.compile("\\b([0-9a-fA-F]{32})\\b");
     private static final Pattern TRACE_ID_HDR = Pattern.compile("TRACE-ID\\s*[=:]\\s*([0-9a-fA-F]{32})", Pattern.CASE_INSENSITIVE);
@@ -634,7 +636,9 @@ public class LogAnalysisService {
      * Parse an SPL-Secure front-end line (SPLAppLog request / SPLWSAppLog response). These
      * carry no version field — the release is read from the SPLHostMessage (backend) line in
      * the same transaction — and put the correlation id in a "corrId|spanId|" prefix on the
-     * request but in a TRACE-ID header on the response. The response wraps the payload as
+     * request but in a TRACE-ID header on the response. The response usually carries no path (it
+     * is tied to its request by corrId), so the front-end path is taken from the request line.
+     * The response wraps the payload as
      * "status=…, body={json}, headers={…}"; the verdict is read from the body JSON's responseCode
      * (the same contract as the other apps). The HTTP status is deliberately ignored — a 200 can
      * wrap a business failure — so a body without a responseCode reads as indeterminate.
@@ -649,8 +653,8 @@ public class LogAnalysisService {
         String path = m.group(3);
         boolean request = "Request".equalsIgnoreCase(m.group(4));
         String rest = m.group(5);
-        if (path == null || path.indexOf('/') < 0) {
-            return null;   // the URL token must look like a path
+        if (path != null && path.indexOf('/') < 0) {
+            return null;   // a present path token must look like a path (absent → identified by corrId)
         }
         // corrId: request → the leading "corrId|spanId|" prefix; response → the TRACE-ID header.
         String corr = firstGroup(SECURE_CORR, prefix);

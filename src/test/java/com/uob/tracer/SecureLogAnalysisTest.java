@@ -68,8 +68,9 @@ class SecureLogAnalysisTest {
                 // BE request/response — standard SPLHostMessage, country MY + release 9.14 in the brackets.
                 "2026-06-11 18.43.45.150 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Request]: {\"serviceVersionNumber\":\"2.0\"}",
                 "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"responseCode\":\"0000\"}",
-                // FE response — empty "||" prefix, id only in the TRACE-ID header, payload wrapped as status/body/headers.
-                "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - /services/get/push - Response: status=200, body={\"responseCode\":\"0000000\"}, headers={CONTENT-TYPE=application/json, TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
+                // FE response — NO path (tied to its request by corrId); empty "||" prefix, id only
+                // in the TRACE-ID header, payload wrapped as status/body/headers.
+                "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - Response: status=200, body={\"responseCode\":\"0000000\"}, headers={CONTENT-TYPE=application/json, TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
     }
 
     private LogAnalysisReport analyze(Path repo, String app) throws Exception {

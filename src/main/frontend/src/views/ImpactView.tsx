@@ -341,6 +341,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 title="Splunk query — selected APIs"
                 app={app}
                 version={version}
+                secure={!!idx.commandDispatch}
                 frontendApis={selectedApiList}
                 backendApis={splBackends}
                 backendVersions={backendVersionMap}

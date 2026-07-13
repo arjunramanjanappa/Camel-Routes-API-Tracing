@@ -48,15 +48,43 @@ export function buildEventsSpl(
   beMarker = '',
   mode: 'scoped' | 'all' = 'scoped',
   clientVersion = '',
+  secure = false,
 ): string {
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   // Narrow to one client release: the version is a bracket field ([9.4]) present in both
   // the front-end and host log lines, so ANDing it in drops other releases' noise and the
   // same API exercised on a version that isn't part of this analysis. Skipped for BASE
-  // (its version bracket is empty, so there's nothing to match on).
-  const v = clientVersion && clientVersion.trim() && clientVersion.trim().toUpperCase() !== 'BASE'
-    ? clientVersion.trim() : '';
+  // (empty version bracket) and for N/A ("every release in scope" — nothing to narrow on,
+  // and unversioned repos never carry a version to match).
+  const allReleases = ['BASE', 'N/A', 'NA', 'LATEST'].includes((clientVersion || '').trim().toUpperCase());
+  const v = clientVersion && clientVersion.trim() && !allReleases ? clientVersion.trim() : '';
   const ver = v ? ` "${v}"` : '';
+
+  // SPL-Secure: the front end logs via two loggers (SPLAppLog request / SPLWSAppLog response)
+  // and the host emits [Request]/[Response] on SPLHostMessage. Each line type is its marker
+  // ANDed with the direction phrase, matched in _raw (secure logs carry no extracted fields).
+  // The correlation id is deliberately NOT included — for the whole scope (all/none selected)
+  // the query is purely marker-driven; the analyser scopes to the selection on upload.
+  if (secure) {
+    const grp = (marker: string, dir: string, paths?: string[]) => {
+      const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
+      return `("${marker}" AND "${dir}"${inner})`;
+    };
+    const feGroups = (paths?: string[]) => [grp('SPLAppLog', '- Request -', paths), grp('SPLWSAppLog', 'Response :', paths)];
+    const beGroups = (paths?: string[]) => [grp('SPLHostMessage', ' - [Request]', paths), grp('SPLHostMessage', ' [Response]', paths)];
+    let groups: string[];
+    if (mode === 'all') {
+      groups = [...feGroups(), ...beGroups()];
+    } else {
+      const feS = [...new Set(feTerms.filter(Boolean))];
+      const beS = [...new Set(beTerms.filter(Boolean))];
+      if (feS.length === 0 && beS.length === 0) return '';
+      groups = [];
+      if (feS.length) groups.push(...feGroups(feS));
+      if (beS.length) groups.push(...beGroups(beS));
+    }
+    return `index=${index} ${win}(${groups.join(' OR ')})${ver}\n| sort 0 - _time\n| table _raw`;
+  }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
   // are NOT filtered — the analyser scopes to the selected APIs on upload, so this is

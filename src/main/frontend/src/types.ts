@@ -82,6 +82,8 @@ export interface ApiImpact {
 export interface ImpactIndex {
   version?: string;
   country?: string;
+  /** Auto-detected SPL-Secure (intercepted-UFW) flavour — drives the secure Splunk query shape. */
+  commandDispatch?: boolean;
   apis: ApiImpact[];
   allRoutes: string[];
   allBackends: string[];

@@ -15,6 +15,8 @@ interface Props {
   app?: string;
   /** Client release version — ANDed into the query so only that release's lines are fetched. */
   version?: string;
+  /** Auto-detected SPL-Secure flavour — uses the SPLAppLog/SPLWSAppLog/SPLHostMessage query shape. */
+  secure?: boolean;
 }
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
@@ -25,10 +27,11 @@ function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k)
  * log analyser reads back, so the exported report drives the correlation. Each
  * backend is searched together with its traced service version.
  */
-export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version }: Props) {
+export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version, secure = false }: Props) {
   const application = app && app.trim() ? app.trim() : 'Mighty';
-  const feMarker = application + 'Message';        // front-end log lines
-  const beMarker = application + 'HostMessage';    // backend log lines
+  // SPL-Secure front-end lines use two loggers; the backend stays <app>HostMessage.
+  const feMarker = secure ? 'SPLAppLog / SPLWSAppLog' : application + 'Message';   // front-end log lines
+  const beMarker = secure ? 'SPLHostMessage' : application + 'HostMessage';        // backend log lines
   const [mode, setMode] = useState<'scoped' | 'all'>(pref('splMode', 'scoped') === 'all' ? 'all' : 'scoped');
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
   // Blank = search the raw event (the default, since the path is plain text in the log).
@@ -50,7 +53,8 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   backendApis.forEach((url) => { const p = bePathOf(url); if (p && backendVersions[url]) beVer[p] = backendVersions[url]; });
   const versioned = be.filter((p) => beVer[p]).length;
   const clientVersion = version && version.trim() ? version.trim() : '';
-  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard, feMarker, beMarker, mode, clientVersion);
+  // For secure, feMarker/beMarker are display-only — buildEventsSpl uses the fixed secure loggers.
+  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard, feMarker, beMarker, mode, clientVersion, secure);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
   const verLabel = clientVersion && clientVersion.toUpperCase() !== 'BASE' ? clientVersion : '';
 

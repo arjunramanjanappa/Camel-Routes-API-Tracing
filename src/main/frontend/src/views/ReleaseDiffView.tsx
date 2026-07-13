@@ -7,6 +7,7 @@ import ApiFlowModal from '../components/ApiFlowModal';
 import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
+import InfoBanner from '../components/InfoBanner';
 import { depParams, loadDeps, saveDeps } from '../deps';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
@@ -306,7 +307,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
           <input list="diffVersionList" value={version} placeholder="9.18 or N/A (latest / base)" onChange={(e) => setVersion(e.target.value)}
                  onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && sourceValid(src) && version.trim()) load(); }} />
           <datalist id="diffVersionList">
-            <option value="N/A" label="latest per API, else base route (unversioned repos)" />
+            <option value="N/A" label="latest version of each API (or its default)" />
           </datalist>
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
@@ -327,7 +328,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       {!loading && !report && !error && (
         <div className="impact-empty">
           <div className="impact-empty-title">Compare a release against the one before it</div>
-          <div className="sub">Enter a <b>client release version</b> (e.g. <b>9.18</b>, or <b>N/A</b> = each API's latest, else base) and click <b>Compare</b>. For every API the release touched, TraceGuard traces the whole flow at that version and at its immediate-lower version, then highlights exactly what changed — added, removed or modified — across the resolved Camel routes.</div>
+          <div className="sub">Enter a <b>release version</b> (e.g. <b>9.18</b>) and click <b>Compare</b>. For every API this release touched, TraceGuard shows what changed versus the previous release — what was added, removed or modified. Use <b>N/A</b> to see each API&rsquo;s latest version instead of comparing.</div>
         </div>
       )}
 
@@ -352,7 +353,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                 <div className="warnbox">{other.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
               ) : null;
             })()}
-            <div className="warnbox info">ℹ <b>N/A</b> — the latest route each API resolves to (else its base route). A snapshot of the routes in scope{report.country ? ` · ${report.country}` : ''}, not a release comparison.</div>
+            <InfoBanner>Showing each API at its latest version{report.country ? ` for ${report.country}` : ''} (or its default when it has no versions). This is a current snapshot for review — there is no earlier release to compare it against.</InfoBanner>
             <div className="diff-main-head row between">
               <h2 style={{ margin: 0 }}>Latest routes <span className="muted">{snapshotVisible.length}</span></h2>
               <input className="diff-search" placeholder="🔍 filter by path, route or operation"
@@ -360,8 +361,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             </div>
             {snapshotVisible.length === 0 ? (
               <div className="impact-empty">
-                <div className="impact-empty-title">{report.apis.length === 0 ? 'No routes in scope' : 'No matches'}</div>
-                <div className="sub">{report.apis.length === 0 ? 'No API resolves to a route in this scope.' : `Nothing matches “${query.trim()}”.`}</div>
+                <div className="impact-empty-title">{report.apis.length === 0 ? 'No APIs in scope' : 'No matches'}</div>
+                <div className="sub">{report.apis.length === 0 ? 'No APIs found in this scope.' : `Nothing matches “${query.trim()}”.`}</div>
               </div>
             ) : (
               <div className="diff-list">
@@ -369,7 +370,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                   <div className="diff-card snapshot" key={a.api + '|' + a.operation}>
                     <div className="diff-card-head row between">
                       <div className="diff-card-id"><code>{a.api}</code><span className="muted op">{a.operation}</span></div>
-                      <span className="diff-badge" title="the version this API's latest route resolves to">
+                      <span className="diff-badge" title="the version this API is currently on">
                         {a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion}
                       </span>
                     </div>
@@ -435,7 +436,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                 </div>
                 <div className="sub">
                   {report.apis.length === 0
-                    ? 'No API resolves to this version in the selected scope.'
+                    ? 'No APIs found for this version in the selected scope.'
                     : query.trim()
                       ? <>Nothing matches “{query.trim()}” in this group. Clear the search or pick another group.</>
                       : `This release has no ${GROUP_LABEL[activeGroup].toLowerCase()} APIs.`}

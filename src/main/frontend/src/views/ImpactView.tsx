@@ -191,7 +191,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
           <input list="impactVersionList" value={version} placeholder="9.18 or N/A (latest / base)"
                  onChange={(e) => setVersion(e.target.value)} />
           <datalist id="impactVersionList">
-            <option value="N/A" label="latest per API, else base route (unversioned repos)" />
+            <option value="N/A" label="latest version of each API (or its default)" />
           </datalist>
         </div>
         <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
@@ -214,7 +214,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
       {!loading && !idx && !error && (
         <div className="impact-empty">
           <div className="impact-empty-title">Ready when you are</div>
-          <div className="sub">Set the source directory, <b>country</b> and <b>client release version</b> (<b>N/A</b> = latest per API, else base) above, then click <b>Load</b> to scan the framework and list this release&rsquo;s APIs.</div>
+          <div className="sub">Enter the source, <b>country</b> and <b>release version</b> above (use <b>N/A</b> for each API&rsquo;s latest version), then click <b>Load</b> to list the APIs for this release.</div>
         </div>
       )}
 

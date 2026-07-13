@@ -33,7 +33,7 @@ export default function ControlPanel({ params, meta, loading, onChange, onTrace,
         <input list="versionList" value={params.version || ''} placeholder="9.18 or N/A (latest / base)"
                onChange={(e) => onChange({ version: e.target.value })} />
         <datalist id="versionList">
-          <option value="N/A" label="latest per API, else base route (unversioned repos)" />
+          <option value="N/A" label="latest version of each API (or its default)" />
           {meta.versions.map((v) => <option key={v} value={v} />)}
         </datalist>
       </div>

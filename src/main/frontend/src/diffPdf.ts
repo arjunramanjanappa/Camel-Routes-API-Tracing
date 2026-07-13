@@ -58,19 +58,19 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
 
 /** N/A snapshot report: each API and the latest (else base) route it resolves to — not a diff. */
 async function exportSnapshotPdf(r: ReportDoc, report: VersionDiffReport, apis: ApiDiff[], app?: string) {
-  r.header('Release Impact - Latest routes',
+  r.header('Release Impact - Latest versions',
     `${app ? app + '  -  ' : ''}Release ${report.version || 'N/A'}${report.country ? '  -  ' + report.country : ''}`,
-    `The latest route each API resolves to (else its base route) - a snapshot of the routes in scope, `
-    + `not a release comparison. Generated ${new Date().toLocaleString()}.`);
+    `The latest version of each API (or its default) - a current snapshot for review, `
+    + `not a comparison against a previous release. Generated ${new Date().toLocaleString()}.`);
 
-  r.statBand([{ n: apis.length, label: 'Latest routes', ramp: PAL.blue }]);
-  r.paragraph(`N/A resolves each API to its highest R<version>_ route, else its base route. `
-    + `${apis.length} API(s) in scope${report.country ? ' for ' + report.country : ''}.`);
+  r.statBand([{ n: apis.length, label: 'APIs', ramp: PAL.blue }]);
+  r.paragraph(`Showing each API at its latest version (or its default when it has no versions). `
+    + `${apis.length} API(s)${report.country ? ' for ' + report.country : ''}.`);
 
-  const footer = `TraceGuard - Latest routes ${report.version || 'N/A'}${app ? ' - ' + app : ''}`;
-  if (apis.length === 0) { r.emptyNote('No API resolves to a route in this scope.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
+  const footer = `TraceGuard - Latest versions ${report.version || 'N/A'}${app ? ' - ' + app : ''}`;
+  if (apis.length === 0) { r.emptyNote('No APIs found in this scope.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
 
-  r.section('Latest routes', apis.length, PAL.blue, 'Each API and the route it currently resolves to (Base = un-versioned).');
+  r.section('Latest versions', apis.length, PAL.blue, 'Each API and the version it is currently on (Base = no version).');
   apis.forEach((a, idx) => {
     if (idx > 0) r.separator();
     r.ensure(30);
@@ -80,7 +80,7 @@ async function exportSnapshotPdf(r: ReportDoc, report: VersionDiffReport, apis: 
     const vw = r.width(label, 'bold', 8) + 12;
     r.pill(label, PAGE.w - M - vw, PAL.blue.fill, PAL.blue.text, 8);
     r.y += 16;
-    r.para(`Resolves to ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+    r.para(`Route: ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
     r.y += 6;
   });
 

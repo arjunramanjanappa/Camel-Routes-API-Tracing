@@ -106,6 +106,33 @@ class SecureLogAnalysisTest {
     }
 
     @Test
+    void secureBackendResponseCode200IsSuccess(@TempDir Path dir) throws Exception {
+        // In the secure repo a backend responseCode of 200 (HTTP OK) is success, the same as
+        // all-zeros. Before this, 200 failed the all-zeros rule → backend FAILED → overall PARTIAL.
+        writeSecureRepo(dir);
+        String log = String.join("\n",
+                "2026-06-11 18.43.45.102 " + CORR + "|" + SPAN + "| [http-1] [INFO ] [SPLAppLog] - /services/get/push - Request - {\"amount\":10}",
+                "2026-06-11 18.43.45.150 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Request]: {\"serviceVersionNumber\":\"2.0\"}",
+                "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"responseCode\":\"200\"}",
+                "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - Response: status=200, body={\"responseCode\":\"0000000\"}, headers={TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
+
+        LogAnalysisService service = new LogAnalysisService(new RouteTraceService(dir.toString()));
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = service.analyze(in, "secure.log", "N/A", "MY", dir.toString(), null, null, true, "SPL");
+        }
+
+        ApiLogResult api = r.apis().stream()
+                .filter(a -> a.api().equals("/services/get/push")).findFirst().orElseThrow();
+        assertThat(api.status()).isEqualTo(LogStatus.SUCCESS);   // not PARTIAL — 200 is a success code here
+        assertThat(api.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/validate");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+            assertThat(b.responseCode()).isEqualTo("200");
+        });
+    }
+
+    @Test
     void feResponseWithoutResponseCodeInBodyIsIndeterminate(@TempDir Path dir) throws Exception {
         // The HTTP status (200) is NOT used as a success signal — a 200 can wrap a business
         // failure. When body={…} carries no responseCode, the front-end verdict is indeterminate.

@@ -267,7 +267,7 @@ public class LogAnalysisService {
                 if (!all && !selectedApis.contains(api.api())) {
                     continue;
                 }
-                apiResults.add(correlate(api, txns, version, hosturls));
+                apiResults.add(correlate(api, txns, version, hosturls, secure));
             }
         }
 
@@ -280,7 +280,7 @@ public class LogAnalysisService {
         Set<String> backendUniverse = new java.util.LinkedHashSet<>(idx.getAllBackends());
         backendUniverse.addAll(beTargets);
         for (String backend : beTargets) {
-            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse, hosturls));
+            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse, hosturls, secure));
         }
 
         return new LogAnalysisReport(detected, version, idx.getCountry(),
@@ -790,8 +790,16 @@ public class LogAnalysisService {
         return null;
     }
 
-    private static boolean isSuccessCode(String code) {
-        return code != null && ALL_ZEROS.matcher(code).matches();
+    // Success = an all-zeros business code. The SPL-Secure repo additionally uses HTTP "200" as a
+    // success responseCode (both 200 and 0000000 mean OK there), so accept it under that flavour.
+    private static boolean isSuccessCode(String code, boolean secure) {
+        if (code == null) {
+            return false;
+        }
+        if (ALL_ZEROS.matcher(code).matches()) {
+            return true;
+        }
+        return secure && "200".equals(code.trim());
     }
 
     // --- transaction assembly ---
@@ -862,7 +870,7 @@ public class LogAnalysisService {
 
     // --- per-API correlation ---
 
-    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version, Map<String, String> hosturls) {
+    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version, Map<String, String> hosturls, boolean secure) {
         List<Txn> matched = new ArrayList<>();
         for (Txn t : txns) {
             if (t.fePath() != null && feMatches(t.fePath(), api.api())) {
@@ -904,11 +912,11 @@ public class LogAnalysisService {
         Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
         int success = 0;
         for (Txn t : forVersion) {
-            if (evaluate(t, api.backends(), api.backendVersions(), hosturls).status() == LogStatus.SUCCESS) {
+            if (evaluate(t, api.backends(), api.backendVersions(), hosturls, secure).status() == LogStatus.SUCCESS) {
                 success++;
             }
         }
-        Eval eval = evaluate(latest, api.backends(), api.backendVersions(), hosturls);
+        Eval eval = evaluate(latest, api.backends(), api.backendVersions(), hosturls, secure);
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
@@ -921,7 +929,7 @@ public class LogAnalysisService {
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
     private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion,
-                                              Collection<String> candidates, Map<String, String> hosturls) {
+                                              Collection<String> candidates, Map<String, String> hosturls, boolean secure) {
         // N/A means "every release in scope" — don't restrict the host lines by a concrete version.
         boolean versionScoped = version != null && !version.isBlank() && !VersionResolver.isLatest(version);
         List<BackendHit> hits = new ArrayList<>();
@@ -959,11 +967,11 @@ public class LogAnalysisService {
         BackendHit latest = hits.stream().max(Comparator.comparing(h -> h.txn().ts())).orElseThrow();
         int success = 0;
         for (BackendHit h : hits) {
-            if (beStatus(h.call()) == LogStatus.SUCCESS) {
+            if (beStatus(h.call(), secure) == LogStatus.SUCCESS) {
                 success++;
             }
         }
-        LogStatus status = beStatus(latest.call());
+        LogStatus status = beStatus(latest.call(), secure);
         String logged = latest.call().serviceVersion();
         Boolean svcOk = versionOk(expectedVersion, logged);
         String note = switch (status) {
@@ -1005,14 +1013,14 @@ public class LogAnalysisService {
         return existing + " / " + add;
     }
 
-    private LogStatus beStatus(BackendCall c) {
+    private LogStatus beStatus(BackendCall c, boolean secure) {
         if (!c.hasResponse()) {
             return LogStatus.TIMEOUT;
         }
         if (c.code() == null) {
             return LogStatus.INDETERMINATE;
         }
-        return isSuccessCode(c.code()) ? LogStatus.SUCCESS : LogStatus.FAILED;
+        return isSuccessCode(c.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
     }
 
     /** Front-end path match: the log path ends with (or contains) the traced controller path. */
@@ -1129,8 +1137,8 @@ public class LogAnalysisService {
     }
 
     private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions,
-                          Map<String, String> hosturls) {
-        List<BackendCallResult> backends = backendResults(t, tracedBackends, expectedVersions, hosturls);
+                          Map<String, String> hosturls, boolean secure) {
+        List<BackendCallResult> backends = backendResults(t, tracedBackends, expectedVersions, hosturls, secure);
         // Front end is the source of truth for the end-to-end verdict.
         if (t.feResp() == null) {
             return new Eval(LogStatus.TIMEOUT,
@@ -1143,7 +1151,7 @@ public class LogAnalysisService {
                             + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")." : "."),
                     backends);
         }
-        if (!isSuccessCode(code)) {
+        if (!isSuccessCode(code, secure)) {
             return new Eval(LogStatus.FAILED,
                     "Front-end responseCode " + code
                             + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."), backends);
@@ -1169,7 +1177,7 @@ public class LogAnalysisService {
     }
 
     private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions,
-                                                   Map<String, String> hosturls) {
+                                                   Map<String, String> hosturls, boolean secure) {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
             String expected = expectedVersions == null ? null : expectedVersions.get(tb);
@@ -1180,7 +1188,7 @@ public class LogAnalysisService {
             }
             LogStatus st = !hit.hasResponse() ? LogStatus.TIMEOUT
                     : hit.code() == null ? LogStatus.INDETERMINATE
-                    : isSuccessCode(hit.code()) ? LogStatus.SUCCESS : LogStatus.FAILED;
+                    : isSuccessCode(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
             boolean timedOut = st == LogStatus.TIMEOUT;
             out.add(new BackendCallResult(tb, hit.path(), st,
                     timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), timedOut ? null : hit.desc(),

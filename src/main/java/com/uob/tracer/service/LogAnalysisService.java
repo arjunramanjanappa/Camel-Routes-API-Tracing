@@ -108,6 +108,9 @@ public class LogAnalysisService {
     private static final Pattern SECURE_CORR = Pattern.compile("\\b([0-9a-fA-F]{32})\\b");
     private static final Pattern TRACE_ID_HDR = Pattern.compile("TRACE-ID\\s*[=:]\\s*([0-9a-fA-F]{32})", Pattern.CASE_INSENSITIVE);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    /** Shown when a response IS present but its payload format isn't recognised (no readable responseCode). */
+    private static final String UNRECOGNISED_RESPONSE =
+            "Response received but its format was not recognised — responseCode could not be read; needs checking.";
 
     /**
      * Analyse an uploaded log / Splunk export. Caller owns the stream.
@@ -982,7 +985,7 @@ public class LogAnalysisService {
         String note = switch (status) {
             case SUCCESS -> null;
             case TIMEOUT -> "Backend request logged but no response.";
-            case INDETERMINATE -> "Backend response logged but no responseCode could be read.";
+            case INDETERMINATE -> "Backend " + UNRECOGNISED_RESPONSE;
             default -> "Backend responseCode " + latest.call().code()
                     + (latest.call().desc() != null ? " (" + latest.call().desc() + ")." : ".");
         };
@@ -1152,8 +1155,8 @@ public class LogAnalysisService {
         String code = t.feResp().code();
         if (code == null) {
             return new Eval(LogStatus.INDETERMINATE,
-                    "Front-end response logged but no responseCode could be read"
-                            + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")." : "."),
+                    "Front-end " + UNRECOGNISED_RESPONSE
+                            + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")" : ""),
                     backends);
         }
         if (!isSuccessCode(code)) {
@@ -1195,8 +1198,14 @@ public class LogAnalysisService {
                     : hit.code() == null ? LogStatus.INDETERMINATE
                     : isBackendSuccess(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
             boolean timedOut = st == LogStatus.TIMEOUT;
+            // A response present but with no readable responseCode (unexpected payload format) is
+            // INDETERMINATE — surface a clear reason instead of a blank row.
+            String desc = timedOut ? null : hit.desc();
+            if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
+                desc = UNRECOGNISED_RESPONSE;
+            }
             out.add(new BackendCallResult(tb, hit.path(), st,
-                    timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), timedOut ? null : hit.desc(),
+                    timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), desc,
                     expected, hit.serviceVersion(), versionOk(expected, hit.serviceVersion())));
         }
         return out;

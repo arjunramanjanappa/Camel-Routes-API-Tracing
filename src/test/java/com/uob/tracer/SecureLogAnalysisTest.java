@@ -133,6 +133,34 @@ class SecureLogAnalysisTest {
     }
 
     @Test
+    void backendResponseWithUnrecognisedFormatIsIndeterminateWithReason(@TempDir Path dir) throws Exception {
+        // The backend response is present (seen against the corrId) but its payload has no readable
+        // responseCode (e.g. an internal-server-error shape). It must be INDETERMINATE with a clear
+        // reason, not a blank row. Generic behaviour — not secure-specific.
+        writeSecureRepo(dir);
+        String log = String.join("\n",
+                "2026-06-11 18.43.45.102 " + CORR + "|" + SPAN + "| [http-1] [INFO ] [SPLAppLog] - /services/get/push - Request - {\"amount\":10}",
+                "2026-06-11 18.43.45.150 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Request]: {\"serviceVersionNumber\":\"2.0\"}",
+                "2026-06-11 18.43.45.300 [http-1] INFO  [SPLHostMessage][][][MY][9.14][" + CORR + "][][] - https://host/bfs/validate - [Response]: {\"internalError\":\"boom\",\"httpStatus\":500}",
+                "2026-06-11 18.43.45.350 || [http-1] [INFO ] [SPLWSAppLog] - Response: status=200, body={\"responseCode\":\"0000000\"}, headers={TRACE-ID=" + CORR + ", SPAN-ID=" + SPAN + "}");
+
+        LogAnalysisService service = new LogAnalysisService(new RouteTraceService(dir.toString()));
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = service.analyze(in, "secure.log", "N/A", "MY", dir.toString(), null, null, true, "SPL");
+        }
+
+        ApiLogResult api = r.apis().stream()
+                .filter(a -> a.api().equals("/services/get/push")).findFirst().orElseThrow();
+        assertThat(api.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/validate");
+            assertThat(b.status()).isEqualTo(LogStatus.INDETERMINATE);   // response present, code unreadable
+            assertThat(b.responseCode()).isNull();
+            assertThat(b.responseDescription()).contains("format was not recognised").contains("needs checking");
+        });
+    }
+
+    @Test
     void feResponseWithoutResponseCodeInBodyIsIndeterminate(@TempDir Path dir) throws Exception {
         // The HTTP status (200) is NOT used as a success signal — a 200 can wrap a business
         // failure. When body={…} carries no responseCode, the front-end verdict is indeterminate.

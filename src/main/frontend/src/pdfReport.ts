@@ -1,6 +1,7 @@
 // Shared PDF report kit — the common design language (cover header, summary stat
 // band, section banners, legend, coloured diff/lines, page footers) used by every
 // tab's "Export PDF" so the reports look and read the same. jsPDF is loaded on demand.
+import { TG_LOGO } from './tgLogo';
 
 export type RGB = [number, number, number];
 export interface Ramp { fill: RGB; bar: RGB; text: RGB }
@@ -94,12 +95,23 @@ export class ReportDoc {
 
   rule() { this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y); this.y += 18; }
 
-  /** Cover header: title, subtitle, one meta line, then a rule. */
+  /** Cover header: the TraceGuard brand mark (top-right), title, subtitle, one meta line, then a rule. */
   header(title: string, subtitle: string, meta: string) {
+    this.brandMark();   // logo + wordmark at top-right, so it's clear which app produced the report
     this.text(title, M, 'bold', 20, PAL.ink); this.y += 22;
     this.text(subtitle, M, 'normal', 11, PAL.accent); this.y += 16;
     this.text(meta, M, 'normal', 9, PAL.muted); this.y += 16;
     this.rule();
+  }
+
+  /** The app's logo + "TraceGuard" wordmark, right-aligned on the header's title row. */
+  private brandMark() {
+    const logo = 26, gap = 7, baseline = this.y;
+    const tw = this.width('TraceGuard', 'bold', 14);
+    const startX = PAGE.w - M - (logo + gap + tw);
+    try { this.doc.addImage(TG_LOGO, 'PNG', startX, baseline - 20, logo, logo); } catch { /* image optional */ }
+    this.text('TraceGuard', startX + logo + gap, 'bold', 14, PAL.ink, baseline - 4);
+    this.text('report by the TraceGuard app', startX + logo + gap, 'normal', 7.5, PAL.muted, baseline + 6);
   }
 
   /** Executive stat band — coloured boxes with a big number + label. */

@@ -193,6 +193,15 @@ export class ReportDoc {
     this.y += 6;
   }
 
+  /** A top-level grouping banner (no count) — a coloured bar + title, with an optional blurb. */
+  banner(title: string, r: Ramp, blurb = '') {
+    this.ensure(46); this.y += 6;
+    this.fl(r.bar); this.doc.roundedRect(M, this.y, CONTENT_W, 26, 5, 5, 'F');
+    this.text(title, M + 12, 'bold', 13, r.text, this.y + 17);
+    this.y += 34;
+    if (blurb) { this.para(blurb, M, CONTENT_W, 'normal', 9, PAL.muted, 12); this.y += 4; }
+  }
+
   /** A coloured section banner with a count, kept with at least one item below it. */
   section(title: string, count: number, r: Ramp, blurb: string) {
     this.ensure(78); this.y += 6;

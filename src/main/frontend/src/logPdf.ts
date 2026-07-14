@@ -39,23 +39,27 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
   const notTested = counts.NOT_TESTED;
   const issues = total - passed - notTested;
 
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const now = new Date();
+  const generated = `${now.getDate()}-${MONTHS[now.getMonth()]}-${now.getFullYear()},  ${now.toLocaleTimeString()}`;
+
   r.header('Verification Report',
     `${app ? app + '  -  ' : ''}Release ${ver}${report.country ? '  -  ' + report.country : ''}`,
-    `End-to-end log verification - ${report.transactions} transactions, ${report.matchedLines}/${report.linesScanned} lines`
-    + ` (${report.uploadType}). Generated ${new Date().toLocaleString()}.`);
+    `Generated ${generated}`);
 
+  // ===== Verification Summary =====
+  r.banner('Verification Summary', PAL.blue);
   r.statBand([
+    { n: total, label: 'Total APIs', ramp: PAL.gray },
     { n: passed, label: 'Passed', ramp: PAL.green },
     { n: issues, label: 'Issues', ramp: PAL.orange },
     { n: notTested, label: 'Not tested', ramp: PAL.red },
   ]);
-
   r.paragraph(`Of ${total} API(s) checked for release ${ver}, ${passed} passed end-to-end, `
     + `${issues} had issues and ${notTested} were not seen in the uploaded logs.`
     + (report.backends.length ? `  ${report.backends.length} backend(s) were correlated directly.` : ''));
 
-  // Release-wide attempt totals + the response codes that failed most across every API — the
-  // single at-a-glance view for leadership before the per-API detail.
+  // Release-wide attempt totals + the response codes that failed most across every API.
   let totAttempts = 0, totPassed = 0, totFailed = 0;
   const releaseFailures: Record<string, number> = {};
   report.apis.forEach((a) => {
@@ -69,9 +73,14 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
       { n: totFailed, label: 'failed', ramp: PAL.red },
     ]);
   }
+  // What was analysed (moved out of the header for a cleaner cover line).
+  r.para(`Analysed ${report.transactions} transaction(s) from a ${report.uploadType} upload`
+    + ` (${report.matchedLines} of ${report.linesScanned} log lines matched).`, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
+  r.y += 4;
   const topFailures = Object.entries(releaseFailures).sort((x, y) => y[1] - x[1]).slice(0, 12);
   if (topFailures.length) r.failureTable(topFailures, 'Top failing response codes across the release');
 
+  // ===== How to read this report =====
   r.legend('How to read this report', [
     'Each API is verified end-to-end by correlation id: the front-end request paired with its backend call.',
     'Passed = success both ends; Failed/Timeout = backend error or no response; Not tested = no matching log lines.',
@@ -82,6 +91,8 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
   const footer = `TraceGuard - Verification ${ver}${app ? ' - ' + app : ''}`;
   if (total === 0 && report.backends.length === 0) { r.emptyNote('No APIs or backends were correlated from the logs.'); r.reviewSection(needsReview); r.save(file(ver), footer); return; }
 
+  // ===== API breakdown =====
+  r.banner('API breakdown', PAL.blue, 'Every API from the uploaded logs, grouped by outcome (worst first).');
   for (const status of ORDER) {
     const list = report.apis.filter((a) => a.status === status).sort((a, b) => a.api.localeCompare(b.api));
     if (!list.length) continue;

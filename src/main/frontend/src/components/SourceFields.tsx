@@ -61,7 +61,8 @@ export default function SourceFields({ value, onChange, bar = false }: Props) {
       ) : (
         <div style={dirStyle}>
           <label>Source directory {REQ}</label>
-          <input value={s.sourceDir} placeholder="path to the framework source"
+          <input value={s.sourceDir} placeholder="Windows or macOS path — e.g. C:\path\to\framework  or  /Users/you/framework"
+                 title="Windows (C:\path\to\framework) or macOS/Linux (/Users/you/framework) paths both work; either slash style is accepted."
                  onChange={(e) => onChange({ sourceDir: e.target.value })} />
         </div>
       )}

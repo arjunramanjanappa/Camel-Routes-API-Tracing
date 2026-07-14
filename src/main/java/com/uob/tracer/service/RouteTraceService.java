@@ -868,8 +868,8 @@ public class RouteTraceService {
                 return sourceResolver.resolve(repo, branch);
             }
             String path = s.regionMatches(true, 0, "local:", 0, 6) ? s.substring(6) : s;
-            path = path.trim();
-            if (path.isEmpty()) {
+            path = normalizeSourcePath(path);
+            if (path == null || path.isEmpty()) {
                 return null;
             }
             Path p = Path.of(path);
@@ -953,14 +953,40 @@ public class RouteTraceService {
         needsReview.addAll(review);
     }
 
+    /**
+     * Normalise a user-entered local path so it works whether it was typed/pasted in Windows
+     * ({@code C:\path\to\src}) or macOS/Linux ({@code /Users/you/src}) style. Strips surrounding
+     * quotes (Windows "Copy as path" / shell copies) and accepts either slash direction on the
+     * host: {@link Path#of} on Windows already takes {@code /}, and a Windows-style {@code \}
+     * path is folded to {@code /} on a Unix host (leaving {@code "\ "} escaped spaces intact).
+     */
+    static String normalizeSourcePath(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.trim();
+        if (s.length() >= 2
+                && ((s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"')
+                 || (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''))) {
+            s = s.substring(1, s.length() - 1).trim();
+        }
+        if (java.io.File.separatorChar == '\\') {
+            s = s.replace('/', '\\');            // Windows host: also accept forward slashes
+        } else {
+            s = s.replaceAll("\\\\(?=\\S)", "/"); // Unix host: accept a Windows-style '\' path
+        }
+        return s;
+    }
+
     private Path resolveRoot(TraceRequest request) {
         // Bitbucket-branch mode: clone/fetch the repo at the branch and analyse that checkout.
         if (request.repo() != null && !request.repo().isBlank()) {
             return sourceResolver.resolve(request.repo(), request.branch());
         }
-        // Local-path mode (unchanged).
+        // Local-path mode — normalise so a Windows or macOS/Linux path (either slash style, quoted
+        // or not) resolves on the host.
         String sourceDir = (request.sourceDir() != null && !request.sourceDir().isBlank())
-                ? request.sourceDir().trim()
+                ? normalizeSourcePath(request.sourceDir())
                 : defaultSourceDir;
         if (sourceDir == null || sourceDir.isBlank()) {
             throw new IllegalArgumentException(

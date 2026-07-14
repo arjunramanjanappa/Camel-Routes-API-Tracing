@@ -21,6 +21,8 @@ package com.uob.tracer.api;
  * @param expectedServiceVersion service version the tracer expects (may be "2.2 / 3.3")
  * @param loggedServiceVersion   service version seen in the latest host-message payload
  * @param serviceVersionOk       true if logged matches an expected version, false if mismatch, null if unknown
+ * @param failuresByCode         failed calls grouped by response code / failure reason → count,
+ *                               ordered most-frequent first (for investigating recurring errors)
  */
 public record BackendLogResult(
         String backend,
@@ -37,5 +39,6 @@ public record BackendLogResult(
         String note,
         String expectedServiceVersion,
         String loggedServiceVersion,
-        Boolean serviceVersionOk) {
+        Boolean serviceVersionOk,
+        java.util.Map<String, Integer> failuresByCode) {
 }

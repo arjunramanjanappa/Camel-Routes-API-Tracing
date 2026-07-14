@@ -85,12 +85,19 @@ function BackendRow({ b }: { b: BackendLogResult }) {
         {resultText}
       </td>
       <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
-      <td>{b.attempts > 0 ? (
+      <td title={fbTitle(b.failuresByCode)}>{b.attempts > 0 ? (
         <>{b.attempts} (<span className="att-ok">{b.successCount}✓</span>/<span className="att-bad">{b.failureCount}✗</span>)</>
       ) : '—'}</td>
       <td />
     </tr>
   );
+}
+
+/** Hover text listing failed attempts grouped by response code / reason, most-frequent first. */
+function fbTitle(m?: Record<string, number> | null): string | undefined {
+  if (!m) return undefined;
+  const entries = Object.entries(m);
+  return entries.length ? 'Failed by code: ' + entries.map(([c, n]) => `${c} ×${n}`).join(', ') : undefined;
 }
 
 function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onToggle: () => void }) {
@@ -110,7 +117,7 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           {resultText}
         </td>
         <td>{a.feLatencyMs != null ? a.feLatencyMs + ' ms' : '—'}</td>
-        <td>{a.attempts > 0 ? (
+        <td title={fbTitle(a.failuresByCode)}>{a.attempts > 0 ? (
           <>{a.attempts} (<span className="att-ok">{a.successCount}✓</span>/<span className="att-bad">{a.failureCount}✗</span>)</>
         ) : '—'}</td>
         <td>{a.backends.length > 0 && <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'backends'}</button>}</td>

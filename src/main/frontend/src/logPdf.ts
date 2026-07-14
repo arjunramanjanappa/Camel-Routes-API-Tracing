@@ -97,6 +97,8 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
   parts.push(`${a.attempts} attempt(s), ${a.successCount} ok / ${a.failureCount} failed`);
   if (a.correlationId) parts.push('corr ' + a.correlationId);
   r.para(parts.join('  -  '), M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  const fb = failureBreakdown(a.failuresByCode);
+  if (fb) r.para('Failed by code: ' + fb, M + 4, CONTENT_W - 4, 'normal', 9, PAL.orange.text, 12);
   if (a.note) r.para('Note: ' + a.note, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
 
   (a.backends || []).forEach((b: BackendCallResult) => {
@@ -125,7 +127,16 @@ function backendEntry(r: ReportDoc, b: BackendLogResult) {
   if (svc) parts.push(svc);
   if (b.note) parts.push(b.note);
   r.para(parts.join('  -  '), M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  const fb = failureBreakdown(b.failuresByCode);
+  if (fb) r.para('Failed by code: ' + fb, M + 4, CONTENT_W - 4, 'normal', 9, PAL.orange.text, 12);
   r.y += 6;
+}
+
+/** "00911 x2, 00999 x1" — failed attempts grouped by response code / reason, most-frequent first. */
+function failureBreakdown(m?: Record<string, number> | null): string {
+  if (!m) return '';
+  const entries = Object.entries(m);
+  return entries.length ? entries.map(([code, n]) => `${code} ×${n}`).join(', ') : '';
 }
 
 function file(ver: string): string { return `verification-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }

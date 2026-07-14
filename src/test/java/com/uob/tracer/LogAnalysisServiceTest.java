@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 /**
  * Correlates synthetic output logs (src/test/resources/sample-logs) against the
@@ -76,6 +77,32 @@ class LogAnalysisServiceTest {
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
             assertThat(b.latencyMs()).isEqualTo(230);
         });
+    }
+
+    @Test
+    void failedAttemptsAreGroupedByResponseCodeForInvestigation() throws IOException {
+        // Four 9.4 attempts for the same API: two fail 00911, one fails 00999, one succeeds.
+        // The report groups the failures by responseCode, most-frequent first.
+        String path = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String[][] attempts = { {"A1", "00911"}, {"A2", "00911"}, {"A3", "00999"}, {"A4", "0000000"} };
+        StringBuilder log = new StringBuilder();
+        int minute = 10;
+        for (String[] a : attempts) {
+            log.append("2026-06-11 18.").append(minute).append(".00.100 [t] INFO [MightyMessage][MTY][s][u][9.4][")
+               .append(a[0]).append("][IOS][]-").append(path).append(" -Request - {\"x\":1}\n");
+            log.append("2026-06-11 18.").append(minute).append(".00.400 [t] INFO [MightyMessage][MTY][s][u][9.4][")
+               .append(a[0]).append("][IOS][300ms]-").append(path)
+               .append(" -Response - {\"serviceResponse\":{\"responseCode\":\"").append(a[1]).append("\"}}\n");
+            minute++;
+        }
+
+        LogAnalysisReport r = analyzeText(log.toString(), "9.4");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.attempts()).isEqualTo(4);
+        assertThat(v2.successCount()).isEqualTo(1);
+        assertThat(v2.failureCount()).isEqualTo(3);
+        // Grouped by code, ordered by count (00911 twice before 00999 once), summing to failureCount.
+        assertThat(v2.failuresByCode()).containsExactly(entry("00911", 2), entry("00999", 1));
     }
 
     @Test

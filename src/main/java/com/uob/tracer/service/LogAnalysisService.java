@@ -793,6 +793,29 @@ public class LogAnalysisService {
         return null;
     }
 
+    /**
+     * The bucket a non-success attempt is counted under in the failure breakdown: the actual
+     * responseCode for an outright failure, or a readable label for the other failure modes.
+     */
+    private static String failureKey(LogStatus status, String code) {
+        return switch (status) {
+            case FAILED -> (code != null && !code.isBlank()) ? code.trim() : "FAILED (no code)";
+            case PARTIAL -> "Partial (a backend failed)";
+            case TIMEOUT -> "No response (timeout)";
+            case INDETERMINATE -> "Unrecognised response";
+            default -> status.name();
+        };
+    }
+
+    /** Re-order a code→count map most-frequent first (stable for equal counts). */
+    private static Map<String, Integer> sortByCountDesc(Map<String, Integer> counts) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .forEach(e -> out.put(e.getKey(), e.getValue()));
+        return out;
+    }
+
     /** Front-end success: an all-zeros business responseCode (both apps and the secure flavour). */
     private static boolean isSuccessCode(String code) {
         return code != null && ALL_ZEROS.matcher(code).matches();
@@ -914,14 +937,20 @@ public class LogAnalysisService {
                 note = "No log entry for this API — never tested.";
             }
             return new ApiLogResult(api.api(), api.operation(), api.resolvedRoute(), version,
-                    LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note, List.of());
+                    LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note, List.of(), Map.of());
         }
 
         Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
         int success = 0;
+        // Break the failed attempts down by their front-end responseCode (or failure reason),
+        // so the report can show which errors recur and how often — for investigation.
+        Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (Txn t : forVersion) {
-            if (evaluate(t, api.backends(), api.backendVersions(), hosturls, secure).status() == LogStatus.SUCCESS) {
+            Eval e = evaluate(t, api.backends(), api.backendVersions(), hosturls, secure);
+            if (e.status() == LogStatus.SUCCESS) {
                 success++;
+            } else {
+                failuresByCode.merge(failureKey(e.status(), t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
             }
         }
         Eval eval = evaluate(latest, api.backends(), api.backendVersions(), hosturls, secure);
@@ -932,7 +961,7 @@ public class LogAnalysisService {
         return new ApiLogResult(api.api(), api.operation(), api.resolvedRoute(), version,
                 eval.status(), true, feTook, feCode, feDesc,
                 forVersion.size(), success, forVersion.size() - success,
-                latest.ts(), latest.correlationId(), eval.note(), eval.backends());
+                latest.ts(), latest.correlationId(), eval.note(), eval.backends(), sortByCountDesc(failuresByCode));
     }
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
@@ -969,14 +998,18 @@ public class LogAnalysisService {
                 note = "No backend call observed — never tested.";
             }
             return new BackendLogResult(backend, LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note,
-                    expectedVersion, null, null);
+                    expectedVersion, null, null, Map.of());
         }
 
         BackendHit latest = hits.stream().max(Comparator.comparing(h -> h.txn().ts())).orElseThrow();
         int success = 0;
+        Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (BackendHit h : hits) {
-            if (beStatus(h.call(), secure) == LogStatus.SUCCESS) {
+            LogStatus st = beStatus(h.call(), secure);
+            if (st == LogStatus.SUCCESS) {
                 success++;
+            } else {
+                failuresByCode.merge(failureKey(st, h.call().code()), 1, Integer::sum);
             }
         }
         LogStatus status = beStatus(latest.call(), secure);
@@ -996,7 +1029,7 @@ public class LogAnalysisService {
         return new BackendLogResult(backend, status, true, latest.call().tookMs(),
                 latest.call().code(), latest.call().desc(),
                 hits.size(), success, hits.size() - success, latest.txn().ts(), latest.txn().correlationId(), note,
-                expectedVersion, logged, svcOk);
+                expectedVersion, logged, svcOk, sortByCountDesc(failuresByCode));
     }
 
     /** true if the logged version is one of the expected (possibly "2.2 / 3.3"); null if either is absent. */

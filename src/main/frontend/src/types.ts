@@ -209,6 +209,8 @@ export interface ApiLogResult {
   correlationId?: string | null;
   note?: string | null;
   backends: BackendCallResult[];
+  /** Failed attempts grouped by response code / failure reason → count, most-frequent first. */
+  failuresByCode?: Record<string, number> | null;
 }
 
 export interface BackendLogResult {
@@ -227,6 +229,8 @@ export interface BackendLogResult {
   expectedServiceVersion?: string | null;
   loggedServiceVersion?: string | null;
   serviceVersionOk?: boolean | null;
+  /** Failed calls grouped by response code / failure reason → count, most-frequent first. */
+  failuresByCode?: Record<string, number> | null;
 }
 
 export interface LogAnalysisReport {

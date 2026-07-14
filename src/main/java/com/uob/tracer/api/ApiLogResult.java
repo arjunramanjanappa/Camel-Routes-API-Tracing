@@ -1,6 +1,7 @@
 package com.uob.tracer.api;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Per-API result of correlating an uploaded log against the traced footprint.
@@ -22,6 +23,8 @@ import java.util.List;
  * @param correlationId  correlation id of the latest attempt
  * @param note           human-readable explanation for non-green / investigate states
  * @param backends       per-backend outcomes within the latest attempt
+ * @param failuresByCode failed attempts grouped by response code / failure reason → count,
+ *                       ordered most-frequent first (for investigating recurring errors)
  */
 public record ApiLogResult(
         String api,
@@ -39,5 +42,6 @@ public record ApiLogResult(
         String latestAt,
         String correlationId,
         String note,
-        List<BackendCallResult> backends) {
+        List<BackendCallResult> backends,
+        Map<String, Integer> failuresByCode) {
 }

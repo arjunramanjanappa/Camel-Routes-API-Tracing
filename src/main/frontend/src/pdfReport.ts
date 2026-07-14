@@ -117,6 +117,22 @@ export class ReportDoc {
 
   paragraph(s: string) { this.para(s, M, CONTENT_W, 'normal', 10, PAL.body, 14); this.y += 4; }
 
+  /**
+   * A compact row of labelled stat cells — a small {@link statBand} for per-item / inline
+   * summaries, e.g. "437 attempts   398 passed   39 failed". Advances this.y.
+   */
+  statStrip(stats: { n: number | string; label: string; ramp: Ramp }[], boxW = 140) {
+    const gap = 8, boxH = 32;
+    this.ensure(boxH + 10);
+    stats.forEach((s, i) => {
+      const x = M + i * (boxW + gap);
+      this.fl(s.ramp.fill); this.doc.roundedRect(x, this.y, boxW, boxH, 5, 5, 'F');
+      const nw = this.text(String(s.n), x + 12, 'bold', 16, s.ramp.text, this.y + 21);
+      this.text(s.label, x + 12 + nw + 7, 'normal', 8, s.ramp.text, this.y + 21);
+    });
+    this.y += boxH + 10;
+  }
+
   /** Right-align text so it ends at xRight (at y ?? this.y); returns its width. */
   rtext(s: string, xRight: number, font: Font, size: number, col: RGB, y = this.y): number {
     const w = this.width(s, font, size);

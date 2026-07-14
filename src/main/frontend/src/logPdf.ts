@@ -22,9 +22,8 @@ const SECTION_BLURB: Record<LogStatus, string> = {
 };
 
 function svcText(b: { expectedServiceVersion?: string | null; loggedServiceVersion?: string | null; serviceVersionOk?: boolean | null }): string {
-  if (b.serviceVersionOk === true) return `  svc ${b.loggedServiceVersion} OK`;
-  if (b.serviceVersionOk === false) return `  svc ${b.loggedServiceVersion} MISMATCH (expected ${b.expectedServiceVersion})`;
-  if (b.loggedServiceVersion) return `  svc ${b.loggedServiceVersion}`;
+  if (b.serviceVersionOk === false) return `  -  service version ${b.loggedServiceVersion} (expected ${b.expectedServiceVersion})`;
+  if (b.loggedServiceVersion) return `  -  service version ${b.loggedServiceVersion}`;
   return '';
 }
 
@@ -55,10 +54,28 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
     + `${issues} had issues and ${notTested} were not seen in the uploaded logs.`
     + (report.backends.length ? `  ${report.backends.length} backend(s) were correlated directly.` : ''));
 
+  // Release-wide attempt totals + the response codes that failed most across every API — the
+  // single at-a-glance view for leadership before the per-API detail.
+  let totAttempts = 0, totPassed = 0, totFailed = 0;
+  const releaseFailures: Record<string, number> = {};
+  report.apis.forEach((a) => {
+    totAttempts += a.attempts; totPassed += a.successCount; totFailed += a.failureCount;
+    Object.entries(a.failuresByCode || {}).forEach(([code, n]) => { releaseFailures[code] = (releaseFailures[code] || 0) + n; });
+  });
+  if (totAttempts > 0) {
+    r.statStrip([
+      { n: totAttempts, label: 'attempts', ramp: PAL.gray },
+      { n: totPassed, label: 'passed', ramp: PAL.green },
+      { n: totFailed, label: 'failed', ramp: PAL.red },
+    ]);
+  }
+  const topFailures = Object.entries(releaseFailures).sort((x, y) => y[1] - x[1]).slice(0, 12);
+  if (topFailures.length) r.failureTable(topFailures, 'Top failing response codes across the release');
+
   r.legend('How to read this report', [
     'Each API is verified end-to-end by correlation id: the front-end request paired with its backend call.',
     'Passed = success both ends; Failed/Timeout = backend error or no response; Not tested = no matching log lines.',
-    'Each API lists its backend calls; svc shows the logged service version (and MISMATCH vs expected).',
+    'Each API shows a Total / Passed / Failed summary, the backends it calls, and a table of its failing response codes.',
     'Statuses are grouped worst-first so the items needing action lead the report.',
   ]);
 
@@ -83,49 +100,51 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
 }
 
 function apiEntry(r: ReportDoc, a: ApiLogResult) {
-  r.ensure(36);
+  r.ensure(60);
   const meta = ST[a.status];
   const pw = r.pill(meta.label, M, meta.ramp.fill, meta.ramp.text, 8);
-  const w = r.text(a.api, M + pw + 8, 'bold', 11, PAL.ink);
-  r.text(a.operation, M + pw + 8 + w + 8, 'normal', 9, PAL.muted);
-  r.y += 15;
+  r.text(a.api, M + pw + 8, 'bold', 11, PAL.ink);   // API path only (operation name dropped)
+  r.y += 18;
 
-  const parts: string[] = [];
-  if (a.responseCode) parts.push('code ' + a.responseCode);
-  if (a.responseDescription) parts.push(a.responseDescription);
-  if (a.feLatencyMs != null) parts.push(a.feLatencyMs + ' ms');
-  parts.push(`${a.attempts} attempt(s), ${a.successCount} ok / ${a.failureCount} failed`);
-  if (a.correlationId) parts.push('corr ' + a.correlationId);
-  r.para(parts.join('  -  '), M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  // Overall numbers as a compact summary strip (replaces the old dense stats line).
+  r.statStrip([
+    { n: a.attempts, label: 'attempts', ramp: PAL.gray },
+    { n: a.successCount, label: 'passed', ramp: PAL.green },
+    { n: a.failureCount, label: 'failed', ramp: PAL.red },
+  ]);
   if (a.note) r.para('Note: ' + a.note, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
-  r.failureTable(Object.entries(a.failuresByCode || {}) as [string, number][]);
 
-  (a.backends || []).forEach((b: BackendCallResult) => {
-    const bm = ST[b.status];
-    const line = `${backendPath(b.backend)} - ${bm.label}`
-      + (b.responseCode ? ` (code ${b.responseCode})` : '')
-      + (b.latencyMs != null ? `, ${b.latencyMs} ms` : '')
-      + svcText(b);
-    r.para('- ' + line, M + 4, CONTENT_W - 4, 'normal', 9, bm.ramp.text, 12);
-  });
+  // Backends this API calls, under a clear label (was an unlabelled line at the very end).
+  if (a.backends && a.backends.length) {
+    r.text('Backend', M, 'bold', 9, PAL.ink); r.y += 13;
+    (a.backends).forEach((b: BackendCallResult) => {
+      const bm = ST[b.status];
+      const line = `${backendPath(b.backend)}  -  ${bm.label}`
+        + (b.responseCode ? ` (code ${b.responseCode})` : '')
+        + (b.latencyMs != null ? `, ${b.latencyMs} ms` : '')
+        + svcText(b);
+      r.para('- ' + line, M + 4, CONTENT_W - 4, 'normal', 9, bm.ramp.text, 12);
+    });
+    r.y += 4;
+  }
+
+  r.failureTable(Object.entries(a.failuresByCode || {}) as [string, number][]);
   r.y += 6;
 }
 
 function backendEntry(r: ReportDoc, b: BackendLogResult) {
-  r.ensure(28);
+  r.ensure(56);
   const meta = ST[b.status];
   const pw = r.pill(meta.label, M, meta.ramp.fill, meta.ramp.text, 8);
-  r.text(backendPath(b.backend), M + pw + 8, 'bold', 10, PAL.ink);
-  r.y += 14;
-  const parts: string[] = [];
-  if (b.responseCode) parts.push('code ' + b.responseCode);
-  if (b.responseDescription) parts.push(b.responseDescription);
-  if (b.latencyMs != null) parts.push(b.latencyMs + ' ms');
-  parts.push(`${b.attempts} attempt(s), ${b.successCount} ok / ${b.failureCount} failed`);
-  const svc = svcText(b).trim();
-  if (svc) parts.push(svc);
-  if (b.note) parts.push(b.note);
-  r.para(parts.join('  -  '), M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  const svc = svcText(b).trim().replace(/^-\s*/, '');
+  r.text(backendPath(b.backend) + (svc ? '   ·   ' + svc : ''), M + pw + 8, 'bold', 10, PAL.ink);
+  r.y += 18;
+  r.statStrip([
+    { n: b.attempts, label: 'attempts', ramp: PAL.gray },
+    { n: b.successCount, label: 'passed', ramp: PAL.green },
+    { n: b.failureCount, label: 'failed', ramp: PAL.red },
+  ]);
+  if (b.note) r.para('Note: ' + b.note, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
   r.failureTable(Object.entries(b.failuresByCode || {}) as [string, number][]);
   r.y += 6;
 }

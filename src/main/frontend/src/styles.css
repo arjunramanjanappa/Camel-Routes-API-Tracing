@@ -233,6 +233,21 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .att-ok { color: #4ade80; }
 [data-theme="dark"] .att-bad { color: #f87171; }
 
+/* ---- expanded "failed responses" breakdown ---- */
+.failbreak { padding: 2px 0 4px; }
+.failbreak-title { font-weight: 700; color: #991b1b; font-size: 11px; margin-bottom: 4px; }
+.failbreak-tbl { width: 100%; max-width: 460px; border-collapse: collapse; }
+.failbreak-tbl td { padding: 3px 8px 3px 0; vertical-align: middle; border: 0; }
+.failbreak-tbl .fb-code { font-family: ui-monospace, monospace; color: #334155; white-space: nowrap; }
+.failbreak-tbl .fb-count { font-weight: 700; color: #1e293b; text-align: right; width: 42px; white-space: nowrap; }
+.failbreak-tbl .fb-bar { width: 55%; }
+.failbreak-tbl .fb-bar-fill { display: block; height: 9px; border-radius: 3px; background: #fca5a5; }
+.failbreak-tbl .fb-pct { color: #7a8794; width: 40px; text-align: right; white-space: nowrap; }
+[data-theme="dark"] .failbreak-title { color: #fca5a5; }
+[data-theme="dark"] .failbreak-tbl .fb-code { color: #cbd5e1; }
+[data-theme="dark"] .failbreak-tbl .fb-count { color: #e2e8f0; }
+[data-theme="dark"] .failbreak-tbl .fb-bar-fill { background: #b91c1c; }
+
 /* ---- application picker (landing) ---- */
 .app-picker { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
   background:

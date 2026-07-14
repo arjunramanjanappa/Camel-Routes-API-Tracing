@@ -120,7 +120,8 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
         <td title={fbTitle(a.failuresByCode)}>{a.attempts > 0 ? (
           <>{a.attempts} (<span className="att-ok">{a.successCount}✓</span>/<span className="att-bad">{a.failureCount}✗</span>)</>
         ) : '—'}</td>
-        <td>{a.backends.length > 0 && <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'backends'}</button>}</td>
+        <td>{(a.backends.length > 0 || hasFailures(a.failuresByCode)) &&
+          <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'details'}</button>}</td>
       </tr>
       {isOpen && a.backends.map((b, i) => (
         <tr key={i} className="lsub">
@@ -134,7 +135,39 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           <td colSpan={2}>{b.responseCode || ''}{b.responseDescription ? ' · ' + b.responseDescription : ''}</td>
         </tr>
       ))}
+      {isOpen && hasFailures(a.failuresByCode) && (
+        <tr className="lsub"><td colSpan={6}><FailureBreakdown m={a.failuresByCode} /></td></tr>
+      )}
     </>
+  );
+}
+
+function hasFailures(m?: Record<string, number> | null): boolean {
+  return !!m && Object.keys(m).length > 0;
+}
+
+/** Compact "Failed responses" table (code · count · proportional bar · share) shown when a row is expanded. */
+function FailureBreakdown({ m }: { m?: Record<string, number> | null }) {
+  const entries = m ? Object.entries(m) : [];
+  if (!entries.length) return null;
+  const total = entries.reduce((n, [, c]) => n + c, 0);
+  const max = Math.max(...entries.map(([, c]) => c));
+  return (
+    <div className="failbreak">
+      <div className="failbreak-title">Failed responses</div>
+      <table className="failbreak-tbl">
+        <tbody>
+          {entries.map(([code, c]) => (
+            <tr key={code}>
+              <td className="fb-code">{code}</td>
+              <td className="fb-count">{c}</td>
+              <td className="fb-bar"><span className="fb-bar-fill" style={{ width: Math.max(4, (100 * c) / max) + '%' }} /></td>
+              <td className="fb-pct">{Math.round((100 * c) / total)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

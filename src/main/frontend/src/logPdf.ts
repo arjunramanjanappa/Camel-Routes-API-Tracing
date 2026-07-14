@@ -1,5 +1,5 @@
 import type { ApiLogResult, BackendCallResult, BackendLogResult, LogAnalysisReport, LogStatus } from './types';
-import { ReportDoc, PAL, M, CONTENT_W, stamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
 import { backendPath } from './spl';
 
 const ST: Record<LogStatus, { label: string; ramp: Ramp }> = {
@@ -39,13 +39,9 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
   const notTested = counts.NOT_TESTED;
   const issues = total - passed - notTested;
 
-  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const now = new Date();
-  const generated = `${now.getDate()}-${MONTHS[now.getMonth()]}-${now.getFullYear()},  ${now.toLocaleTimeString()}`;
-
   r.header('Verification Report',
     `${app ? app + '  -  ' : ''}Release ${ver}${report.country ? '  -  ' + report.country : ''}`,
-    `Generated ${generated}`);
+    `Generated ${generatedStamp()}`);
 
   // ===== Verification Summary =====
   r.banner('Verification Summary', PAL.blue);

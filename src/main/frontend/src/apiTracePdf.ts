@@ -1,4 +1,4 @@
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp } from './pdfReport';
 import { backendPath } from './spl';
 import type { CatalogResponse, TraceResponse } from './types';
 
@@ -32,8 +32,10 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
 
   r.header('Release Scope Report',
     `${app ? app + '  -  ' : ''}Release ${verLabel}${cat.country ? '  -  ' + cat.country : ''}`,
-    `The APIs a release implements and how each one flows to its backends. Generated ${new Date().toLocaleString()}.`);
+    `Generated ${generatedStamp()}`);
 
+  // ===== Release Scope Summary =====
+  r.banner('Release Scope Summary', PAL.blue);
   r.statBand([
     { n: impacted, label: 'Impacted APIs', ramp: PAL.blue },
     { n: routes.size, label: 'Routes involved', ramp: PAL.purple },
@@ -44,6 +46,7 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
     + `flowing through ${routes.size} route(s) to ${backends.size} backend(s).`
     + (noRoute ? ` ${noRoute} discovered API(s) have no route in this release and are listed separately.` : ''));
 
+  // ===== How to read this report =====
   r.legend('How to read this report', [
     'Resolves to = the entry route the API uses at this version (R<ver>_... or BASE).',
     'Flow = the ordered Camel routes a request passes through.',
@@ -59,8 +62,12 @@ export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
     return;
   }
 
+  // ===== APIs in scope =====
+  r.banner('APIs in scope', PAL.blue, 'Every API this release implements, grouped by the version it resolves to.');
   impactedGroups.forEach((g) => {
-    r.section(g.version, g.traces.length, g.version === 'BASE' ? PAL.gray : PAL.blue, '');
+    const label = g.version === 'BASE' ? 'Base'
+      : /^(n\/a|na|latest)$/i.test(g.version) ? 'Latest per API' : 'Release ' + g.version;
+    r.section(label, g.traces.length, g.version === 'BASE' ? PAL.gray : PAL.blue, '');
     g.traces.forEach((t, i) => { if (i > 0) r.separator(); apiRow(r, t, svc); });
   });
 

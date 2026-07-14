@@ -29,6 +29,13 @@ export const PAL = {
   delFill: [254, 242, 242] as RGB, delText: [153, 27, 27] as RGB,
 };
 
+/** "14-July-2026,  2:36:10 PM" — human date + local time for a report header's "Generated" line. */
+export function generatedStamp(): string {
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const d = new Date();
+  return `${d.getDate()}-${MONTHS[d.getMonth()]}-${d.getFullYear()},  ${d.toLocaleTimeString()}`;
+}
+
 /** A filename-safe local timestamp, e.g. 2026-06-24_153045 — appended to export filenames. */
 export function stamp(): string {
   const d = new Date();

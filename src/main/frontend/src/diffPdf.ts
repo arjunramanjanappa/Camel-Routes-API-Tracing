@@ -1,5 +1,5 @@
 import type { ApiDiff, DiffStatus, VersionDiffReport } from './types';
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
 
 const STATUS_ORDER: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
@@ -19,8 +19,10 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
 
   r.header('Release Impact Report',
     `${app ? app + '  -  ' : ''}Release ${report.version || 'BASE'}${report.country ? '  -  ' + report.country : ''}`,
-    `Each API is compared against its immediately-preceding version. Generated ${new Date().toLocaleString()}.`);
+    `Generated ${generatedStamp()}`);
 
+  // ===== Release Impact Summary =====
+  r.banner('Release Impact Summary', PAL.blue);
   r.statBand([
     { n: report.changedCount, label: 'Changed', ramp: PAL.amber },
     { n: report.newCount, label: 'New', ramp: PAL.green },
@@ -29,8 +31,10 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
 
   r.paragraph(`Release ${report.version || 'BASE'} changes ${report.changedCount} existing API(s) and introduces `
     + `${report.newCount} new API(s) relative to the previous version; ${report.unchangedCount} are unaffected.`
+    + `  Each API is compared against its immediately-preceding version.`
     + (filtered ? `  Filtered view: ${apis.length} of ${report.apis.length} API(s) shown.` : ''));
 
+  // ===== How to read this report =====
   r.legend('How to read this report', [
     'Changed = the resolved Camel flow differs (routes, backends or service versions).',
     'New = first appears in this release; Unchanged = version bump with no behavioural change.',
@@ -44,6 +48,8 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
   const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
   apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status].push(a); });
 
+  // ===== API changes =====
+  r.banner('API changes', PAL.blue, 'APIs grouped by how this release affects them (changed first).');
   for (const status of STATUS_ORDER) {
     const list = grouped[status];
     if (!list.length) continue;
@@ -60,16 +66,20 @@ export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], 
 async function exportSnapshotPdf(r: ReportDoc, report: VersionDiffReport, apis: ApiDiff[], app?: string) {
   r.header('Release Impact - Latest versions',
     `${app ? app + '  -  ' : ''}Release ${report.version || 'N/A'}${report.country ? '  -  ' + report.country : ''}`,
-    `The latest version of each API (or its default) - a current snapshot for review, `
-    + `not a comparison against a previous release. Generated ${new Date().toLocaleString()}.`);
+    `Generated ${generatedStamp()}`);
 
+  // ===== Summary =====
+  r.banner('Latest-versions Summary', PAL.blue);
   r.statBand([{ n: apis.length, label: 'APIs', ramp: PAL.blue }]);
   r.paragraph(`Showing each API at its latest version (or its default when it has no versions). `
-    + `${apis.length} API(s)${report.country ? ' for ' + report.country : ''}.`);
+    + `${apis.length} API(s)${report.country ? ' for ' + report.country : ''}. `
+    + `This is a current snapshot for review, not a comparison against a previous release.`);
 
   const footer = `TraceGuard - Latest versions ${report.version || 'N/A'}${app ? ' - ' + app : ''}`;
   if (apis.length === 0) { r.emptyNote('No APIs found in this scope.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
 
+  // ===== APIs =====
+  r.banner('APIs by latest version', PAL.blue);
   r.section('Latest versions', apis.length, PAL.blue, 'Each API and the version it is currently on (Base = no version).');
   apis.forEach((a, idx) => {
     if (idx > 0) r.separator();

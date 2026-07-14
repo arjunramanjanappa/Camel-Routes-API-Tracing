@@ -117,24 +117,45 @@ export class ReportDoc {
 
   paragraph(s: string) { this.para(s, M, CONTENT_W, 'normal', 10, PAL.body, 14); this.y += 4; }
 
+  /** Right-align text so it ends at xRight (at y ?? this.y); returns its width. */
+  rtext(s: string, xRight: number, font: Font, size: number, col: RGB, y = this.y): number {
+    const w = this.width(s, font, size);
+    this.text(s, xRight - w, font, size, col, y);
+    return w;
+  }
+
   /**
-   * A muted label followed by a wrapping row of coloured chips, e.g.
-   * "Failed by code:  [00911 (2)] [00999 (1)]". Advances this.y. No-op when empty.
+   * A compact "failed responses" table — RESPONSE CODE | FAILURES | SHARE (a proportional
+   * bar + %) — under a small caption. Rows are drawn in the order given (already
+   * most-frequent first). No-op when there is nothing to show.
    */
-  chips(label: string, items: string[], r: Ramp, indent = M) {
+  failureTable(items: [string, number][], caption = 'Failed responses') {
     if (!items.length) return;
-    const gap = 5;
-    this.ensure(16);
-    const lw = this.text(label, indent, 'bold', 9, PAL.muted);
-    const chipX = indent + lw + 8;
-    let x = chipX;
-    for (const it of items) {
-      const w = this.width(it, 'bold', 8) + 12;
-      if (x + w > PAGE.w - M) { this.y += 16; this.ensure(14); x = chipX; }   // wrap, aligned under the first chip
-      this.pill(it, x, r.fill, r.text, 8);
-      x += w + gap;
+    const total = items.reduce((n, [, c]) => n + c, 0);
+    const max = Math.max(...items.map(([, c]) => c));
+    const codeX = M + 8, countRight = M + 300, barX = M + 320, barMax = PAGE.w - M - barX - 40;
+
+    this.ensure(30 + items.length * 25);
+    this.text(caption, M, 'bold', 9, PAL.red.text); this.y += 14;
+    // header band
+    this.fl(PAL.gray.fill); this.doc.rect(M, this.y - 12, CONTENT_W, 20, 'F');
+    this.text('RESPONSE CODE', codeX, 'bold', 7, PAL.muted);
+    this.rtext('FAILURES', countRight, 'bold', 7, PAL.muted);
+    this.text('SHARE', barX, 'bold', 7, PAL.muted);
+    this.y += 8;
+    this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y);
+    // rows
+    for (const [code, c] of items) {
+      this.y += 19;
+      this.text(code, codeX, 'normal', 9, PAL.body);
+      this.rtext(String(c), countRight, 'bold', 9, PAL.ink);
+      const bw = Math.max(2, barMax * (c / max));
+      this.fl(PAL.red.bar); this.doc.roundedRect(barX, this.y - 8, bw, 9, 1.5, 1.5, 'F');
+      this.text(Math.round((c / total) * 100) + '%', barX + bw + 6, 'normal', 7.5, PAL.muted);
+      this.y += 6;
+      this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y);
     }
-    this.y += 16;
+    this.y += 10;
   }
 
   legend(title: string, bullets: string[]) {

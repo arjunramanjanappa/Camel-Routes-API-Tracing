@@ -117,6 +117,26 @@ export class ReportDoc {
 
   paragraph(s: string) { this.para(s, M, CONTENT_W, 'normal', 10, PAL.body, 14); this.y += 4; }
 
+  /**
+   * A muted label followed by a wrapping row of coloured chips, e.g.
+   * "Failed by code:  [00911 (2)] [00999 (1)]". Advances this.y. No-op when empty.
+   */
+  chips(label: string, items: string[], r: Ramp, indent = M) {
+    if (!items.length) return;
+    const gap = 5;
+    this.ensure(16);
+    const lw = this.text(label, indent, 'bold', 9, PAL.muted);
+    const chipX = indent + lw + 8;
+    let x = chipX;
+    for (const it of items) {
+      const w = this.width(it, 'bold', 8) + 12;
+      if (x + w > PAGE.w - M) { this.y += 16; this.ensure(14); x = chipX; }   // wrap, aligned under the first chip
+      this.pill(it, x, r.fill, r.text, 8);
+      x += w + gap;
+    }
+    this.y += 16;
+  }
+
   legend(title: string, bullets: string[]) {
     this.ensure(18 + bullets.length * 12);
     this.text(title, M, 'bold', 10, PAL.ink); this.y += 14;

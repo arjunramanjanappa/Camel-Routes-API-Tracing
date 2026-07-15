@@ -26,8 +26,9 @@ function Single({ d }: { d: TraceResponse }) {
         <div className="kv">
           <b>Resolved route:</b> <code>{d.resolvedRoute || '—'}</code>{' '}
           {d.resolvedRoute && (
-            <span className={'pill ' + (d.baseFallback ? 'base' : 'versioned')}>
-              {d.baseFallback ? 'BASE' : 'R' + (d.resolvedVersion || '')}
+            <span className={'pill ' + (d.baseFallback ? 'na' : 'versioned')}
+                  title={d.baseFallback ? 'No versioned route — resolved to base (N/A)' : undefined}>
+              {d.baseFallback ? 'N/A' : 'Release ' + (d.resolvedVersion || '')}
             </span>
           )}
         </div>

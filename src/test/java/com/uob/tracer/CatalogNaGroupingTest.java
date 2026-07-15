@@ -65,7 +65,16 @@ class CatalogNaGroupingTest {
                 .extracting(TraceResponse::getResolvedRoute)
                 .containsExactlyInAnyOrder("R9.3_foo", "R9.2_bar", "R9.3_qux", "baz");
 
-        // A specific version is unchanged — one group for that version.
-        assertThat(catalog(dir, "9.3").getVersionsFound()).containsExactly("9.3");
+        // A specific version: versioned APIs group under it (bar resolves to R9.2, excluded as
+        // unchanged), while the unversioned "baz" (no R<ver>_ route) is auto-N/A in its own group.
+        CatalogResponse v93 = catalog(dir, "9.3");
+        assertThat(v93.getVersionsFound()).containsExactlyInAnyOrder("9.3", "N/A");
+        assertThat(groupApis(v93, "9.3")).containsExactlyInAnyOrder("/foo", "/qux");
+        assertThat(groupApis(v93, "N/A")).containsExactly("/baz");
+    }
+
+    private static java.util.List<String> groupApis(CatalogResponse cat, String version) {
+        return cat.getGroups().stream().filter(g -> g.version().equals(version))
+                .flatMap(g -> g.traces().stream()).map(TraceResponse::getApi).toList();
     }
 }

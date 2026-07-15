@@ -1093,15 +1093,15 @@ public class RouteTraceService {
 
         RouteRegistry registry = prepared.registry();
         RouteGraph graph = new RouteGraph();
-        // A repo with NO versioned (R<ver>_) routes is unversioned (e.g. the SPL-Secure base routes):
-        // a concrete version would exclude everything, so treat it as N/A (latest per API). Recorded so
-        // the UI can show an "N/A" chip for that module.
+        // Auto-N/A is decided PER API: an API with no versioned (R<ver>_) route uses N/A (its base
+        // route, always in scope); an API that has versioned routes uses the release version. The
+        // module-level `unversioned` flag (no versioned routes anywhere) drives the module's N/A chip.
         boolean unversioned = registry.allVersions().isEmpty();
         cat.setUnversioned(unversioned);
         cat.setModuleName(moduleNameFor(request));
-        // N/A = "latest per API, else base": one target per API (its latest, or the base route), and
-        // nothing is excluded as a fall-back — so it is not a concrete "wanted" release version.
-        boolean latestMode = VersionResolver.isLatest(request.version()) || unversioned;
+        // N/A = "latest per API, else base": the explicit N/A selection. A concrete version below is a
+        // real release scope, except unversioned APIs fall through as auto-N/A (see the loop).
+        boolean latestMode = VersionResolver.isLatest(request.version());
         boolean versionGiven = request.version() != null && !request.version().isBlank() && !latestMode;
 
         List<OperationInfo> operations = operationsInScope(prepared);
@@ -1125,6 +1125,8 @@ public class RouteTraceService {
         var templateVersion = templateVersionResolver(request);
         Map<String, List<TraceResponse>> groups = new LinkedHashMap<>();
         for (OperationInfo op : operations) {
+            String routeOp = entryOperation(op, registry, prepared.commandDispatch());
+            boolean apiVersioned = !registry.availableVersionsFor(routeOp).isEmpty();   // has any R<ver>_ route?
             for (ResolvedRoute target : targetsFor(op, registry, request, versionGiven, prepared.commandDispatch())) {
                 if (target == null) {
                     TraceResponse entry = newEntry(op, request.transferType());
@@ -1132,19 +1134,23 @@ public class RouteTraceService {
                     groups.computeIfAbsent(NO_ROUTE_GROUP, k -> new ArrayList<>()).add(entry);
                     continue;
                 }
-                if (wantedVersion != null && !wantedVersion.equals(target.version())) {
-                    excluded++;     // not impacted by the requested release
+                // A VERSIONED API that resolves to a different release isn't changed here → exclude.
+                // An UNVERSIONED API (no R<ver>_ route) is auto-N/A — always in scope at its base route.
+                if (wantedVersion != null && apiVersioned && !wantedVersion.equals(target.version())) {
+                    excluded++;
                     continue;
                 }
                 TraceResponse entry = newEntry(op, request.transferType());
+                // Resolve nested routes at the API's effective version: the release for a versioned API,
+                // N/A (latest/base) for an unversioned one.
+                String traverseVersion = versionGiven ? (apiVersioned ? request.version() : "N/A") : target.version();
                 traverseInto(entry, op.path(), op.operationName(), target,
-                        request.transferType(), registry, graph, templateVersion,
-                        versionGiven ? request.version() : target.version());
-                // N/A = latest per API: consolidate every API into ONE group (like a specific version
-                // shows one group) instead of splitting by each API's own latest version. Each entry still
-                // shows its resolved route, so its version is visible per row.
-                String key = latestMode ? (unversioned ? "N/A" : request.version().trim())
-                        : (target.version() != null ? target.version() : BASE_GROUP);
+                        request.transferType(), registry, graph, templateVersion, traverseVersion);
+                // Group: explicit N/A → one N/A group; else the release version, an auto-N/A (unversioned)
+                // API under "N/A", a versioned base fall-back under BASE. Each row still shows its own chip.
+                String key = latestMode ? request.version().trim()
+                        : (!apiVersioned ? "N/A"
+                           : (target.version() != null ? target.version() : BASE_GROUP));
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }
         }

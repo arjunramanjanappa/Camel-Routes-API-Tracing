@@ -220,10 +220,11 @@ class RouteTraceServiceTest {
     }
 
     @Test
-    void catalogWithVersionShowsOnlyThatReleasesImpactedApis() {
-        // 9.4 catalog → only APIs whose entry route IS 9.4 (the impacted ones).
+    void catalogWithVersionShowsThatReleasesApisPlusUnversionedAsNa() {
+        // 9.4 catalog → versioned APIs whose entry route IS 9.4, plus any unversioned API (no
+        // R<ver>_ route) as auto-N/A. Versioned APIs at a lower release are still excluded.
         CatalogResponse c94 = catalog("9.4");
-        assertThat(c94.getVersionsFound()).containsExactly("9.4");
+        assertThat(c94.getVersionsFound()).containsExactlyInAnyOrder("9.4", "N/A");
         assertThat(group(c94, "9.4").traces()).anySatisfy(t -> {
             assertThat(t.getOperationName()).isEqualTo("fundTransferSubmitV2Api");
             assertThat(t.getResolvedRoute()).isEqualTo("R9.4_fundTransferSubmitV2Api");
@@ -234,10 +235,12 @@ class RouteTraceServiceTest {
     }
 
     @Test
-    void catalogWithVersionThatNothingImplementsIsEmptyWithNotice() {
-        // 9.5: no API has an R9.5 route, so nothing is impacted by that release.
+    void catalogWithVersionThatNoVersionedApiImplementsShowsOnlyUnversionedAsNa() {
+        // 9.5: no API has an R9.5 route, so no versioned API is impacted — only unversioned APIs
+        // (auto-N/A) show, and the excluded versioned APIs are noted.
         CatalogResponse c95 = catalog("9.5");
-        assertThat(c95.getGroups()).isEmpty();
+        assertThat(c95.getGroups()).isNotEmpty();
+        assertThat(c95.getGroups()).allSatisfy(g -> assertThat(g.version()).isEqualTo("N/A"));
         assertThat(c95.getWarnings()).anyMatch(w -> w.contains("not impacted by version 9.5"));
     }
 }

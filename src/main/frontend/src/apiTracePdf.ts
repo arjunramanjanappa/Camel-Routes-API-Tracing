@@ -87,11 +87,12 @@ function apiRow(r: ReportDoc, t: TraceResponse, svc: Record<string, string>) {
   const path = t.api || t.operationName || '(unknown)';
   const w1 = r.text(path, M, 'bold', 11, PAL.ink);
   r.text(t.operationName || '', M + w1 + 8, 'normal', 9, PAL.muted);
-  const pillLabel = t.baseFallback ? 'BASE' : (t.resolvedVersion ? 'R' + t.resolvedVersion : '');
+  // A base-resolved API (no versioned route) is auto-N/A — flagged amber; a versioned one shows Release <ver>.
+  const pillLabel = t.baseFallback ? 'N/A' : (t.resolvedVersion ? 'Release ' + t.resolvedVersion : '');
   if (pillLabel) {
     const pw = r.width(pillLabel, 'bold', 8) + 12;
-    r.pill(pillLabel, PAGE.w - M - pw, t.baseFallback ? PAL.gray.fill : PAL.blue.fill,
-      t.baseFallback ? PAL.gray.text : PAL.blue.text, 8);
+    r.pill(pillLabel, PAGE.w - M - pw, t.baseFallback ? PAL.amber.fill : PAL.blue.fill,
+      t.baseFallback ? PAL.amber.text : PAL.blue.text, 8);
   }
   r.y += 16;
   r.para(`Resolves to ${t.resolvedRoute || '-'}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);

@@ -17,13 +17,15 @@ tracer:
   source-dir: ${TRACER_SOURCE_DIR:}
 
 # Bitbucket source mode: when a tab is set to "Bitbucket branch", the server clones the
-# given HTTPS repo + branch (via JGit) into a cache dir and analyses that. Put your
-# internal Bitbucket HTTP access token here (read scope). Leave BLANK in the repo —
-# DO NOT commit a real token. (Later this can move to an env var, e.g. ${BITBUCKET_TOKEN:}.)
+# given HTTPS repo + branch (via JGit) into a cache dir and analyses that. Provide your
+# internal Bitbucket HTTP access token (Read scope) either via the BITBUCKET_TOKEN
+# environment variable (preferred — no secret in the repo) or by replacing ${BITBUCKET_TOKEN:}
+# with the literal token below. If pasting the token inline, QUOTE it ("...") when it has
+# special characters. The app reads this at startup — RESTART after changing it.
 bitbucket:
-  token:
+  token: ${BITBUCKET_TOKEN:}
   # Where cloned repos are cached on the server. Blank = <java.io.tmpdir>/traceguard-repos.
-  work-dir:
+  work-dir: ${BITBUCKET_WORK_DIR:}
 
 logging:
   level:

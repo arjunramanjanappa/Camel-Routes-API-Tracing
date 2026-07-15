@@ -91,7 +91,9 @@ public class SourceResolver {
                 recordFailure(key, e.getMessage());
                 throw e;
             } catch (Exception e) {
-                String msg = "Bitbucket checkout failed for " + url + " @ " + rev + ": " + rootMessage(e);
+                String root = rootMessage(e);
+                LOG.warn("Bitbucket checkout failed for {} @ {}", url, rev, e);   // full cause in the server log
+                String msg = "Bitbucket checkout failed for " + url + " @ " + rev + ": " + root + hintFor(root);
                 recordFailure(key, msg);
                 throw new IllegalArgumentException(msg);
             }
@@ -203,6 +205,32 @@ public class SourceResolver {
             });
         }
     }
+
+    /** Turn a raw JGit failure into an actionable hint about what to fix. */
+    private static String hintFor(String rootMsg) {
+        String m = rootMsg == null ? "" : rootMsg.toLowerCase(java.util.Locale.ROOT);
+        if (m.contains("401") || m.contains("not authorized") || m.contains("unauthorized")
+                || m.contains("authentication") || m.contains("403") || m.contains("forbidden")) {
+            return "  →  Authentication failed. Set a valid Bitbucket HTTP access token (Read scope) in "
+                    + "'bitbucket.token' (application.yml) — quote it if it has special characters — and RESTART the app.";
+        }
+        if (m.contains("pkix") || m.contains("certification path") || m.contains("certificate")
+                || m.contains("ssl") || m.contains("handshake")) {
+            return "  →  The Bitbucket server's TLS certificate is not trusted by the JVM. Import your internal CA "
+                    + "certificate into the JDK truststore (cacerts) and restart.";
+        }
+        if (m.contains("unknownhost") || m.contains("unknown host") || m.contains("connect")
+                || m.contains("timed out") || m.contains("timeout") || m.contains("unreachable")) {
+            return "  →  Could not reach the host. Check the HTTPS repo URL, your VPN/network, and any HTTPS proxy.";
+        }
+        if (m.contains("not found") || m.contains("404") || m.contains("repository not found")
+                || m.contains("no such") ) {
+            return "  →  Repo or branch not found. Verify the HTTPS clone URL and the exact branch/tag name.";
+        }
+        return "";
+    }
+
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(SourceResolver.class);
 
     private static String rootMessage(Throwable e) {
         Throwable t = e;

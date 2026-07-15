@@ -1,0 +1,47 @@
+import type { ModuleResult } from '../modules';
+
+export interface ModuleStat { label: string; value: number | string; tone?: 'good' | 'warn' | 'bad' | 'muted' | 'info'; }
+
+interface Props<T> {
+  results: ModuleResult<T>[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  /** Per-module headline stats (e.g. Scope: APIs; Test: passed/failed/not-tested; Impact: changed/new). */
+  statsOf: (r: ModuleResult<T>) => ModuleStat[];
+  /** True when the module is unversioned (analysed at N/A) — shows the amber chip. */
+  unversionedOf?: (r: ModuleResult<T>) => boolean;
+}
+
+/**
+ * The coordinator's at-a-glance strip: one card per module with its headline stats, doubling as
+ * the selector — clicking a card shows that module's detail below (in the tab's existing view).
+ */
+export default function ModuleSummary<T>({ results, activeId, onSelect, statsOf, unversionedOf }: Props<T>) {
+  if (results.length <= 1) return null;
+  return (
+    <div className="mod-summary">
+      <div className="mod-summary-h">By module <span className="muted">— click a module to see its detail</span></div>
+      <div className="mod-cards">
+        {results.map((r) => {
+          const na = unversionedOf ? unversionedOf(r) : false;
+          return (
+            <button key={r.module.id} type="button"
+                    className={'mod-card' + (r.module.id === activeId ? ' on' : '')}
+                    onClick={() => onSelect(r.module.id)}>
+              <div className="mc-name">{r.name}
+                {na && <span className="tag na" title="Unversioned — analysed at N/A">N/A</span>}
+                {r.error && <span className="tag none" title={r.error}>failed</span>}</div>
+              <div className="mc-stats">
+                {r.error
+                  ? <span className="mc-stat bad">not analysed</span>
+                  : statsOf(r).map((s, i) => (
+                      <span key={i} className={'mc-stat ' + (s.tone || 'muted')}><b>{s.value}</b> {s.label}</span>
+                    ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

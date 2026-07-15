@@ -152,6 +152,30 @@ export class ReportDoc {
     this.y += boxH + 10;
   }
 
+  /**
+   * A compact coverage table: a wide left-aligned first column (e.g. Module) and right-aligned
+   * columns after it, an optional bold Total row. Reused by every tab's "by module" summary.
+   */
+  dataTable(headers: string[], rows: (string | number)[][], total?: (string | number)[]) {
+    const n = headers.length;
+    const firstW = CONTENT_W * 0.40;
+    const colRight = (i: number) => M + firstW + i * ((CONTENT_W - firstW) / (n - 1));
+    this.ensure(24 + (rows.length + (total ? 1 : 0)) * 18);
+    this.fl(PAL.gray.fill); this.doc.rect(M, this.y - 2, CONTENT_W, 18, 'F'); this.y += 10;
+    this.text(headers[0], M + 8, 'bold', 7.5, PAL.muted);
+    for (let i = 1; i < n; i++) this.rtext(headers[i], colRight(i), 'bold', 7.5, PAL.muted);
+    this.y += 6; this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y);
+    const row = (cells: (string | number)[], bold: boolean) => {
+      this.y += 17;
+      this.text(String(cells[0]), M + 8, bold ? 'bold' : 'normal', 9, PAL.ink);
+      for (let i = 1; i < n; i++) this.rtext(String(cells[i] ?? ''), colRight(i), 'bold', 9, PAL.ink);
+      this.y += 5; this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y);
+    };
+    rows.forEach((c) => row(c, false));
+    if (total) row(total, true);
+    this.y += 10;
+  }
+
   /** Right-align text so it ends at xRight (at y ?? this.y); returns its width. */
   rtext(s: string, xRight: number, font: Font, size: number, col: RGB, y = this.y): number {
     const w = this.width(s, font, size);

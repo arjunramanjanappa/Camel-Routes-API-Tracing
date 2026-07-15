@@ -1,56 +1,52 @@
-import type { Meta, TraceParams } from '../types';
-import SourceFields, { sourceValid, type SourceState } from './SourceFields';
+import type { Meta } from '../types';
+import ModulesEditor from './ModulesEditor';
+import type { ModuleSource } from '../modules';
+import { moduleValid } from '../modules';
 
 interface Props {
-  params: TraceParams;
+  modules: ModuleSource[];
+  onModulesChange: (m: ModuleSource[]) => void;
+  names?: Record<string, string>;
+  country: string;
+  version: string;
   meta: Meta;
   loading: boolean;
-  onChange: (patch: Partial<TraceParams>) => void;
-  onTrace: () => void;
-  onCatalogAll: () => void;
+  onField: (patch: { country?: string; version?: string }) => void;
+  onAnalyse: () => void;
 }
 
-/** Release Scope inputs — a horizontal context bar (aligned with Release Test / Release Impact). */
-export default function ControlPanel({ params, meta, loading, onChange, onTrace, onCatalogAll }: Props) {
-  const single = !!(params.api && params.api.trim());
-  const src: SourceState = {
-    sourceType: params.sourceType || 'local',
-    sourceDir: params.sourceDir || '', repo: params.repo || '', branch: params.branch || '',
-  };
-  const noCountry = !(params.country || '').trim();
-  const noVersion = !(params.version || '').trim();
+/** Release Scope inputs — the module list, then the shared Country + release version for all modules. */
+export default function ControlPanel({ modules, onModulesChange, names, country, version, meta, loading, onField, onAnalyse }: Props) {
+  const anyValid = modules.some(moduleValid);
+  const noCountry = !country.trim();
+  const noVersion = !version.trim();
   return (
-    <div className="context-bar">
-      <SourceFields value={src} onChange={onChange} bar />
-      <div style={{ width: 150 }}>
-        <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
-        <input list="countryList" value={params.country || ''} placeholder="SG / MY / ID / TH / VN"
-               onChange={(e) => onChange({ country: e.target.value })} />
-        <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
+    <div className="scope-controls">
+      <ModulesEditor modules={modules} onChange={onModulesChange} names={names} />
+      <div className="context-bar">
+        <div style={{ width: 150 }}>
+          <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
+          <input list="countryList" value={country} placeholder="SG / MY / ID / TH / VN"
+                 onChange={(e) => onField({ country: e.target.value })} />
+          <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
+        </div>
+        <div style={{ width: 200 }}>
+          <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+          <input list="versionList" value={version} placeholder="9.18 or N/A (latest / base)"
+                 onChange={(e) => onField({ version: e.target.value })} />
+          <datalist id="versionList">
+            <option value="N/A" label="latest version of each API (or its default)" />
+            {meta.versions.map((v) => <option key={v} value={v} />)}
+          </datalist>
+        </div>
+        <button className="trace" style={{ width: 150, marginTop: 0, alignSelf: 'flex-end' }}
+                disabled={loading || noCountry || noVersion || !anyValid} onClick={onAnalyse}
+                title={!anyValid ? 'Add at least one module source'
+                  : noCountry ? 'Enter a country first'
+                    : noVersion ? 'Enter a client release version (or N/A)' : ''}>
+          {loading ? 'Scanning…' : 'Analyse modules'}
+        </button>
       </div>
-      <div style={{ width: 175 }}>
-        <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
-        <input list="versionList" value={params.version || ''} placeholder="9.18 or N/A (latest / base)"
-               onChange={(e) => onChange({ version: e.target.value })} />
-        <datalist id="versionList">
-          <option value="N/A" label="latest version of each API (or its default)" />
-          {meta.versions.map((v) => <option key={v} value={v} />)}
-        </datalist>
-      </div>
-      <div style={{ width: 190 }}>
-        <label>API path{single && (
-          <> · <button type="button" className="linkbtn" style={{ fontWeight: 400 }} onClick={onCatalogAll}>catalog all</button></>
-        )}</label>
-        <input value={params.api || ''} placeholder="blank = catalog all APIs"
-               onChange={(e) => onChange({ api: e.target.value })} />
-      </div>
-      <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-              disabled={loading || noCountry || noVersion || !sourceValid(src)} onClick={onTrace}
-              title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)'
-                : noCountry ? 'Enter a country first'
-                  : noVersion ? 'Enter a client release version (or N/A)' : ''}>
-        {loading ? 'Scanning…' : 'Trace'}
-      </button>
     </div>
   );
 }

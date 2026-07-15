@@ -4,82 +4,90 @@ import type { CatalogResponse, TraceResponse } from './types';
 
 const NO_ROUTE = '(no route found)';
 
+/** One module's catalog for the report (or an error if its analysis failed). */
+export interface ModuleCat { name: string; cat: CatalogResponse | null; error?: string; }
+
 /**
- * Render the API Trace catalog to a downloadable PDF: every API impacted by the
- * release, grouped by the version each resolves to, with its flow and backends.
- * Always the whole catalog (never a single API) so the report can't under-report.
+ * Render the multi-module Release Scope catalog to one PDF: a per-module coverage summary, then a
+ * section per module listing every API it implements this release, grouped by module.
  */
-export async function exportApiTracePdf(cat: CatalogResponse, app?: string) {
+export async function exportApiTracePdf(mods: ModuleCat[], app?: string, version?: string, country?: string) {
   const r = await ReportDoc.create();
-  const ver = cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion.trim() : '';
-  const verLabel = ver || 'all versions';
+  const ver = version && version.trim() ? version.trim() : 'N/A';
 
-  // Backend service version per backend, read from the trace graph's BACKEND nodes.
-  const svc: Record<string, string> = {};
-  (cat.graph?.nodes || []).forEach((n) => {
-    if (n.type === 'BACKEND' && n.data && n.data.serviceVersion) svc[n.label] = n.data.serviceVersion;
+  const rows = mods.map((m) => {
+    const groups = m.cat ? m.cat.groups.filter((g) => g.version !== NO_ROUTE) : [];
+    const traces = groups.flatMap((g) => g.traces);
+    const routes = new Set<string>(); traces.forEach((t) => (t.flow || []).forEach((f) => routes.add(f)));
+    const backends = new Set<string>(); traces.forEach((t) => (t.backendApis || []).forEach((b) => backends.add(b)));
+    const noRoute = m.cat?.groups.find((g) => g.version === NO_ROUTE)?.traces.length ?? 0;
+    return { name: m.name, apis: traces.length, routes: routes.size, backends: backends.size,
+             noRoute, unversioned: !!m.cat?.unversioned, error: m.error };
   });
-
-  const impactedGroups = cat.groups.filter((g) => g.version !== NO_ROUTE);
-  const noRouteGroup = cat.groups.find((g) => g.version === NO_ROUTE);
-  const impacted = impactedGroups.reduce((n, g) => n + g.traces.length, 0);
-  const allTraces = impactedGroups.flatMap((g) => g.traces);
-  const routes = new Set<string>();
-  allTraces.forEach((t) => (t.flow || []).forEach((f) => routes.add(f)));
-  const backends = new Set<string>();
-  allTraces.forEach((t) => (t.backendApis || []).forEach((b) => backends.add(b)));
-  const noRoute = noRouteGroup?.traces.length ?? 0;
+  const tot = { apis: 0, routes: 0, backends: 0 };
+  rows.forEach((x) => { tot.apis += x.apis; tot.routes += x.routes; tot.backends += x.backends; });
 
   r.header('Release Scope Report',
-    `${app ? app + '  -  ' : ''}Release ${verLabel}${cat.country ? '  -  ' + cat.country : ''}`,
+    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
     `Generated ${generatedStamp()}`);
 
   // ===== Release Scope Summary =====
   r.banner('Release Scope Summary', PAL.blue);
   r.statBand([
-    { n: impacted, label: 'Impacted APIs', ramp: PAL.blue },
-    { n: routes.size, label: 'Routes involved', ramp: PAL.purple },
-    { n: backends.size, label: 'Backends touched', ramp: PAL.orange },
+    { n: tot.apis, label: 'Total APIs', ramp: PAL.blue },
+    { n: mods.length, label: 'Modules', ramp: PAL.gray },
+    { n: tot.routes, label: 'Routes', ramp: PAL.purple },
+    { n: tot.backends, label: 'Backends', ramp: PAL.orange },
   ]);
+  r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} spans ${mods.length} module(s) and ${tot.apis} API(s) in scope. Coverage by module:`);
+  r.dataTable(
+    ['Module (pom artifactId)', 'Version', 'APIs', 'Routes', 'Backends'],
+    rows.map((x) => [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.unversioned ? 'N/A' : ver), x.apis, x.routes, x.backends]),
+    ['Total', '', tot.apis, tot.routes, tot.backends],
+  );
 
-  r.paragraph(`Release ${verLabel}${cat.country ? ' in ' + cat.country : ''} implements ${impacted} API(s), `
-    + `flowing through ${routes.size} route(s) to ${backends.size} backend(s).`
-    + (noRoute ? ` ${noRoute} discovered API(s) have no route in this release and are listed separately.` : ''));
-
-  // ===== How to read this report =====
+  // ===== How to read =====
   r.legend('How to read this report', [
-    'Resolves to = the entry route the API uses at this version (R<ver>_... or BASE).',
-    'Flow = the ordered Camel routes a request passes through.',
-    'Backends = the downstream APIs / hosts the flow calls (svc = the service version sent, where known).',
-    'No route found = a discovered API with no route in this release - listed, not counted as impacted.',
+    'Each module (its own repo) is analysed for the same release + country and grouped below.',
+    'Resolves to = the entry route the API uses — Release <ver> for a versioned API, N/A for an unversioned one.',
+    'A module or API with no versioned route is analysed at N/A (amber) — its latest / base route.',
+    'Backends = the downstream APIs / hosts each flow calls (svc = the service version, where known).',
   ]);
 
-  const footer = `TraceGuard - Release scope ${verLabel}${app ? ' - ' + app : ''}`;
-  if (impacted === 0 && noRoute === 0) {
-    r.emptyNote('No APIs resolve to this release in the current scope.');
+  const footer = `TraceGuard - Release scope ${ver}${app ? ' - ' + app : ''}`;
+  if (tot.apis === 0 && rows.every((x) => !x.noRoute && !x.error)) {
+    r.emptyNote('No APIs resolve to this release across the selected modules.');
+    r.save(file(ver), footer); return;
+  }
+
+  // ===== APIs by module =====
+  r.banner('APIs by module', PAL.blue, 'Every API this release implements in each module.');
+  for (const m of mods) {
+    if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
+    const cat = m.cat;
+    if (!cat) continue;
+    const groups = cat.groups.filter((g) => g.version !== NO_ROUTE);
+    const count = groups.reduce((n, g) => n + g.traces.length, 0);
+    r.section('Module — ' + m.name, count, cat.unversioned ? PAL.amber : PAL.blue,
+      cat.unversioned ? 'Unversioned module — analysed at N/A (latest / base).' : '');
+    const svc = svcMap(cat);
+    groups.forEach((g) => g.traces.forEach((t, i) => { if (i > 0) r.separator(); apiRow(r, t, svc); }));
+    const noRouteGroup = cat.groups.find((g) => g.version === NO_ROUTE);
+    if (noRouteGroup && noRouteGroup.traces.length) {
+      r.para('No route found: ' + noRouteGroup.traces.map((t) => t.operationName || t.api || '(unknown)').join(', '),
+        M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
+    }
     r.reviewSection(cat.needsReview);
-    r.save(file(ver), footer);
-    return;
   }
-
-  // ===== APIs in scope =====
-  r.banner('APIs in scope', PAL.blue, 'Every API this release implements, grouped by the version it resolves to.');
-  impactedGroups.forEach((g) => {
-    const label = g.version === 'BASE' ? 'Base'
-      : /^(n\/a|na|latest)$/i.test(g.version) ? 'Latest per API' : 'Release ' + g.version;
-    r.section(label, g.traces.length, g.version === 'BASE' ? PAL.gray : PAL.blue, '');
-    g.traces.forEach((t, i) => { if (i > 0) r.separator(); apiRow(r, t, svc); });
-  });
-
-  if (noRouteGroup && noRouteGroup.traces.length) {
-    r.section('No route found', noRouteGroup.traces.length, PAL.amber,
-      'Discovered endpoints with no route at this release - not counted as impacted.');
-    const names = noRouteGroup.traces.map((t) => t.operationName || t.api || '(unknown)');
-    r.para(names.join(', '), M, CONTENT_W, 'normal', 9, PAL.muted, 12);
-  }
-
-  r.reviewSection(cat.needsReview);
   r.save(file(ver), footer);
+}
+
+function svcMap(cat: CatalogResponse): Record<string, string> {
+  const svc: Record<string, string> = {};
+  (cat.graph?.nodes || []).forEach((n) => {
+    if (n.type === 'BACKEND' && n.data && n.data.serviceVersion) svc[n.label] = n.data.serviceVersion;
+  });
+  return svc;
 }
 
 function apiRow(r: ReportDoc, t: TraceResponse, svc: Record<string, string>) {
@@ -87,7 +95,7 @@ function apiRow(r: ReportDoc, t: TraceResponse, svc: Record<string, string>) {
   const path = t.api || t.operationName || '(unknown)';
   const w1 = r.text(path, M, 'bold', 11, PAL.ink);
   r.text(t.operationName || '', M + w1 + 8, 'normal', 9, PAL.muted);
-  // A base-resolved API (no versioned route) is auto-N/A — flagged amber; a versioned one shows Release <ver>.
+  // A base-resolved API (no versioned route) is auto-N/A — amber; a versioned one shows Release <ver>.
   const pillLabel = t.baseFallback ? 'N/A' : (t.resolvedVersion ? 'Release ' + t.resolvedVersion : '');
   if (pillLabel) {
     const pw = r.width(pillLabel, 'bold', 8) + 12;
@@ -106,4 +114,4 @@ function apiRow(r: ReportDoc, t: TraceResponse, svc: Record<string, string>) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `release-scope-${ver || 'all'}-${stamp()}.pdf`; }
+function file(ver: string): string { return `release-scope-${(ver || 'all').replace(/[^a-zA-Z0-9._-]+/g, '-')}-${stamp()}.pdf`; }

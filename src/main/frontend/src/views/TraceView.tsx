@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import { analyze, fetchMeta } from '../api';
-import type { AnalyzeResponse, DepSource, Meta, TraceParams } from '../types';
+import type { AnalyzeResponse, CatalogResponse, DepSource, Meta } from '../types';
 import { derive, opNamesOf } from '../graphModel';
 import ControlPanel from '../components/ControlPanel';
 import { sourceParams } from '../components/SourceFields';
+import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import { depParams, loadDeps, saveDeps } from '../deps';
@@ -13,29 +14,42 @@ import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 import Loader, { SCAN_MESSAGES } from '../components/Loader';
 import { exportApiTracePdf } from '../apiTracePdf';
-
-// Only the app CONTEXT (sourceDir + country) is remembered per application — Mighty
-// and SPL are separate codebases — so switching apps restores that app's settings.
-// The "what" inputs (api/version/transferType) start EMPTY each load (per-test).
-const PERSIST = ['sourceDir', 'country', 'sourceType', 'repo', 'branch'] as const;
+import { analyzeModules, moduleValid, newModule, type ModuleResult, type ModuleSource } from '../modules';
 
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 
-function loadParams(app: string): TraceParams {
-  const p: Record<string, string> = { version: 'N/A' };   // mandatory; N/A = latest per API, else base
-  PERSIST.forEach((f) => {
-    const v = localStorage.getItem(appKey(app, f));
-    if (v !== null) p[f] = v;
-  });
-  return p as TraceParams;
+/** Load the persisted module list for this app (migrating an old single-source layout to one module). */
+function loadModules(app: string): ModuleSource[] {
+  try {
+    const raw = localStorage.getItem(appKey(app, 'modules'));
+    if (raw) { const arr = JSON.parse(raw) as ModuleSource[]; if (Array.isArray(arr) && arr.length) return arr; }
+  } catch { /* fall through */ }
+  return [newModule({
+    sourceType: (localStorage.getItem(appKey(app, 'sourceType')) as ModuleSource['sourceType']) || 'local',
+    sourceDir: localStorage.getItem(appKey(app, 'sourceDir')) || '',
+    repo: localStorage.getItem(appKey(app, 'repo')) || '',
+    branch: localStorage.getItem(appKey(app, 'branch')) || '',
+  })];
 }
 
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
+/** APIs actually in scope for a module (excludes the "no route found" bucket). */
+function impactedCount(cat: CatalogResponse): number {
+  return cat.groups.filter((g) => g.version !== '(no route found)').reduce((n, g) => n + g.traces.length, 0);
+}
+function asCatalog(r: AnalyzeResponse | null): CatalogResponse | null {
+  return r && r.mode === 'catalog' ? r : null;
+}
+
 export default function TraceView({ app = 'Mighty', colorMode }: { app?: string; colorMode: 'light' | 'dark' }) {
-  const [params, setParams] = useState<TraceParams>(() => loadParams(app));
+  const [modules, setModulesState] = useState<ModuleSource[]>(() => loadModules(app));
+  const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) || '');
+  const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base (per-run)
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
-  const [data, setData] = useState<AnalyzeResponse | null>(null);
+  const [catalogs, setCatalogs] = useState<ModuleResult<AnalyzeResponse>[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [data, setData] = useState<AnalyzeResponse | null>(null);   // the active view (catalog or a single API)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -44,52 +58,53 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const graphRef = useRef<GraphHandle>(null);
 
-  const persist = (p: TraceParams) => {
-    PERSIST.forEach((f) => localStorage.setItem(appKey(app, f), p[f] || ''));
-    localStorage.removeItem(appKey(app, 'version'));   // clear any version persisted by an older build
-  };
-  // Meta (country/version dropdowns) comes from the PRIMARY source only — dependency modules are
-  // country- and version-agnostic host routes, so they add nothing here. Skipping them keeps this
-  // per-keystroke call from resolving (and, for Bitbucket, re-opening) the dependency each time.
-  const loadMeta = async (p: TraceParams) => setMeta(await fetchMeta(p.sourceDir, p.country, p.repo, p.branch));
+  const setModules = (m: ModuleSource[]) => { setModulesState(m); localStorage.setItem(appKey(app, 'modules'), JSON.stringify(m)); };
+  const names = useMemo(() => Object.fromEntries(
+    catalogs.map((r) => [r.module.id, r.name])), [catalogs]);
+  const activeModule = modules.find((m) => m.id === activeId) || modules[0];
 
-  const runTrace = async (p: TraceParams) => {
-    persist(p);
+  // Country/version dropdowns come from the first (main) module.
+  const loadMeta = async (m: ModuleSource) => {
+    const sp = sourceParams(m);
+    setMeta(await fetchMeta(sp.sourceDir, country, sp.repo, sp.branch));
+  };
+
+  const analyseAll = async () => {
+    localStorage.setItem(appKey(app, 'country'), country);
     saveDeps(appKey(app, 'deps'), deps);
-    setLoading(true);
-    setError(null);
-    setSelectedId(null);
-    setSearch('');
+    setLoading(true); setError(null); setSelectedId(null); setSearch('');
     try {
-      const res = await analyze({ ...p, ...sourceParams({
-        sourceType: p.sourceType || 'local', sourceDir: p.sourceDir || '', repo: p.repo || '', branch: p.branch || '',
-      }), dep: depParams(deps), app });
-      setData(res);
-      if (res.availableCountries && res.availableCountries.length) {
-        setMeta((m) => ({ ...m, countries: res.availableCountries }));
-      }
+      const results = await analyzeModules(
+        modules.filter(moduleValid),
+        (m) => analyze({ version, country, api: '', app, dep: depParams(deps), ...sourceParams(m) }),
+        (r) => asCatalog(r)?.moduleName,
+      );
+      setCatalogs(results);
+      const first = results.find((r) => r.result) || results[0];
+      setActiveId(first?.module.id ?? null);
+      setData(first?.result ?? null);
+      const cs = asCatalog(first?.result ?? null)?.availableCountries;
+      if (cs && cs.length) setMeta((mm) => ({ ...mm, countries: cs }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  // Do NOT auto-trace on mount — picking an app should not start the (long) scan.
-  // The user traces when ready by clicking Trace; meta (dropdowns) loads then too.
-
-  const onChange = (patch: Partial<TraceParams>) => {
-    const next = { ...params, ...patch };
-    setParams(next);
-    persist(next);
-    if ('sourceDir' in patch || 'country' in patch) loadMeta(next);
+  const selectModule = (id: string) => {
+    setActiveId(id); setSelectedId(null); setSearch('');
+    setData(catalogs.find((r) => r.module.id === id)?.result ?? null);
   };
-  const onTrace = () => runTrace(params);
-  const onCatalogAll = () => { const next = { ...params, api: '' }; setParams(next); runTrace(next); };
-  const onOpenApi = (api: string, version: string | undefined) => {
-    const next = { ...params, api, version: version || '' };
-    setParams(next);
-    runTrace(next);
+  const onCatalogAll = () => setData(catalogs.find((r) => r.module.id === activeId)?.result ?? null);
+
+  // Click an API → trace just that one, within the ACTIVE module, to show its flow graph.
+  const onOpenApi = async (api: string, v: string | undefined) => {
+    if (!activeModule) return;
+    setLoading(true); setError(null); setSelectedId(null);
+    try {
+      const res = await analyze({ version: v || version, country, api, app, dep: depParams(deps), ...sourceParams(activeModule) });
+      setData(res);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
   };
 
   const clientVersion = (data && data.requestedVersion) || '';
@@ -98,33 +113,42 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     [data, clientVersion]
   );
   const selectedNode = selectedId && derived ? derived.byId.get(selectedId) || null : null;
-  // PDF export is always the WHOLE release catalog (every impacted API), even when
-  // the current view is a single API — re-fetch the catalog so the report can't
-  // silently under-report what a release touches.
+
   const exportPdf = async () => {
-    setExporting(true);
-    setError(null);
+    setExporting(true); setError(null);
     try {
-      // Normalise the source exactly like a Trace (send only the active mode's fields) — otherwise
-      // a stale `repo` from a previous Bitbucket session leaks in, the backend picks Bitbucket, and
-      // the catalog resolves an empty/wrong source (0 impacted APIs) instead of the on-screen scope.
-      const cat = await analyze({ ...params, ...sourceParams({
-        sourceType: params.sourceType || 'local', sourceDir: params.sourceDir || '', repo: params.repo || '', branch: params.branch || '',
-      }), api: '', dep: depParams(deps), app });
-      if (cat.mode === 'catalog') await exportApiTracePdf(cat, app);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExporting(false);
-    }
+      const cats = catalogs.map((r) => ({ name: r.name, cat: asCatalog(r.result), error: r.error }))
+        .filter((c) => c.cat || c.error);
+      if (cats.length) await exportApiTracePdf(cats as { name: string; cat: CatalogResponse | null; error?: string }[], app, version, country);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setExporting(false); }
+  };
+
+  const onField = (patch: { country?: string; version?: string }) => {
+    if (patch.country !== undefined) { setCountry(patch.country); if (modules[0]) loadMeta(modules[0]); }
+    if (patch.version !== undefined) setVersion(patch.version);
+  };
+
+  const statsOf = (r: ModuleResult<AnalyzeResponse>): ModuleStat[] => {
+    const cat = asCatalog(r.result);
+    if (!cat) return [];
+    return [{ label: 'APIs', value: impactedCount(cat), tone: 'info' }];
   };
 
   return (
     <div className="scope">
-      <ControlPanel params={params} meta={meta} loading={loading}
-                    onChange={onChange} onTrace={onTrace} onCatalogAll={onCatalogAll} />
+      <ControlPanel modules={modules} onModulesChange={setModules} names={names}
+                    country={country} version={version} meta={meta} loading={loading}
+                    onField={onField} onAnalyse={analyseAll} />
+      {catalogs.length > 1 && (
+        <ModuleSummary results={catalogs} activeId={activeId} onSelect={selectModule}
+                       statsOf={statsOf} unversionedOf={(r) => !!asCatalog(r.result)?.unversioned} />
+      )}
       <div className="layout">
         <aside className="sidebar">
+          {catalogs.length > 1 && activeModule && (
+            <div className="sub" style={{ padding: '2px 2px 8px' }}>Showing module <b>{names[activeModule.id] || 'module'}</b> — the report (PDF) covers all {catalogs.length}.</div>
+          )}
           {(data?.needsReview?.length ?? 0) > 0 && (
             <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
           )}
@@ -135,7 +159,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           {selectedNode && <DetailPanel node={selectedNode} onClose={() => setSelectedId(null)} />}
           {data && <ResultPanels data={data} onBackToCatalog={onCatalogAll} onOpenApi={onOpenApi} />}
           {!data && !error && (
-            <div className="sub" style={{ padding: '4px 2px' }}>Set the source, country and version above, then <b>Trace</b> — results appear here.</div>
+            <div className="sub" style={{ padding: '4px 2px' }}>Add your modules, set country and version above, then <b>Analyse modules</b>.</div>
           )}
         </aside>
         <div className="main">
@@ -144,17 +168,17 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph">Fit</button>
           <button className="minibtn" onClick={() => graphRef.current?.exportPng()}>PNG</button>
-          <button className="minibtn" onClick={exportPdf} disabled={exporting || !data}
-                  title="Export every impacted API for this release as a PDF report">
+          <button className="minibtn" onClick={exportPdf} disabled={exporting || !catalogs.length}
+                  title="Export one report covering every module for this release">
             {exporting ? 'PDF…' : 'PDF'}
           </button>
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
-        {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="bulk source analysis" /></div>}
+        {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="multi-module analysis" /></div>}
         {!derived && !loading && !error && (
           <div className="graph-empty"><div className="impact-empty">
             <div className="impact-empty-title">Ready when you are</div>
-            <div className="sub">Enter an API path above (or leave it blank to catalog all), then click <b>Trace</b>.</div>
+            <div className="sub">Add each module (Mighty + its sub-modules), set country + version, then <b>Analyse modules</b>.</div>
           </div></div>
         )}
         <Legend />

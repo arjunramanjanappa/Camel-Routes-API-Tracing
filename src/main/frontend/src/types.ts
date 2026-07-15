@@ -48,6 +48,10 @@ export interface CatalogResponse {
   requestedVersion?: string;
   transferType?: string;
   country?: string;
+  /** The module's pom.xml artifactId (else source folder) — for grouping multi-module analyses. */
+  moduleName?: string;
+  /** True when the repo has no versioned routes, so it was analysed at N/A (latest). */
+  unversioned?: boolean;
   availableCountries: string[];
   operationCount: number;
   versionsFound: string[];

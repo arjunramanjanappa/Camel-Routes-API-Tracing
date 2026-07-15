@@ -234,6 +234,37 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .att-ok { color: #4ade80; }
 [data-theme="dark"] .att-bad { color: #f87171; }
 
+/* ---- multi-module: source list + coordinator summary ---- */
+.modules-editor { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.modules-head { display: flex; align-items: center; justify-content: space-between; }
+.addmod { font-size: 12.5px; font-weight: 700; color: #2563eb; background: #eef4ff; border: 1px dashed #cdddff; border-radius: 8px; padding: 5px 11px; cursor: pointer; }
+.module-row { border: 1px solid var(--line, #e2e8f0); border-radius: 11px; padding: 10px 12px; background: #fff; }
+.module-bar { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.module-name { font-weight: 700; color: #1e293b; }
+.module-x { margin-left: auto; font-size: 12px; }
+.module-fields { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.tag { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px; }
+.tag.entry { background: #0f1c3f; color: #cfe0ff; }
+.tag.na { background: #fef3c7; color: #92400e; }
+.tag.none { background: #fee2e2; color: #991b1b; }
+
+.mod-summary { margin: 4px 0 14px; }
+.mod-summary-h { font-size: 12px; font-weight: 700; letter-spacing: .02em; color: #475569; margin-bottom: 8px; }
+.mod-cards { display: flex; flex-wrap: wrap; gap: 10px; }
+.mod-card { text-align: left; border: 1px solid var(--line, #e2e8f0); border-radius: 11px; padding: 10px 13px; background: #fff; cursor: pointer; min-width: 150px; transition: border-color .12s, box-shadow .12s; }
+.mod-card:hover { border-color: #b9cdf5; }
+.mod-card.on { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.18); }
+.mc-name { font-weight: 800; color: #1e293b; font-size: 13.5px; display: flex; align-items: center; gap: 7px; }
+.mc-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12px; }
+.mc-stat { color: #64748b; font-variant-numeric: tabular-nums; }
+.mc-stat b { color: #1e293b; }
+.mc-stat.good b { color: #15803d; } .mc-stat.warn b { color: #b45309; }
+.mc-stat.bad b, .mc-stat.bad { color: #b91c1c; } .mc-stat.info b { color: #1d4ed8; }
+[data-theme="dark"] .module-row, [data-theme="dark"] .mod-card { background: #101b2f; }
+[data-theme="dark"] .module-name, [data-theme="dark"] .mc-name, [data-theme="dark"] .mc-stat b { color: #e8eef8; }
+[data-theme="dark"] .addmod { background: #16243f; border-color: #243a63; }
+[data-theme="dark"] .mod-summary-h, [data-theme="dark"] .mc-stat { color: #94a3b8; }
+
 /* ---- expanded "failed responses" breakdown ---- */
 .failbreak { padding: 2px 0 4px; }
 .failbreak-title { font-weight: 700; color: #991b1b; font-size: 11px; margin-bottom: 4px; }

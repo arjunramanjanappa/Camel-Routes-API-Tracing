@@ -12,6 +12,10 @@ public class CatalogResponse {
     private String requestedVersion;
     private String transferType;
     private String country;
+    /** The module's name (its pom.xml artifactId, else the source folder) — for grouping multi-module analyses. */
+    private String moduleName;
+    /** True when the source has no versioned (R&lt;ver&gt;_) routes, so it was analysed at N/A (latest). */
+    private boolean unversioned;
     private final List<String> availableCountries = new ArrayList<>();
     private int operationCount;
 
@@ -35,6 +39,12 @@ public class CatalogResponse {
 
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+
+    public String getModuleName() { return moduleName; }
+    public void setModuleName(String moduleName) { this.moduleName = moduleName; }
+
+    public boolean isUnversioned() { return unversioned; }
+    public void setUnversioned(boolean unversioned) { this.unversioned = unversioned; }
 
     public List<String> getAvailableCountries() { return availableCountries; }
 

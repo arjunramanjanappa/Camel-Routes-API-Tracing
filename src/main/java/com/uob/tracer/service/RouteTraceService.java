@@ -225,6 +225,9 @@ public class RouteTraceService {
         out.setVersion(request.version());
         out.setCountry(prepared.country());
         out.setCommandDispatch(prepared.commandDispatch());   // auto-detected SPL-Secure flavour, for log-shape selection
+        boolean unversioned = prepared.registry().allVersions().isEmpty();   // no R<ver>_ routes → analyse at N/A
+        out.setUnversioned(unversioned);
+        out.setModuleName(moduleNameFor(request));
         out.getWarnings().addAll(prepared.warnings());
 
         Set<String> routes = new TreeSet<>();
@@ -239,7 +242,7 @@ public class RouteTraceService {
         // scoped to the release (e.g. only R9.18_* routes), not the whole repo.
         // N/A = "latest per API, else base" — every API is in scope (nothing is a fall-back to exclude),
         // so it is NOT a concrete "wanted" release version.
-        boolean latestMode = VersionResolver.isLatest(request.version());
+        boolean latestMode = VersionResolver.isLatest(request.version()) || unversioned;
         boolean versionGiven = request.version() != null && !request.version().isBlank() && !latestMode;
         String wantedVersion = versionGiven ? request.version().trim() : null;
         int excluded = 0;
@@ -327,6 +330,7 @@ public class RouteTraceService {
         Prepared prepared = prepare(request);
         VersionDiffReport report = new VersionDiffReport();
         report.setCountry(prepared.country());
+        report.setModuleName(moduleNameFor(request));
         report.getWarnings().addAll(prepared.warnings());
         List<String> harvested = new ArrayList<>();
 
@@ -344,14 +348,16 @@ public class RouteTraceService {
         var templateVersion = templateVersionResolver(request);
         var templateKeys = templateKeysResolver(request);
         RouteRegistry registry = prepared.registry();
+        boolean unversioned = registry.allVersions().isEmpty();   // no R<ver>_ routes → analyse at N/A (snapshot)
+        report.setUnversioned(unversioned);
 
         // N/A is not a diff — there is no prior release to compare against. It is a SNAPSHOT of the latest
         // (else base) route each in-scope API resolves to, for unversioned repos or to review the latest
         // routes in scope. A specific version below stays a real diff (target vs its immediate-lower).
-        if (VersionResolver.isLatest(target)) {
+        if (VersionResolver.isLatest(target) || unversioned) {
             return latestSnapshot(prepared, registry, report, harvested);
         }
-        boolean unversionedScope = registry.allVersions().isEmpty();
+        boolean unversionedScope = unversioned;
 
         int changed = 0;
         int added = 0;
@@ -978,6 +984,43 @@ public class RouteTraceService {
         return s;
     }
 
+    /** The module name for the request's primary source (pom.xml artifactId, else the folder), or null. */
+    private String moduleNameFor(TraceRequest request) {
+        try {
+            return deriveModuleName(resolveRoots(request).primary());
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** A repo's module name: the project's own {@code <artifactId>} in pom.xml, else the source folder name. */
+    static String deriveModuleName(Path root) {
+        if (root == null) {
+            return null;
+        }
+        Path pom = root.resolve("pom.xml");
+        if (Files.isRegularFile(pom)) {
+            try {
+                var dbf = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+                dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+                var project = dbf.newDocumentBuilder().parse(pom.toFile()).getDocumentElement();
+                // The project's own artifactId is a DIRECT child of <project> (not the one under <parent>).
+                for (var n = project.getFirstChild(); n != null; n = n.getNextSibling()) {
+                    if (n.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && "artifactId".equals(n.getNodeName())) {
+                        String v = n.getTextContent();
+                        if (v != null && !v.isBlank()) {
+                            return v.trim();
+                        }
+                    }
+                }
+            } catch (Exception ignore) {
+                // malformed/unreadable pom — fall back to the folder name
+            }
+        }
+        Path name = root.getFileName();
+        return name != null ? name.toString() : root.toString();
+    }
+
     private Path resolveRoot(TraceRequest request) {
         // Bitbucket-branch mode: clone/fetch the repo at the branch and analyse that checkout.
         if (request.repo() != null && !request.repo().isBlank()) {
@@ -1050,9 +1093,15 @@ public class RouteTraceService {
 
         RouteRegistry registry = prepared.registry();
         RouteGraph graph = new RouteGraph();
+        // A repo with NO versioned (R<ver>_) routes is unversioned (e.g. the SPL-Secure base routes):
+        // a concrete version would exclude everything, so treat it as N/A (latest per API). Recorded so
+        // the UI can show an "N/A" chip for that module.
+        boolean unversioned = registry.allVersions().isEmpty();
+        cat.setUnversioned(unversioned);
+        cat.setModuleName(moduleNameFor(request));
         // N/A = "latest per API, else base": one target per API (its latest, or the base route), and
         // nothing is excluded as a fall-back — so it is not a concrete "wanted" release version.
-        boolean latestMode = VersionResolver.isLatest(request.version());
+        boolean latestMode = VersionResolver.isLatest(request.version()) || unversioned;
         boolean versionGiven = request.version() != null && !request.version().isBlank() && !latestMode;
 
         List<OperationInfo> operations = operationsInScope(prepared);
@@ -1094,7 +1143,7 @@ public class RouteTraceService {
                 // N/A = latest per API: consolidate every API into ONE group (like a specific version
                 // shows one group) instead of splitting by each API's own latest version. Each entry still
                 // shows its resolved route, so its version is visible per row.
-                String key = latestMode ? request.version().trim()
+                String key = latestMode ? (unversioned ? "N/A" : request.version().trim())
                         : (target.version() != null ? target.version() : BASE_GROUP);
                 groups.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
             }

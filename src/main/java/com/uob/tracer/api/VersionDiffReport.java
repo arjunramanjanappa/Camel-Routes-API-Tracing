@@ -14,6 +14,10 @@ public class VersionDiffReport {
 
     private String version;
     private String country;
+    /** The module's name (pom.xml artifactId, else the source folder) — for grouping multi-module analyses. */
+    private String moduleName;
+    /** True when the source has no versioned (R&lt;ver&gt;_) routes, so it was analysed at N/A (latest). */
+    private boolean unversioned;
     private int changedCount;
     private int newCount;
     private int unchangedCount;
@@ -30,6 +34,12 @@ public class VersionDiffReport {
 
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+
+    public String getModuleName() { return moduleName; }
+    public void setModuleName(String moduleName) { this.moduleName = moduleName; }
+
+    public boolean isUnversioned() { return unversioned; }
+    public void setUnversioned(boolean unversioned) { this.unversioned = unversioned; }
 
     public int getChangedCount() { return changedCount; }
     public void setChangedCount(int changedCount) { this.changedCount = changedCount; }

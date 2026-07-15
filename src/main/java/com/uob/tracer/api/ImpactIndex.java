@@ -21,6 +21,10 @@ public class ImpactIndex {
      * log shape; Mighty and regular SPL leave it false.
      */
     private boolean commandDispatch;
+    /** The module's name (pom.xml artifactId, else the source folder) — for grouping multi-module analyses. */
+    private String moduleName;
+    /** True when the source has no versioned (R&lt;ver&gt;_) routes, so it was analysed at N/A (latest). */
+    private boolean unversioned;
     private final List<ApiImpact> apis = new ArrayList<>();
     private final List<String> allRoutes = new ArrayList<>();
     private final List<String> allBackends = new ArrayList<>();
@@ -39,6 +43,12 @@ public class ImpactIndex {
 
     public boolean isCommandDispatch() { return commandDispatch; }
     public void setCommandDispatch(boolean commandDispatch) { this.commandDispatch = commandDispatch; }
+
+    public String getModuleName() { return moduleName; }
+    public void setModuleName(String moduleName) { this.moduleName = moduleName; }
+
+    public boolean isUnversioned() { return unversioned; }
+    public void setUnversioned(boolean unversioned) { this.unversioned = unversioned; }
 
     public List<ApiImpact> getApis() { return apis; }
     public List<String> getAllRoutes() { return allRoutes; }

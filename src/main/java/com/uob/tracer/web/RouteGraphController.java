@@ -146,9 +146,9 @@ public class RouteGraphController {
 
     /**
      * Multi-module release test: the uploaded log chunk(s) are uploaded ONCE and correlated against
-     * every module's APIs in one request. Each module is re-read from the spooled upload (so a
-     * 200&nbsp;MB+ log is not re-uploaded per module) with its own marker flavour ({@code moduleApp}).
-     * Module specs are parallel lists indexed together; a module that fails carries an error.
+     * every module's APIs in one request. The service parses the log once per distinct marker flavour
+     * (Mighty / SPL / SPL-Secure) and reuses it across the modules that share it — so N SPL sub-modules
+     * cost one parse, not N. Module specs are parallel lists; a module that fails carries an error.
      */
     @PostMapping("/internal/log-analysis-multi")
     public List<ModuleLogReport> logAnalysisMulti(
@@ -160,37 +160,17 @@ public class RouteGraphController {
             @RequestParam(required = false) List<String> moduleSourceDir,
             @RequestParam(required = false) List<String> moduleRepo,
             @RequestParam(required = false) List<String> moduleBranch,
-            @RequestParam(required = false) List<String> moduleApp,
-            @RequestParam(required = false) List<Integer> moduleFileCount) {
+            @RequestParam(required = false) List<String> moduleApp) {
         int n = moduleName == null ? 0 : moduleName.size();
-        List<String> deps = dep == null ? List.of() : dep;
         List<MultipartFile> files = file == null ? List.of() : file;
-        // Per-module mode: the flat `file` list is partitioned by moduleFileCount, so each module is
-        // scoped to its own upload. Shared mode (no counts): every module re-reads the whole upload.
-        boolean perModule = moduleFileCount != null && !moduleFileCount.isEmpty();
-        List<ModuleLogReport> out = new ArrayList<>(n);
-        int offset = 0;
+        List<LogAnalysisService.ModuleSpec> specs = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
-            String name = moduleName.get(i);
-            List<MultipartFile> mfiles;
-            if (perModule) {
-                int c = i < moduleFileCount.size() ? Math.max(0, moduleFileCount.get(i)) : 0;
-                int end = Math.min(offset + c, files.size());
-                mfiles = c > 0 && offset < end ? new ArrayList<>(files.subList(offset, end)) : List.of();
-                offset += c;
-            } else {
-                mfiles = files;   // shared: re-read the whole upload for this module
-            }
-            try (InputStream in = mfiles.isEmpty() ? InputStream.nullInputStream() : combined(mfiles)) {
-                LogAnalysisReport rep = logService.analyze(in, firstName(mfiles), version, country,
-                        at(moduleSourceDir, i), List.of(), List.of(), true, at(moduleApp, i),
-                        at(moduleRepo, i), at(moduleBranch, i), deps);
-                out.add(new ModuleLogReport(name, rep, null));
-            } catch (Exception e) {
-                out.add(new ModuleLogReport(name, null, e.getMessage() == null ? e.toString() : e.getMessage()));
-            }
+            specs.add(new LogAnalysisService.ModuleSpec(moduleName.get(i), at(moduleSourceDir, i),
+                    at(moduleRepo, i), at(moduleBranch, i), at(moduleApp, i)));
         }
-        return out;
+        // The upload is spooled by the servlet, so combined(files) can be re-opened once per flavour.
+        return logService.analyzeModules(() -> combined(files), firstName(files), version, country,
+                specs, dep == null ? List.of() : dep);
     }
 
     private static String firstName(List<MultipartFile> files) {

@@ -76,9 +76,6 @@ export async function analyzeLogMulti(
   files: File[],
   modules: LogModuleSpec[],
   params: { version?: string; country?: string; dep?: string[] },
-  /** Per-module mode: files-per-module counts (index-aligned to `modules`); `files` is their concatenation.
-   *  Omit for shared mode (every module re-reads the whole upload). */
-  fileCounts?: number[],
 ): Promise<ModuleLogReport[]> {
   const form = new FormData();
   files.forEach((f) => form.append('file', f));
@@ -93,7 +90,6 @@ export async function analyzeLogMulti(
     form.append('moduleBranch', m.branch || '');
     form.append('moduleApp', m.app || '');
   });
-  if (fileCounts) fileCounts.forEach((c) => form.append('moduleFileCount', String(c)));
   const res = await fetch('/internal/log-analysis-multi', { method: 'POST', body: form });
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);

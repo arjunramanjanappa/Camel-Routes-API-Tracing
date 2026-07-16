@@ -272,9 +272,7 @@ function FileZone({ files, onAdd, onRemove, hint, label }: {
  */
 export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
-  const [files, setFiles] = useState<File[]>([]);                        // shared upload (single-module, or "same file for all")
-  const [uploadMode, setUploadMode] = useState<'shared' | 'perModule'>('shared');
-  const [moduleFiles, setModuleFiles] = useState<Record<string, File[]>>({});   // per-module uploads, keyed by module id
+  const [files, setFiles] = useState<File[]>([]);   // one upload (chunks) analysed against every selected module
   const [limitToSelection, setLimitToSelection] = useState(true);
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
   const [perModule, setPerModule] = useState<PerModuleLog[]>([]);   // multi-module: one report per repo
@@ -297,12 +295,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   };
   const addFiles = (picked: File[]) => setFiles((prev) => mergeFiles(prev, picked));
   const removeFile = (i: number) => setFiles((prev) => prev.filter((_, ix) => ix !== i));
-  const addModuleFiles = (id: string, picked: File[]) => setModuleFiles((prev) => ({ ...prev, [id]: mergeFiles(prev[id] || [], picked) }));
-  const removeModuleFile = (id: string, i: number) => setModuleFiles((prev) => ({ ...prev, [id]: (prev[id] || []).filter((_, ix) => ix !== i) }));
-
-  const perModuleMode = multi && uploadMode === 'perModule';
-  const perModuleTotal = (modules ?? []).reduce((n, m) => n + (moduleFiles[m.id]?.length || 0), 0);
-  const canAnalyse = perModuleMode ? perModuleTotal > 0 : files.length > 0;
+  const canAnalyse = files.length > 0;
 
   // When a report lands, bring the results into view — the panel sits far down the
   // long Impact page, so otherwise the screen looks static after "Analyse".
@@ -325,20 +318,11 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     setError(null);
     try {
       if (multi && modules) {
+        // Upload the chunk(s) ONCE; the backend parses the merged dataset once per distinct marker
+        // flavour and correlates it against every module — so each API is attributed to its owning
+        // module, and a line logged on one server still matches wherever it appears in the upload.
         const specs = modules.map((m) => ({ name: m.name, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, app: m.app }));
-        let results;
-        if (perModuleMode) {
-          // Each module is scoped to its OWN file(s): send them flat + a per-module count so the
-          // backend partitions them. Faster — a module only parses its own (smaller) log.
-          const flat: File[] = [];
-          const counts: number[] = [];
-          modules.forEach((m) => { const mf = moduleFiles[m.id] || []; counts.push(mf.length); mf.forEach((f) => flat.push(f)); });
-          results = await analyzeLogMulti(flat, specs, { version, country, dep: deps }, counts);
-        } else {
-          // Same file for all: upload the chunk(s) ONCE; the backend re-reads them per module (no
-          // re-upload of a 200 MB+ log) and correlates the merged dataset against each module.
-          results = await analyzeLogMulti(files, specs, { version, country, dep: deps });
-        }
+        const results = await analyzeLogMulti(files, specs, { version, country, dep: deps });
         const per: PerModuleLog[] = results.map((res, i) => ({
           id: modules[i]?.id ?? String(i),
           name: res.name || modules[i]?.name || 'module',
@@ -456,40 +440,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </div>
       )}
 
+      <FileZone files={files} onAdd={addFiles} onRemove={removeFile}
+                hint={inputType === 'SPLUNK'
+                  ? 'Click to choose Splunk export(s) — .csv / .json, or a _raw .txt — one file or several chunks (format auto-detected)'
+                  : 'Click to choose output log(s) — .txt / .log — one file or several chunks (format auto-detected)'} />
       {multi && (
-        <div className="seg" style={{ marginTop: 8 }}>
-          <button className={uploadMode === 'shared' ? 'on' : ''} onClick={() => setUploadMode('shared')}>Same file for all modules</button>
-          <button className={uploadMode === 'perModule' ? 'on' : ''} onClick={() => setUploadMode('perModule')}>A file per module</button>
-        </div>
-      )}
-
-      {!perModuleMode && (
-        <>
-          <FileZone files={files} onAdd={addFiles} onRemove={removeFile}
-                    hint={inputType === 'SPLUNK'
-                      ? 'Click to choose Splunk export(s) — .csv / .json, or a _raw .txt — one file or several chunks (format auto-detected)'
-                      : 'Click to choose output log(s) — .txt / .log — one file or several chunks (format auto-detected)'} />
-          {multi && (
-            <div className="sub" style={{ marginTop: 6 }}>
-              The uploaded log(s) are merged into one dataset and correlated against all <b>{modules!.length}</b> modules (each with its
-              own marker) — so a request logged on one server and its backend call on another are still matched. The file is uploaded
-              once and re-read per module (not re-sent).
-            </div>
-          )}
-        </>
-      )}
-
-      {perModuleMode && modules && (
-        <div className="permod-uploads">
-          <div className="sub" style={{ marginBottom: 2 }}>
-            Give each module its own log — analysis is scoped to that file, so each module only parses its own (smaller) log. Faster,
-            and a module left empty is reported as <b>not tested</b>. The same file can still be added to more than one module.
-          </div>
-          {modules.map((m) => (
-            <FileZone key={m.id} label={m.name} files={moduleFiles[m.id] || []}
-                      onAdd={(l) => addModuleFiles(m.id, l)} onRemove={(i) => removeModuleFile(m.id, i)}
-                      hint={inputType === 'SPLUNK' ? 'Click to add this module’s Splunk export(s)' : 'Click to add this module’s output log(s)'} />
-          ))}
+        <div className="sub" style={{ marginTop: 6 }}>
+          The uploaded log(s) are analysed as one dataset and correlated against all <b>{modules!.length}</b> modules — each API is
+          attributed to its owning module (by that module’s marker), so a request logged on one server and its backend call on another
+          are still matched. Upload one combined log or several chunks; it’s scanned once per marker flavour, not once per module.
         </div>
       )}
 
@@ -506,9 +465,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       )}
 
       <button className="trace" disabled={!canAnalyse || loading} onClick={run}>
-        {loading ? 'Analysing…'
-          : perModuleMode ? `Analyse ${perModuleTotal} file${perModuleTotal === 1 ? '' : 's'} across ${modules!.length} modules`
-            : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
+        {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
       </button>
 
       {error && <div className="err">Error: {error}</div>}

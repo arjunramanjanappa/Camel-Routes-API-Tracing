@@ -7,6 +7,7 @@ import com.uob.tracer.api.BackendLogResult;
 import com.uob.tracer.api.ImpactIndex;
 import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.LogStatus;
+import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.api.TraceRequest;
 import com.uob.tracer.resolve.VersionResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -147,24 +148,41 @@ public class LogAnalysisService {
                                      List<String> selectedApis, List<String> selectedBackends, boolean all,
                                      String app, String repo, String branch, List<String> dependencies)
             throws IOException {
-        InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
-                ? new GZIPInputStream(raw) : raw;
-
         // Footprint (controller path + traced backends per API) for this release. Computed up
         // front because its auto-detection also tells us whether this is the SPL-Secure flavour
         // (intercepted-UFW command dispatch), which logs its front-end lines differently — that
-        // choice drives the marker set and the FE parser below.
+        // choice drives the marker set and the FE parser.
         ImpactIndex idx = traceService.impactIndex(
                 new TraceRequest(null, version, null, sourceDir, country, repo, branch, dependencies));
         boolean secure = idx.isCommandDispatch();
-
-        // The two applications differ only in the log marker: Mighty → MightyMessage /
-        // MightyHostMessage, SPL → SPLMessage / SPLHostMessage. Everything else is identical.
-        // For an auto-detected SPL-Secure source we ADDITIONALLY recognise its front-end loggers
-        // (SPLAppLog / SPLWSAppLog) on top of the chosen app's markers — additive, so a repo that
-        // happens to be command-dispatch but whose logs are still standard keeps parsing normally.
         String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
-        Markers markers = new Markers(application + "Message", application + "HostMessage", secure);
+        Parsed parsed = parseLog(raw, filename, markersFor(application, secure), application);
+        return buildReport(idx, parsed, version, secure, all, selectedApis, selectedBackends);
+    }
+
+    /**
+     * Marker set for an app flavour: {@code <app>Message} / {@code <app>HostMessage} (Mighty →
+     * MightyMessage/MightyHostMessage, SPL → SPLMessage/SPLHostMessage). For an auto-detected
+     * SPL-Secure source it ADDITIONALLY recognises the SPLAppLog / SPLWSAppLog front-end loggers.
+     */
+    private static Markers markersFor(String app, boolean secure) {
+        String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
+        return new Markers(application + "Message", application + "HostMessage", secure);
+    }
+
+    /** A log parsed into correlation-id transactions — independent of any module's scope, so it is
+     *  reusable across every module that shares the same marker flavour. */
+    private record Parsed(List<Txn> txns, String detected, int recordsScanned, int matchedLines,
+                          int unparsed, List<String> warnings) {}
+
+    /**
+     * Parse the upload (raw log / Splunk CSV / Splunk JSON) into transactions for one marker flavour.
+     * This is the expensive pass — it reads the whole file — and does NOT depend on any module's API
+     * scope, so a single parse per distinct flavour serves every module of that flavour.
+     */
+    private Parsed parseLog(InputStream raw, String filename, Markers markers, String appLabel) throws IOException {
+        InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
+                ? new GZIPInputStream(raw) : raw;
 
         int[] counters = new int[2];   // [0] = records scanned, [1] = marked-but-unparsed
         List<LogLine> lines = new ArrayList<>();
@@ -234,7 +252,7 @@ public class LogAnalysisService {
         }
 
         if (lines.isEmpty()) {
-            warnings.add("No log events found for the " + application + " application (detected " + detected
+            warnings.add("No log events found for the " + appLabel + " application (detected " + detected
                     + "). Check the file is the raw output log or a Splunk export of the query.");
         }
 
@@ -247,7 +265,16 @@ public class LogAnalysisService {
         for (List<LogLine> group : byCorr.values()) {
             txns.add(buildTxn(group));
         }
+        return new Parsed(txns, detected, counters[0], lines.size(), counters[1], warnings);
+    }
 
+    /**
+     * Correlate a module's API/backend scope against an already-parsed log → its verification report.
+     * Cheap (in-memory matching), so it runs per module while the parse is shared across a flavour.
+     */
+    private LogAnalysisReport buildReport(ImpactIndex idx, Parsed parsed, String version, boolean secure,
+                                          boolean all, List<String> selectedApis, List<String> selectedBackends) {
+        List<Txn> txns = parsed.txns();
         boolean apiSel = selectedApis != null && !selectedApis.isEmpty();
         boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
 
@@ -262,8 +289,7 @@ public class LogAnalysisService {
             api.backendHosturls().forEach(hosturls::putIfAbsent);
         }
 
-        // Front-end (MightyMessage) section: the whole release when all=true, the
-        // selected APIs when chosen, otherwise none (e.g. a backend-only analysis).
+        // Front-end section: the whole release when all=true, the selected APIs when chosen.
         List<ApiLogResult> apiResults = new ArrayList<>();
         if (all || apiSel) {
             for (ApiImpact api : idx.getApis()) {
@@ -274,8 +300,7 @@ public class LogAnalysisService {
             }
         }
 
-        // Backend (MightyHostMessage) section: every release backend when all=true,
-        // the selected backends when chosen, otherwise none.
+        // Backend section: every release backend when all=true, the selected backends when chosen.
         List<BackendLogResult> backendResults = new ArrayList<>();
         List<String> beTargets = all ? idx.getAllBackends() : (beSel ? selectedBackends : List.of());
         // Disambiguate against the whole backend universe (release backends + the chosen
@@ -286,8 +311,81 @@ public class LogAnalysisService {
             backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse, hosturls, secure));
         }
 
-        return new LogAnalysisReport(detected, version, idx.getCountry(),
-                counters[0], lines.size(), txns.size(), counters[1], apiResults, backendResults, warnings);
+        return new LogAnalysisReport(parsed.detected(), version, idx.getCountry(),
+                parsed.recordsScanned(), parsed.matchedLines(), txns.size(), parsed.unparsed(),
+                apiResults, backendResults, new ArrayList<>(parsed.warnings()));
+    }
+
+    /** One module for a multi-module scan: its source coordinates + marker app. */
+    public record ModuleSpec(String name, String sourceDir, String repo, String branch, String app) {}
+
+    /** A re-openable source of the uploaded log — the servlet spools it, so it can be read once per flavour. */
+    @FunctionalInterface
+    public interface LogSource { InputStream open() throws IOException; }
+
+    /**
+     * Multi-module release test: correlate ONE uploaded log against every module. The expensive parse
+     * runs once per distinct marker flavour (Mighty / SPL / SPL-Secure) and is reused across the
+     * modules that share it — so N SPL sub-modules cost one parse, not N. Each API is still attributed
+     * only to the module whose scope owns it. A module that fails to resolve carries an error.
+     */
+    public List<ModuleLogReport> analyzeModules(LogSource source, String filename, String version,
+                                                String country, List<ModuleSpec> modules, List<String> dependencies) {
+        List<String> deps = dependencies == null ? List.of() : dependencies;
+        // 1. Resolve each module's index + flavour (the impact index is cached — cheap after Load).
+        record Resolved(ModuleSpec spec, ImpactIndex idx, String app, boolean secure, String error) {}
+        List<Resolved> resolved = new ArrayList<>(modules.size());
+        for (ModuleSpec m : modules) {
+            try {
+                ImpactIndex idx = traceService.impactIndex(
+                        new TraceRequest(null, version, null, m.sourceDir(), country, m.repo(), m.branch(), deps));
+                String app = (m.app() == null || m.app().isBlank()) ? "Mighty" : m.app().trim();
+                resolved.add(new Resolved(m, idx, app, idx.isCommandDispatch(), null));
+            } catch (Exception e) {
+                resolved.add(new Resolved(m, null, null, false, msg(e)));
+            }
+        }
+        // 2. Parse ONCE per distinct flavour (app|secure), reusing that parse across its modules.
+        Map<String, Parsed> byFlavour = new LinkedHashMap<>();
+        Map<String, String> flavourError = new LinkedHashMap<>();
+        for (Resolved r : resolved) {
+            if (r.idx() == null) {
+                continue;
+            }
+            String key = r.app() + "|" + r.secure();
+            if (byFlavour.containsKey(key) || flavourError.containsKey(key)) {
+                continue;
+            }
+            try (InputStream in = source.open()) {
+                byFlavour.put(key, parseLog(in, filename, markersFor(r.app(), r.secure()), r.app()));
+            } catch (Exception e) {
+                flavourError.put(key, msg(e));
+            }
+        }
+        // 3. Correlate each module against its flavour's parsed log (cheap, in-memory).
+        List<ModuleLogReport> out = new ArrayList<>(modules.size());
+        for (Resolved r : resolved) {
+            if (r.error() != null) {
+                out.add(new ModuleLogReport(r.spec().name(), null, r.error()));
+                continue;
+            }
+            String key = r.app() + "|" + r.secure();
+            if (flavourError.containsKey(key)) {
+                out.add(new ModuleLogReport(r.spec().name(), null, flavourError.get(key)));
+                continue;
+            }
+            try {
+                LogAnalysisReport rep = buildReport(r.idx(), byFlavour.get(key), version, r.secure(), true, List.of(), List.of());
+                out.add(new ModuleLogReport(r.spec().name(), rep, null));
+            } catch (Exception e) {
+                out.add(new ModuleLogReport(r.spec().name(), null, msg(e)));
+            }
+        }
+        return out;
+    }
+
+    private static String msg(Exception e) {
+        return e.getMessage() == null ? e.toString() : e.getMessage();
     }
 
     // --- input shape detection + extraction ---

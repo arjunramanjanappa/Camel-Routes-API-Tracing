@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { AnalyzeResponse, TraceResponse } from '../types';
+import { baseCount, inScopeCount, isNaVersion } from '../catalog';
 
 interface Props {
   data: AnalyzeResponse;
@@ -57,15 +59,37 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
     );
   }
 
-  const cat = data;
-  // Impacted APIs = those that actually resolve to a route (the catalog is
-  // already scoped to the requested release, so every routed API is impacted).
-  const impacted = cat.groups.filter((g) => g.version !== '(no route found)').reduce((n, g) => n + g.traces.length, 0);
-  // "No route found" = ONLY the genuinely route-less APIs (that group). With a client
-  // version the backend excludes APIs that resolve to a lower version / BASE — they DO
-  // have routes, just not in this release — so they must not be counted as "no route".
+  return <Catalog cat={data} onOpenApi={onOpenApi} />;
+}
+
+function groupClass(version: string): string {
+  if (version === '(no route found)') return 'none';
+  if (version === 'N/A') return 'na';
+  if (version === 'BASE') return 'base';
+  return 'versioned';
+}
+
+function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'catalog' }>; onOpenApi: Props['onOpenApi'] }) {
+  // In scope for the release = APIs on a real release route. For a concrete release the N/A
+  // (base-fallback) APIs are shown but NOT counted here — see catalog.ts.
+  const impacted = inScopeCount(cat);
+  const base = baseCount(cat);
+  const concrete = !isNaVersion(cat.requestedVersion) && !cat.unversioned;
+  // "No route found" = ONLY the genuinely route-less APIs (that group).
   const noRoute = cat.groups.find((g) => g.version === '(no route found)')?.traces.length ?? 0;
   const reqVer = cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion.trim() : '';
+
+  // Collapsed by default, so the catalog reads as an overview; the release group opens first,
+  // N/A / no-route stay collapsed (they're base/noise for a concrete release).
+  const [open, setOpen] = useState<Set<string>>(() => new Set(
+    cat.groups.filter((g) => g.version !== 'N/A' && g.version !== '(no route found)').map((g) => g.version),
+  ));
+  const toggle = (v: string) => setOpen((prev) => {
+    const next = new Set(prev);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    return next;
+  });
+
   return (
     <>
       <div className="panel">
@@ -73,8 +97,14 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
         <div className="catalog-stats">
           <div className="cstat impacted">
             <span className="cstat-num">{impacted}</span>
-            <span className="cstat-label">Impacted API{impacted === 1 ? '' : 's'}{reqVer ? ` · Release ${reqVer}` : ''}</span>
+            <span className="cstat-label">In scope{reqVer ? ` · Release ${reqVer}` : ''}</span>
           </div>
+          {concrete && base > 0 && (
+            <div className="cstat na">
+              <span className="cstat-num">{base}</span>
+              <span className="cstat-label">Base / N/A (not counted)</span>
+            </div>
+          )}
           {noRoute > 0 && (
             <div className="cstat muted">
               <span className="cstat-num">{noRoute}</span>
@@ -82,26 +112,40 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
             </div>
           )}
         </div>
-        <div className="kv"><b>Version groups:</b> {(cat.versionsFound || []).join(', ')}</div>
+        {concrete && base > 0 && (
+          <div className="sub">Release <b>{reqVer}</b> touches <b>{impacted}</b> API{impacted === 1 ? '' : 's'}. The other <b>{base}</b> have no {reqVer} route and fall back to base (N/A) — listed below but not counted as in-scope.</div>
+        )}
       </div>
       {cat.groups.map((g) => {
-        const cls = g.version === '(no route found)' ? 'none' : g.version === 'BASE' ? 'base' : 'versioned';
+        const cls = groupClass(g.version);
+        const isOpen = open.has(g.version);
+        const label = g.version === 'N/A' ? 'N/A · base fallback' : g.version === '(no route found)' ? g.version : 'Release ' + g.version;
         return (
-          <div className="panel" key={g.version}>
-            <h2>{g.version} <span className={'pill ' + cls}>{g.traces.length} API{g.traces.length === 1 ? '' : 's'}</span></h2>
-            {g.traces.map((t, i) => {
-              const open = () => onOpenApi(t.api || t.operationName || '', cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion : t.resolvedVersion);
+          <div className={'panel catalog-group ' + cls} key={g.version}>
+            <button type="button" className="catalog-group-head" aria-expanded={isOpen} onClick={() => toggle(g.version)}>
+              <span className="collapse-caret">{isOpen ? '▾' : '▸'}</span>
+              <span className="catalog-group-title">{label}</span>
+              <span className={'pill ' + cls}>{g.traces.length} API{g.traces.length === 1 ? '' : 's'}</span>
+            </button>
+            {isOpen && g.traces.map((t, i) => {
+              const open2 = () => onOpenApi(t.api || t.operationName || '', cat.requestedVersion && cat.requestedVersion.trim() ? cat.requestedVersion : t.resolvedVersion);
               return (
                 <div className="entry" key={i}>
-                  <div className="body" onClick={open}>
-                    <div className="op">{t.operationName}</div>
+                  <div className="body" onClick={open2}>
+                    <div className="op">{t.operationName}
+                      {t.resolvedRoute && (
+                        <span className={'pill ' + (t.baseFallback ? 'na' : 'versioned')}>
+                          {t.baseFallback ? 'N/A' : 'R' + (t.resolvedVersion || '')}
+                        </span>
+                      )}
+                    </div>
                     <div className="meta">{t.api || ''}</div>
                     <div className="kv">
                       {t.resolvedRoute ? <code>{t.resolvedRoute}</code> : <span className="warn">no route</span>}
                       {t.backendApis && t.backendApis.length > 0 && ` · ${t.backendApis.length} backend${t.backendApis.length > 1 ? 's' : ''}`}
                     </div>
                   </div>
-                  <button className="minibtn" onClick={open} title="Open this API as its own trace">Open ▶</button>
+                  <button className="minibtn" onClick={open2} title="Open this API as its own trace">Open ▶</button>
                 </div>
               );
             })}

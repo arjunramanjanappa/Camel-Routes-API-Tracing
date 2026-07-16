@@ -65,7 +65,38 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .entry:hover { background: #f3f6fb; border-color: #c7d2e0; }
 .entry .body { flex: 1; cursor: pointer; }
 .entry .op { font-weight: 600; font-size: 12px; color: #334155; }
+.entry .op .pill { margin-left: 6px; font-size: 10px; padding: 1px 6px; vertical-align: middle; }
 .entry .meta { font-size: 11px; color: #94a3b8; }
+
+/* base/N-A stat callout (Release Scope catalog) */
+.cstat.na { background: #fef3c7; border: 1px solid #fcd982; }
+.cstat.na .cstat-num { color: #b45309; }
+[data-theme="dark"] .cstat.na { background: #3a2c10; border-color: #6b4e1a; }
+
+/* collapsible catalog groups */
+.catalog-group { padding-top: 8px; }
+.catalog-group-head { width: 100%; display: flex; align-items: center; gap: 8px; background: none; border: none; cursor: pointer; padding: 2px 0; font: inherit; text-align: left; }
+.catalog-group-title { font-size: 14px; font-weight: 800; color: #1e293b; }
+.catalog-group.na .catalog-group-title { color: #b45309; }
+.catalog-group.none .catalog-group-title { color: #991b1b; }
+.catalog-group-head .collapse-caret { color: #94a3b8; font-size: 12px; }
+.catalog-group-head .pill { margin-left: auto; }
+[data-theme="dark"] .catalog-group-title { color: #e8eef8; }
+
+/* graph release-version selector (Release Scope) */
+.graph-groups { position: absolute; right: 14px; top: 12px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; max-width: 62%; }
+.gg-label { font-size: 11px; color: #64748b; background: rgba(255,255,255,.82); padding: 2px 5px; border-radius: 4px; }
+.gg-chip { font-size: 11.5px; padding: 3px 9px; border: 1px solid #cbd5e1; border-radius: 999px; background: rgba(255,255,255,.92); cursor: pointer; color: #334155; }
+.gg-chip b { margin-left: 5px; color: #0f172a; font-variant-numeric: tabular-nums; }
+.gg-chip:hover { border-color: #94a3b8; }
+.gg-chip.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+.gg-chip.on b { color: #fff; }
+.gg-chip.na { border-color: #f0c675; color: #b45309; background: #fffbeb; }
+.gg-chip.na.on { background: #d97706; border-color: #d97706; color: #fff; }
+.gg-chip.na.on b { color: #fff; }
+[data-theme="dark"] .gg-label { background: rgba(15,23,42,.85); color: #94a3b8; }
+[data-theme="dark"] .gg-chip { background: rgba(30,41,59,.92); border-color: #334155; color: #cbd5e1; }
+[data-theme="dark"] .gg-chip b { color: #e2e8f0; }
 
 .legend { position: absolute; right: 14px; bottom: 14px; background: rgba(255,255,255,.95); border: 1px solid #e4e7eb; border-radius: 8px; padding: 8px 12px; font-size: 12px; }
 .legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }

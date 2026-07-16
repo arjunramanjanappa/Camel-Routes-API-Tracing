@@ -1,8 +1,7 @@
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp } from './pdfReport';
 import { backendPath } from './spl';
 import type { CatalogResponse, TraceResponse } from './types';
-
-const NO_ROUTE = '(no route found)';
+import { isNaVersion, NO_ROUTE, releaseScopeGroups } from './catalog';
 
 /** One module's catalog for the report (or an error if its analysis failed). */
 export interface ModuleCat { name: string; cat: CatalogResponse | null; error?: string; }
@@ -16,7 +15,9 @@ export async function exportApiTracePdf(mods: ModuleCat[], app?: string, version
   const ver = version && version.trim() ? version.trim() : 'N/A';
 
   const rows = mods.map((m) => {
-    const groups = m.cat ? m.cat.groups.filter((g) => g.version !== NO_ROUTE) : [];
+    // Count only the APIs in scope for this release — base-fallback (N/A) APIs are excluded for a
+    // concrete release, matching the UI, so a module's "APIs" reads as "touched this release".
+    const groups = m.cat ? releaseScopeGroups(m.cat) : [];
     const traces = groups.flatMap((g) => g.traces);
     const routes = new Set<string>(); traces.forEach((t) => (t.flow || []).forEach((f) => routes.add(f)));
     const backends = new Set<string>(); traces.forEach((t) => (t.backendApis || []).forEach((b) => backends.add(b)));
@@ -55,7 +56,8 @@ export async function exportApiTracePdf(mods: ModuleCat[], app?: string, version
   ]);
 
   const footer = `TraceGuard - Release scope ${ver}${app ? ' - ' + app : ''}`;
-  if (tot.apis === 0 && rows.every((x) => !x.noRoute && !x.error)) {
+  const anyBaseOrRoute = mods.some((m) => m.cat && m.cat.groups.some((g) => g.traces.length > 0));
+  if (tot.apis === 0 && !anyBaseOrRoute && rows.every((x) => !x.error)) {
     r.emptyNote('No APIs resolve to this release across the selected modules.');
     r.save(file(ver), footer); return;
   }
@@ -66,12 +68,23 @@ export async function exportApiTracePdf(mods: ModuleCat[], app?: string, version
     if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
     const cat = m.cat;
     if (!cat) continue;
-    const groups = cat.groups.filter((g) => g.version !== NO_ROUTE);
+    const groups = releaseScopeGroups(cat);   // in-scope for the release (excludes N/A base for a concrete release)
     const count = groups.reduce((n, g) => n + g.traces.length, 0);
+    const concrete = !isNaVersion(cat.requestedVersion) && !cat.unversioned;
+    const baseGroup = concrete ? cat.groups.find((g) => g.version === 'N/A') : undefined;
     r.section('Module — ' + m.name, count, cat.unversioned ? PAL.amber : PAL.blue,
-      cat.unversioned ? 'Unversioned module — analysed at N/A (latest / base).' : '');
+      cat.unversioned ? 'Unversioned module — analysed at N/A (latest / base).'
+        : baseGroup && baseGroup.traces.length ? `${baseGroup.traces.length} more API(s) have no ${ver} route (base / N/A) — summarised below, not counted.` : '');
     const svc = svcMap(cat);
+    if (count === 0) {
+      r.para('No APIs are versioned for this release in this module.', M + 4, CONTENT_W - 4, 'normal', 9, PAL.muted, 12);
+    }
     groups.forEach((g) => g.traces.forEach((t, i) => { if (i > 0) r.separator(); apiRow(r, t, svc); }));
+    // Base-fallback APIs: listed compactly (names only) so the report stays focused on what changed.
+    if (baseGroup && baseGroup.traces.length) {
+      r.para(`Base / N/A (no ${ver} route): ` + baseGroup.traces.map((t) => t.api || t.operationName || '(unknown)').join(', '),
+        M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
+    }
     const noRouteGroup = cat.groups.find((g) => g.version === NO_ROUTE);
     if (noRouteGroup && noRouteGroup.traces.length) {
       r.para('No route found: ' + noRouteGroup.traces.map((t) => t.operationName || t.api || '(unknown)').join(', '),

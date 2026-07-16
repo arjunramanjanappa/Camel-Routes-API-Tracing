@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { analyze, fetchMeta } from '../api';
 import type { AnalyzeResponse, CatalogResponse, DepSource, Meta } from '../types';
 import { derive, opNamesOf } from '../graphModel';
+import { apiIdsForGroup, baseCount, filterGraphByApis, inScopeCount, isNaVersion, NO_ROUTE } from '../catalog';
 import ControlPanel from '../components/ControlPanel';
 import { sourceParams } from '../components/SourceFields';
 import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
@@ -34,10 +35,6 @@ function loadModules(app: string): ModuleSource[] {
 
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
-/** APIs actually in scope for a module (excludes the "no route found" bucket). */
-function impactedCount(cat: CatalogResponse): number {
-  return cat.groups.filter((g) => g.version !== '(no route found)').reduce((n, g) => n + g.traces.length, 0);
-}
 function asCatalog(r: AnalyzeResponse | null): CatalogResponse | null {
   return r && r.mode === 'catalog' ? r : null;
 }
@@ -54,6 +51,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [graphGroup, setGraphGroup] = useState<string>('ALL');   // which release version's subgraph the graph shows
   const [exporting, setExporting] = useState(false);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a successful analysis
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
@@ -110,9 +108,34 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   };
 
   const clientVersion = (data && data.requestedVersion) || '';
+
+  // Release Scope graph is grouped by release version so it isn't one big undifferentiated chunk.
+  // With a concrete release the graph defaults to that release's APIs; N/A/base and All are a click away.
+  const catForGraph = data?.mode === 'catalog' ? data : null;
+  const graphGroups = useMemo(
+    () => (catForGraph ? catForGraph.groups.filter((g) => g.version !== NO_ROUTE) : []),
+    [catForGraph]
+  );
+  useEffect(() => {
+    if (graphGroups.length > 1) {
+      setGraphGroup((prev) => (graphGroups.some((g) => g.version === prev)
+        ? prev
+        : (graphGroups.find((g) => g.version !== 'N/A')?.version ?? graphGroups[0].version)));
+    } else {
+      setGraphGroup('ALL');
+    }
+  }, [graphGroups]);
+
+  const graphForRender = useMemo(() => {
+    const g = data?.graph || { nodes: [], edges: [] };
+    if (!catForGraph || graphGroup === 'ALL') return g;
+    const grp = catForGraph.groups.find((x) => x.version === graphGroup);
+    return grp ? filterGraphByApis(g, apiIdsForGroup(grp)) : g;
+  }, [data, catForGraph, graphGroup]);
+
   const derived = useMemo(
-    () => (data ? derive(data.graph || { nodes: [], edges: [] }, opNamesOf(data), clientVersion) : null),
-    [data, clientVersion]
+    () => (data ? derive(graphForRender, opNamesOf(data), clientVersion) : null),
+    [data, graphForRender, clientVersion]
   );
   const selectedNode = selectedId && derived ? derived.byId.get(selectedId) || null : null;
 
@@ -134,7 +157,14 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const statsOf = (r: ModuleResult<AnalyzeResponse>): ModuleStat[] => {
     const cat = asCatalog(r.result);
     if (!cat) return [];
-    return [{ label: 'APIs', value: impactedCount(cat), tone: 'info' }];
+    const stats: ModuleStat[] = [{ label: 'APIs', value: inScopeCount(cat), tone: 'info' }];
+    // For a concrete release, note the base-fallback (N/A) APIs separately so the "APIs"
+    // number reads as "changed this release", not "everything in the repo".
+    const base = baseCount(cat);
+    if (base > 0 && !isNaVersion(cat.requestedVersion) && !cat.unversioned) {
+      stats.push({ label: 'base (N/A)', value: base, tone: 'muted' });
+    }
+    return stats;
   };
 
   return (
@@ -169,6 +199,23 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           )}
         </aside>
         <div className="main">
+        {graphGroups.length > 1 && (
+          <div className="graph-groups">
+            <span className="gg-label">Graph:</span>
+            {graphGroups.map((g) => (
+              <button key={g.version}
+                      className={'gg-chip' + (g.version === 'N/A' ? ' na' : '') + (graphGroup === g.version ? ' on' : '')}
+                      onClick={() => setGraphGroup(g.version)}
+                      title={g.version === 'N/A' ? 'Base-fallback APIs — no route at this release' : 'APIs on release ' + g.version}>
+                {g.version === 'N/A' ? 'N/A' : 'R' + g.version}<b>{g.traces.length}</b>
+              </button>
+            ))}
+            <button className={'gg-chip' + (graphGroup === 'ALL' ? ' on' : '')} onClick={() => setGraphGroup('ALL')}
+                    title="All APIs in the catalog">
+              All<b>{graphGroups.reduce((n, g) => n + g.traces.length, 0)}</b>
+            </button>
+          </div>
+        )}
         {derived && <RouteGraph ref={graphRef} derived={derived} selectedId={selectedId} search={search} colorMode={colorMode} onSelect={setSelectedId} />}
         <div className="toolbar">
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />

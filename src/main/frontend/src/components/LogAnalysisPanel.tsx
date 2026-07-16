@@ -219,6 +219,45 @@ function kb(n: number): string {
   return mb >= 1 ? mb.toFixed(mb >= 10 ? 0 : 1) + ' MB' : (n / 1024).toFixed(0) + ' KB';
 }
 
+// Keep in step with spring.servlet.multipart in application.yml.
+const SIZE_CAVEAT = 'Up to 1 GB per file and 6 GB per upload. Larger logs — split into chunks and add them all.';
+
+/** A reusable drop-zone: pick one or more files, list them with size + remove, add more on click. */
+function FileZone({ files, onAdd, onRemove, hint, label }: {
+  files: File[];
+  onAdd: (list: FileList | null) => void;
+  onRemove: (i: number) => void;
+  hint: string;
+  label?: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const total = files.reduce((n, f) => n + f.size, 0);
+  return (
+    <div className="filezone">
+      {label && <div className="filezone-label">{label}</div>}
+      <div className={'uploader' + (files.length ? ' has' : '')} onClick={() => ref.current?.click()}>
+        <input ref={ref} type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
+               onChange={(e) => { onAdd(e.target.files); if (ref.current) ref.current.value = ''; }} />
+        {files.length
+          ? <span><b>{files.length} file{files.length === 1 ? '' : 's'}</b> · {kb(total)} — click to add more</span>
+          : <span>{hint}</span>}
+      </div>
+      {files.length > 0 && (
+        <div className="logfiles">
+          {files.map((f, i) => (
+            <div className="logfile" key={f.name + f.size}>
+              <span className="logfile-name" title={f.name}>{f.name}</span>
+              <span className="logfile-size">{kb(f.size)}</span>
+              <button type="button" className="logfile-x" title="Remove"
+                      onClick={(e) => { e.stopPropagation(); onRemove(i); }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Upload an output log or Splunk export and correlate it against the traced APIs
  * for the current client release. The report is log-type aware: selected
@@ -227,7 +266,9 @@ function kb(n: number): string {
  */
 export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>([]);                        // shared upload (single-module, or "same file for all")
+  const [uploadMode, setUploadMode] = useState<'shared' | 'perModule'>('shared');
+  const [moduleFiles, setModuleFiles] = useState<Record<string, File[]>>({});   // per-module uploads, keyed by module id
   const [limitToSelection, setLimitToSelection] = useState(true);
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
   const [perModule, setPerModule] = useState<PerModuleLog[]>([]);   // multi-module: one report per repo
@@ -238,22 +279,25 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   const [filter, setFilter] = useState<LogStatus | 'ALL' | 'ISSUES'>('ALL');
   const [sort, setSort] = useState<'severity' | 'api'>('severity');
   const [section, setSection] = useState<'FE' | 'BE'>('FE');   // which result table is shown
-  const fileRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const multi = !!modules && modules.length > 1;
   const hasSelection = selectedApis.length > 0 || selectedBackends.length > 0;
 
-  const addFiles = (list: FileList | null) => {
-    if (!list) return;
-    setFiles((prev) => {
-      const next = [...prev];
-      Array.from(list).forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
-      return next;
-    });
-    if (fileRef.current) fileRef.current.value = '';   // allow re-picking the same file after a remove
+  const mergeFiles = (prev: File[], list: FileList | null) => {
+    if (!list) return prev;
+    const next = [...prev];
+    Array.from(list).forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
+    return next;
   };
+  const addFiles = (list: FileList | null) => setFiles((prev) => mergeFiles(prev, list));
   const removeFile = (i: number) => setFiles((prev) => prev.filter((_, ix) => ix !== i));
+  const addModuleFiles = (id: string, list: FileList | null) => setModuleFiles((prev) => ({ ...prev, [id]: mergeFiles(prev[id] || [], list) }));
+  const removeModuleFile = (id: string, i: number) => setModuleFiles((prev) => ({ ...prev, [id]: (prev[id] || []).filter((_, ix) => ix !== i) }));
+
+  const perModuleMode = multi && uploadMode === 'perModule';
+  const perModuleTotal = (modules ?? []).reduce((n, m) => n + (moduleFiles[m.id]?.length || 0), 0);
+  const canAnalyse = perModuleMode ? perModuleTotal > 0 : files.length > 0;
 
   // When a report lands, bring the results into view — the panel sits far down the
   // long Impact page, so otherwise the screen looks static after "Analyse".
@@ -271,15 +315,25 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   };
 
   const run = async () => {
-    if (!files.length) return;
+    if (!canAnalyse) return;
     setLoading(true);
     setError(null);
     try {
       if (multi && modules) {
-        // Upload the chunk(s) ONCE; the backend re-reads them per module (no re-upload of a 200 MB+
-        // log) and correlates the whole merged dataset against each module with its own marker.
         const specs = modules.map((m) => ({ name: m.name, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, app: m.app }));
-        const results = await analyzeLogMulti(files, specs, { version, country, dep: deps });
+        let results;
+        if (perModuleMode) {
+          // Each module is scoped to its OWN file(s): send them flat + a per-module count so the
+          // backend partitions them. Faster — a module only parses its own (smaller) log.
+          const flat: File[] = [];
+          const counts: number[] = [];
+          modules.forEach((m) => { const mf = moduleFiles[m.id] || []; counts.push(mf.length); mf.forEach((f) => flat.push(f)); });
+          results = await analyzeLogMulti(flat, specs, { version, country, dep: deps }, counts);
+        } else {
+          // Same file for all: upload the chunk(s) ONCE; the backend re-reads them per module (no
+          // re-upload of a 200 MB+ log) and correlates the merged dataset against each module.
+          results = await analyzeLogMulti(files, specs, { version, country, dep: deps });
+        }
         const per: PerModuleLog[] = results.map((res, i) => ({
           id: modules[i]?.id ?? String(i),
           name: res.name || modules[i]?.name || 'module',
@@ -397,42 +451,44 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </div>
       )}
 
-      <div className={'uploader' + (files.length ? ' has' : '')} onClick={() => fileRef.current?.click()}>
-        <input ref={fileRef} type="file" multiple
-               accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
-               onChange={(e) => addFiles(e.target.files)} />
-        {files.length
-          ? <span><b>{files.length} file{files.length === 1 ? '' : 's'}</b> · {kb(files.reduce((n, f) => n + f.size, 0))} total — click to add more</span>
-          : inputType === 'SPLUNK'
-            ? <span>Click to choose Splunk export(s) — <b>.csv</b> / .json, or <code>_raw</code> <b>.txt</b> — one per server/repo, or several (format auto-detected)</span>
-            : <span>Click to choose output log(s) — <b>.txt</b> / .log — one per server/repo, or several (format auto-detected)</span>}
-      </div>
+      {multi && (
+        <div className="seg" style={{ marginTop: 8 }}>
+          <button className={uploadMode === 'shared' ? 'on' : ''} onClick={() => setUploadMode('shared')}>Same file for all modules</button>
+          <button className={uploadMode === 'perModule' ? 'on' : ''} onClick={() => setUploadMode('perModule')}>A file per module</button>
+        </div>
+      )}
 
-      {files.length > 0 && (
-        <div className="logfiles">
-          {files.map((f, i) => (
-            <div className="logfile" key={f.name + f.size}>
-              <span className="logfile-name" title={f.name}>{f.name}</span>
-              <span className="logfile-size">{kb(f.size)}</span>
-              <button type="button" className="logfile-x" title="Remove"
-                      onClick={(e) => { e.stopPropagation(); removeFile(i); }}>×</button>
-            </div>
-          ))}
-          {files.length > 1 && (
-            <div className="sub" style={{ marginTop: 2 }}>
-              All <b>{files.length}</b> files are merged into one dataset and analysed together — so a request logged on one server and its backend call on another are still correlated end-to-end.
+      {!perModuleMode && (
+        <>
+          <FileZone files={files} onAdd={addFiles} onRemove={removeFile}
+                    hint={inputType === 'SPLUNK'
+                      ? 'Click to choose Splunk export(s) — .csv / .json, or a _raw .txt — one file or several chunks (format auto-detected)'
+                      : 'Click to choose output log(s) — .txt / .log — one file or several chunks (format auto-detected)'} />
+          {multi && (
+            <div className="sub" style={{ marginTop: 6 }}>
+              The uploaded log(s) are merged into one dataset and correlated against all <b>{modules!.length}</b> modules (each with its
+              own marker) — so a request logged on one server and its backend call on another are still matched. The file is uploaded
+              once and re-read per module (not re-sent).
             </div>
           )}
+        </>
+      )}
+
+      {perModuleMode && modules && (
+        <div className="permod-uploads">
+          <div className="sub" style={{ marginBottom: 2 }}>
+            Give each module its own log — analysis is scoped to that file, so each module only parses its own (smaller) log. Faster,
+            and a module left empty is reported as <b>not tested</b>. The same file can still be added to more than one module.
+          </div>
+          {modules.map((m) => (
+            <FileZone key={m.id} label={m.name} files={moduleFiles[m.id] || []}
+                      onAdd={(l) => addModuleFiles(m.id, l)} onRemove={(i) => removeModuleFile(m.id, i)}
+                      hint={inputType === 'SPLUNK' ? 'Click to add this module’s Splunk export(s)' : 'Click to add this module’s output log(s)'} />
+          ))}
         </div>
       )}
 
-      {multi && (
-        <div className="sub" style={{ marginTop: 8 }}>
-          The uploaded log(s) are merged into one dataset and correlated against all <b>{modules!.length}</b> modules (each with its own
-          marker), so the report shows which repo&rsquo;s APIs were tested or missed for release <b>{version || 'BASE'}</b>. The whole
-          release is checked per module. Upload one file per server/repo, or a single combined log — either works.
-        </div>
-      )}
+      <div className="sub" style={{ marginTop: 6, fontSize: 11 }}>{SIZE_CAVEAT}</div>
       {!multi && hasSelection && (
         <>
           <label className="check" style={{ marginTop: 8 }}>
@@ -444,8 +500,10 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </>
       )}
 
-      <button className="trace" disabled={!files.length || loading} onClick={run}>
-        {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
+      <button className="trace" disabled={!canAnalyse || loading} onClick={run}>
+        {loading ? 'Analysing…'
+          : perModuleMode ? `Analyse ${perModuleTotal} file${perModuleTotal === 1 ? '' : 's'} across ${modules!.length} modules`
+            : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
       </button>
 
       {error && <div className="err">Error: {error}</div>}

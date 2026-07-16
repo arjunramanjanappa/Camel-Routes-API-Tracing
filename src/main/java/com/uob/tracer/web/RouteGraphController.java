@@ -152,7 +152,7 @@ public class RouteGraphController {
      */
     @PostMapping("/internal/log-analysis-multi")
     public List<ModuleLogReport> logAnalysisMulti(
-            @RequestParam("file") List<MultipartFile> file,
+            @RequestParam(value = "file", required = false) List<MultipartFile> file,
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) List<String> dep,
@@ -160,15 +160,29 @@ public class RouteGraphController {
             @RequestParam(required = false) List<String> moduleSourceDir,
             @RequestParam(required = false) List<String> moduleRepo,
             @RequestParam(required = false) List<String> moduleBranch,
-            @RequestParam(required = false) List<String> moduleApp) {
+            @RequestParam(required = false) List<String> moduleApp,
+            @RequestParam(required = false) List<Integer> moduleFileCount) {
         int n = moduleName == null ? 0 : moduleName.size();
         List<String> deps = dep == null ? List.of() : dep;
-        String filename = firstName(file);
+        List<MultipartFile> files = file == null ? List.of() : file;
+        // Per-module mode: the flat `file` list is partitioned by moduleFileCount, so each module is
+        // scoped to its own upload. Shared mode (no counts): every module re-reads the whole upload.
+        boolean perModule = moduleFileCount != null && !moduleFileCount.isEmpty();
         List<ModuleLogReport> out = new ArrayList<>(n);
+        int offset = 0;
         for (int i = 0; i < n; i++) {
             String name = moduleName.get(i);
-            try (InputStream in = combined(file)) {   // fresh stream per module — the upload is re-read, not re-sent
-                LogAnalysisReport rep = logService.analyze(in, filename, version, country,
+            List<MultipartFile> mfiles;
+            if (perModule) {
+                int c = i < moduleFileCount.size() ? Math.max(0, moduleFileCount.get(i)) : 0;
+                int end = Math.min(offset + c, files.size());
+                mfiles = c > 0 && offset < end ? new ArrayList<>(files.subList(offset, end)) : List.of();
+                offset += c;
+            } else {
+                mfiles = files;   // shared: re-read the whole upload for this module
+            }
+            try (InputStream in = mfiles.isEmpty() ? InputStream.nullInputStream() : combined(mfiles)) {
+                LogAnalysisReport rep = logService.analyze(in, firstName(mfiles), version, country,
                         at(moduleSourceDir, i), List.of(), List.of(), true, at(moduleApp, i),
                         at(moduleRepo, i), at(moduleBranch, i), deps);
                 out.add(new ModuleLogReport(name, rep, null));

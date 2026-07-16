@@ -55,6 +55,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a successful analysis
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const graphRef = useRef<GraphHandle>(null);
 
@@ -83,6 +84,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
       const first = results.find((r) => r.result) || results[0];
       setActiveId(first?.module.id ?? null);
       setData(first?.result ?? null);
+      if (results.length > 1) setModulesOpen(false);   // collapse the editor so results have the screen
       const cs = asCatalog(first?.result ?? null)?.availableCountries;
       if (cs && cs.length) setMeta((mm) => ({ ...mm, countries: cs }));
     } catch (e) {
@@ -139,6 +141,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     <div className="scope">
       <ControlPanel modules={modules} onModulesChange={setModules} names={names}
                     country={country} version={version} meta={meta} loading={loading}
+                    modulesOpen={modulesOpen} onToggleModules={() => setModulesOpen((o) => !o)}
                     onField={onField} onAnalyse={analyseAll} />
       {catalogs.length > 1 && (
         <ModuleSummary results={catalogs} activeId={activeId} onSelect={selectModule}

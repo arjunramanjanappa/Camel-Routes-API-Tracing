@@ -11,18 +11,21 @@ interface Props {
   version: string;
   meta: Meta;
   loading: boolean;
+  modulesOpen: boolean;
+  onToggleModules: () => void;
   onField: (patch: { country?: string; version?: string }) => void;
   onAnalyse: () => void;
 }
 
 /** Release Scope inputs — the module list, then the shared Country + release version for all modules. */
-export default function ControlPanel({ modules, onModulesChange, names, country, version, meta, loading, onField, onAnalyse }: Props) {
+export default function ControlPanel({ modules, onModulesChange, names, country, version, meta, loading, modulesOpen, onToggleModules, onField, onAnalyse }: Props) {
   const anyValid = modules.some(moduleValid);
   const noCountry = !country.trim();
   const noVersion = !version.trim();
   return (
     <div className="scope-controls">
-      <ModulesEditor modules={modules} onChange={onModulesChange} names={names} />
+      <ModulesEditor modules={modules} onChange={onModulesChange} names={names}
+                     open={modulesOpen} onToggleOpen={onToggleModules} />
       <div className="context-bar">
         <div style={{ width: 150 }}>
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>

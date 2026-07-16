@@ -49,6 +49,10 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
   const activeModule = modules.find((m) => m.id === activeId) || modules[0];
   const idx = reports.find((r) => r.module.id === activeId)?.result ?? null;
   const activeSrc = activeModule ? sourceParams(activeModule) : { sourceDir: '', repo: '', branch: '' };
+  // The active module's log marker: the entry app's main module (index 0) uses Mighty/SPL markers;
+  // every sub-module logs as SPL. Drives the Splunk query's <app>Message / <app>HostMessage shape,
+  // matching how the log correlation is scoped per module. (spl-secure is auto-detected via `secure`.)
+  const activeMarkerApp = markerAppFor(app, Math.max(0, modules.findIndex((m) => m.id === activeId)));
 
   const resetSelection = () => { setManualRoutes(new Set()); setManualBackends(new Set()); setSelectedApis(new Set()); setFlowApi(null); };
 
@@ -354,8 +358,8 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
 
             <Collapsible title="Splunk query" hint="generate &amp; copy — for running in Splunk">
               <SplunkPanel
-                title="Splunk query — selected APIs"
-                app={app}
+                title={multi ? `Splunk query — ${names[activeModule?.id ?? ''] || 'module'}` : 'Splunk query — selected APIs'}
+                app={activeMarkerApp}
                 version={version}
                 secure={!!idx.commandDispatch}
                 frontendApis={selectedApiList}

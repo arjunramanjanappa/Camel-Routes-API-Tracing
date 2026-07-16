@@ -86,6 +86,10 @@ export interface ApiImpact {
 export interface ImpactIndex {
   version?: string;
   country?: string;
+  /** The module's pom.xml artifactId (else source folder) — for grouping multi-module analyses. */
+  moduleName?: string;
+  /** True when the repo has no versioned routes, so it was analysed at N/A (latest per API). */
+  unversioned?: boolean;
   /** Auto-detected SPL-Secure (intercepted-UFW) flavour — drives the secure Splunk query shape. */
   commandDispatch?: boolean;
   apis: ApiImpact[];

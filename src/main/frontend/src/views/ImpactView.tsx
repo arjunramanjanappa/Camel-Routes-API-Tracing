@@ -1,7 +1,9 @@
 import { Fragment, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
-import type { ApiImpact, DepSource, ImpactIndex, SourceType } from '../types';
-import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
+import type { ApiImpact, DepSource, ImpactIndex, Meta } from '../types';
+import { sourceParams } from '../components/SourceFields';
+import ControlPanel from '../components/ControlPanel';
+import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import { depParams, loadDeps, saveDeps } from '../deps';
@@ -9,60 +11,64 @@ import { backendPath } from '../spl';
 import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
-import LogAnalysisPanel from '../components/LogAnalysisPanel';
+import LogAnalysisPanel, { type LogModule } from '../components/LogAnalysisPanel';
 import ApiFlowModal from '../components/ApiFlowModal';
 import Loader, { IMPACT_MESSAGES } from '../components/Loader';
 import Collapsible from '../components/Collapsible';
 import Steps, { type StepState } from '../components/Steps';
+import {
+  analyzeModules, loadModulesForApp, markerAppFor, moduleValid, saveModulesForApp,
+  type ModuleResult, type ModuleSource,
+} from '../modules';
 
-// The context (sourceDir + country + version) is remembered per application — Mighty
-// and SPL are separate codebases — so switching apps restores that app's settings.
-function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
+// The context (country + modules) is remembered per application — Mighty and SPL are separate
+// codebases — so switching apps restores that app's settings. Version is per-test, never persisted.
+function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
+const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
-export default function ImpactView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
-  const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
-  const [sourceType, setSourceType] = useState<SourceType>((localStorage.getItem(appKey(app, 'sourceType')) as SourceType) || 'local');
-  const [repo, setRepo] = useState(() => localStorage.getItem(appKey(app, 'repo')) ?? '');
-  const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
+export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
+  const [modules, setModulesState] = useState<ModuleSource[]>(() => loadModulesForApp(app));
+  const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
-  const src: SourceState = { sourceType, sourceDir, repo, branch };
-  const onSrc = (p: Partial<SourceState>) => {
-    if (p.sourceType !== undefined) setSourceType(p.sourceType);
-    if (p.sourceDir !== undefined) setSourceDir(p.sourceDir);
-    if (p.repo !== undefined) setRepo(p.repo);
-    if (p.branch !== undefined) setBranch(p.branch);
-  };
-  const [idx, setIdx] = useState<ImpactIndex | null>(null);
+  const [reports, setReports] = useState<ModuleResult<ImpactIndex>[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The user's direct picks. The *effective* routes/backends below are derived by
-  // adding what the selected APIs (and chosen routes) pull in automatically.
+  // The user's direct picks (for the ACTIVE module). The *effective* routes/backends below are
+  // derived by adding what the selected APIs (and chosen routes) pull in automatically.
   const [manualRoutes, setManualRoutes] = useState<Set<string>>(new Set());
   const [manualBackends, setManualBackends] = useState<Set<string>>(new Set());
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
   const [flowApi, setFlowApi] = useState<string | null>(null);   // which API's graph is open
   const [analysed, setAnalysed] = useState(false);               // a log report has landed (drives the steps)
 
+  const setModules = (m: ModuleSource[]) => { setModulesState(m); saveModulesForApp(app, m); };
+  const names = useMemo(() => Object.fromEntries(reports.map((r) => [r.module.id, r.name])), [reports]);
+  const activeModule = modules.find((m) => m.id === activeId) || modules[0];
+  const idx = reports.find((r) => r.module.id === activeId)?.result ?? null;
+  const activeSrc = activeModule ? sourceParams(activeModule) : { sourceDir: '', repo: '', branch: '' };
+
+  const resetSelection = () => { setManualRoutes(new Set()); setManualBackends(new Set()); setSelectedApis(new Set()); setFlowApi(null); };
+
   const load = async () => {
-    // Remember this app's context (source + country).
-    localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
-    localStorage.setItem(appKey(app, 'sourceType'), sourceType);
-    localStorage.setItem(appKey(app, 'repo'), repo);
-    localStorage.setItem(appKey(app, 'branch'), branch);
     localStorage.setItem(appKey(app, 'country'), country);
     localStorage.removeItem(appKey(app, 'version'));   // version is per-test, never persisted
+    saveModulesForApp(app, modules);
     saveDeps(appKey(app, 'deps'), deps);
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setAnalysed(false); resetSelection();
     try {
-      const sp = sourceParams(src);
-      const data = await fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app);
-      setIdx(data);
-      setManualRoutes(new Set());
-      setManualBackends(new Set());
-      setSelectedApis(new Set());
+      const results = await analyzeModules(
+        modules.filter(moduleValid),
+        (m) => { const sp = sourceParams(m); return fetchImpactIndex(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app); },
+        (r) => r.moduleName,
+      );
+      setReports(results);
+      const first = results.find((r) => r.result) || results[0];
+      setActiveId(first?.module.id ?? null);
+      if (results.length > 1) setModulesOpen(false);   // collapse the editor so results have the screen
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -70,8 +76,14 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     }
   };
 
-  // Do NOT auto-load on mount — switching to this tab should not start the scan.
-  // The user loads when ready by clicking the Load button.
+  // Switch which module the API picker / Splunk / footprint below is scoped to. Selection is
+  // per-module (routes/backends differ), so it resets — the log verification keeps its own results.
+  const selectModule = (id: string) => { setActiveId(id); resetSelection(); };
+
+  const onField = (patch: { country?: string; version?: string }) => {
+    if (patch.country !== undefined) setCountry(patch.country);
+    if (patch.version !== undefined) setVersion(patch.version);
+  };
 
   const toggle = (s: Set<string>, fn: (n: Set<string>) => void, item: string) => {
     const next = new Set(s);
@@ -133,9 +145,6 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
   const selectedApiList = useMemo(() => [...selectedApis], [selectedApis]);
   // The query covers every backend implied by the current selection.
   const splBackends = useMemo(() => [...effectiveBackends], [effectiveBackends]);
-  // Log analysis: a backend that was pulled in by an API is reported *under* that API
-  // (its drill-down), not as a separate backend row — only a directly-ticked backend
-  // gets its own backend-only section. Avoids showing one API's backend twice.
   const selectedBackendList = useMemo(() => [...manualBackends], [manualBackends]);
   // Backend URL → traced service version(s), merged across the release's APIs.
   const backendVersionMap = useMemo(() => {
@@ -153,6 +162,14 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     return m;
   }, [idx]);
 
+  // Every analysed module, with its marker flavour + source, for the multi-module log verification.
+  const logModules = useMemo<LogModule[]>(() =>
+    reports.filter((r) => r.result).map((r) => {
+      const sp = sourceParams(r.module);
+      const pos = modules.findIndex((x) => x.id === r.module.id);   // module 0 = entry app's main module
+      return { id: r.module.id, name: r.name, app: markerAppFor(app, pos < 0 ? 1 : pos), sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch };
+    }), [reports, modules, app]);
+
   const exportPdf = () => {
     if (!idx) return;
     exportImpactPdf({
@@ -169,10 +186,17 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
     }).catch(() => {});
   };
 
+  const statsOf = (r: ModuleResult<ImpactIndex>): ModuleStat[] => {
+    const ix = r.result;
+    if (!ix) return [];
+    return [{ label: 'APIs', value: ix.apis.length, tone: 'info' }];
+  };
+
   const loaded = !!idx;
   const picked = selectedApis.size > 0;
+  const multi = reports.length > 1;
   const steps: { label: string; state: StepState }[] = [
-    { label: 'Load', state: loaded ? 'done' : 'active' },
+    { label: 'Analyse', state: loaded ? 'done' : 'active' },
     { label: 'Pick APIs', state: !loaded ? 'todo' : (picked ? 'done' : 'active') },
     { label: 'Query / upload', state: !picked ? 'todo' : (analysed ? 'done' : 'active') },
     { label: 'Results', state: analysed ? 'active' : 'todo' },
@@ -180,26 +204,15 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
   return (
     <div className="impact">
-      <div className="context-bar">
-        <SourceFields value={src} onChange={onSrc} bar />
-        <div style={{ width: 160 }}>
-          <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
-          <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
-        </div>
-        <div style={{ width: 160 }}>
-          <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
-          <input list="impactVersionList" value={version} placeholder="9.18 or N/A (latest / base)"
-                 onChange={(e) => setVersion(e.target.value)} />
-          <datalist id="impactVersionList">
-            <option value="N/A" label="latest version of each API (or its default)" />
-          </datalist>
-        </div>
-        <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-                disabled={loading || !country.trim() || !version.trim() || !sourceValid(src)} onClick={load}
-                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Select a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
-          {loading ? 'Loading…' : 'Load'}
-        </button>
-      </div>
+      <ControlPanel modules={modules} onModulesChange={setModules} names={names}
+                    country={country} version={version} meta={EMPTY_META} loading={loading}
+                    modulesOpen={modulesOpen} onToggleModules={() => setModulesOpen((o) => !o)}
+                    onField={onField} onAnalyse={load} />
+
+      {multi && (
+        <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}
+                       statsOf={statsOf} unversionedOf={(r) => !!r.result?.unversioned} />
+      )}
 
       {(idx?.needsReview?.length ?? 0) > 0 && (
         <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
@@ -209,17 +222,20 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
-      {loading && <div className="impact-loading"><Loader messages={IMPACT_MESSAGES} note="building the impact index" /></div>}
+      {loading && <div className="impact-loading"><Loader messages={IMPACT_MESSAGES} note="building the impact index per module" /></div>}
 
       {!loading && !idx && !error && (
         <div className="impact-empty">
           <div className="impact-empty-title">Ready when you are</div>
-          <div className="sub">Enter the source, <b>country</b> and <b>release version</b> above (use <b>N/A</b> for each API&rsquo;s latest version), then click <b>Load</b> to list the APIs for this release.</div>
+          <div className="sub">Add your modules (the entry app + its sub-modules), set <b>country</b> and <b>release version</b> above (use <b>N/A</b> for each API&rsquo;s latest version), then click <b>Analyse modules</b>. The uploaded log is then checked against every module so it&rsquo;s clear which repo&rsquo;s APIs were tested.</div>
         </div>
       )}
 
       {!loading && idx && (
         <>
+        {multi && activeModule && (
+          <div className="sub" style={{ padding: '0 18px 4px' }}>Picking APIs for module <b>{names[activeModule.id] || 'module'}</b> — the log verification below covers all {logModules.length} modules in one report.</div>
+        )}
         {idx.needsReview && idx.needsReview.length > 0 && (
           <div style={{ padding: '0 18px' }}>
             <NeedsReviewBox items={idx.needsReview} />
@@ -297,7 +313,7 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 {impacted.length > 0 && (
                   <span className="row" style={{ gap: 6 }}>
                     <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}>+ select for analysis</button>
-                    <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ Export PDF</button>
+                    <button className="minibtn" onClick={exportPdf} title={multi ? 'PDF of this module’s impacted APIs (the log verification below covers all modules)' : 'Download a shareable PDF report'}>⤓ Export PDF</button>
                   </span>
                 )}
               </div>
@@ -310,9 +326,9 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
                 <table className="grid">
                   <thead><tr><th>API</th><th>Operation</th><th>Resolves to</th><th>Impacted via</th><th></th></tr></thead>
                   <tbody>
-                    {sortedImpacted.map((i, idx) => (
+                    {sortedImpacted.map((i, ix) => (
                       <Fragment key={i.api.api + i.api.operation}>
-                        {idx === selectedImpactedCount && selectedImpactedCount > 0 && selectedImpactedCount < sortedImpacted.length && (
+                        {ix === selectedImpactedCount && selectedImpactedCount > 0 && selectedImpactedCount < sortedImpacted.length && (
                           <tr className="impacted-divider"><td colSpan={5}>↳ Blast radius — {sortedImpacted.length - selectedImpactedCount} API(s) that share a backend or route with your selection</td></tr>
                         )}
                         <tr className={selectedApis.has(i.api.api) ? 'impacted-selected' : 'impacted-indirect'}>
@@ -353,18 +369,19 @@ export default function ImpactView({ app, colorMode = 'light' }: { app?: string;
         </div>
 
         <div style={{ padding: '0 18px 18px' }}>
-          <LogAnalysisPanel version={version} country={country} sourceDir={sourceParams(src).sourceDir}
-                            repo={sourceParams(src).repo} branch={sourceParams(src).branch} app={app}
+          <LogAnalysisPanel version={version} country={country}
+                            sourceDir={activeSrc.sourceDir} repo={activeSrc.repo} branch={activeSrc.branch} app={app}
                             selectedApis={selectedApiList} selectedBackends={selectedBackendList}
+                            modules={logModules}
                             deps={depParams(deps)} needsReview={idx.needsReview}
                             onReport={setAnalysed} />
         </div>
         </>
       )}
 
-      {flowApi && (
-        <ApiFlowModal api={flowApi} version={version} sourceDir={sourceParams(src).sourceDir}
-                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country} app={app}
+      {flowApi && activeModule && (
+        <ApiFlowModal api={flowApi} version={version} sourceDir={activeSrc.sourceDir}
+                      repo={activeSrc.repo} branch={activeSrc.branch} country={country} app={app}
                       deps={depParams(deps)} colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>

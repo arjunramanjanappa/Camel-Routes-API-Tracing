@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeLog } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
-import { exportLogPdf } from '../logPdf';
+import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
 
@@ -171,6 +171,19 @@ function FailureBreakdown({ m }: { m?: Record<string, number> | null }) {
   );
 }
 
+/** One module (repo) to correlate the uploaded log against, with its marker flavour and source. */
+export interface LogModule {
+  id: string;
+  name: string;
+  app: string;        // marker flavour (Mighty for the entry app's main module, else SPL)
+  sourceDir?: string;
+  repo?: string;
+  branch?: string;
+}
+
+/** One module's log verification outcome for the grouped multi-module view. */
+interface PerModuleLog { id: string; name: string; report: LogAnalysisReport | null; error?: string; }
+
 interface Props {
   version?: string;
   country?: string;
@@ -180,11 +193,25 @@ interface Props {
   app?: string;
   selectedApis?: string[];
   selectedBackends?: string[];
+  /**
+   * Multi-module release test: the same uploaded log is correlated against every module (repo),
+   * each with its own marker flavour, and the results are grouped so it is clear which module's
+   * APIs were missed. When more than one module is passed the panel runs in multi mode (whole
+   * release per module — selection is ignored). Single/absent → the classic single-source flow.
+   */
+  modules?: LogModule[];
   /** Encoded dependency sources (see deps.ts) — threaded so the log analysis resolves the same routes. */
   deps?: string[];
   /** Unresolved imports/routes from the impact index — surfaced in the exported report. */
   needsReview?: string[];
   onReport?: (hasReport: boolean) => void;
+}
+
+/** Passed / issues / not-tested tallies for a module's report — drives the per-module coverage strip. */
+function tally(report: LogAnalysisReport) {
+  let passed = 0, notTested = 0, issues = 0;
+  report.apis.forEach((a) => { if (a.status === 'SUCCESS') passed++; else if (a.status === 'NOT_TESTED') notTested++; else issues++; });
+  return { passed, notTested, issues, total: report.apis.length };
 }
 
 /**
@@ -193,11 +220,13 @@ interface Props {
  * front-end APIs are read from front-end log lines, selected backends from backend
  * log lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], deps = [], needsReview, onReport }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [file, setFile] = useState<File | null>(null);
   const [limitToSelection, setLimitToSelection] = useState(true);
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
+  const [perModule, setPerModule] = useState<PerModuleLog[]>([]);   // multi-module: one report per repo
+  const [activeLogId, setActiveLogId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -207,6 +236,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   const fileRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  const multi = !!modules && modules.length > 1;
   const hasSelection = selectedApis.length > 0 || selectedBackends.length > 0;
 
   // When a report lands, bring the results into view — the panel sits far down the
@@ -217,27 +247,58 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
+  const showReport = (rep: LogAnalysisReport | null) => {
+    setReport(rep);
+    setOpen(new Set());
+    setFilter('ALL');
+    setSection((rep?.apis.length ?? 0) ? 'FE' : 'BE');   // default to whichever section has data
+  };
+
   const run = async () => {
     if (!file) return;
     setLoading(true);
     setError(null);
     try {
-      // Unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
-      const all = !hasSelection || !limitToSelection;
-      const rep = await analyzeLog(file, {
-        version, country, sourceDir, repo, branch, all, app, dep: deps,
-        apis: all ? undefined : selectedApis,
-        backends: all ? undefined : selectedBackends,
-      });
-      setReport(rep);
-      setOpen(new Set());
-      setFilter('ALL');
-      setSection(rep.apis.length ? 'FE' : 'BE');   // default to whichever section has data
+      if (multi && modules) {
+        // Correlate the SAME log against every module for the whole release (selection ignored),
+        // each with its own marker flavour, so it is clear which repo's APIs were missed.
+        const per: PerModuleLog[] = [];
+        for (const m of modules) {
+          try {
+            const rep = await analyzeLog(file, {
+              version, country, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, all: true, app: m.app, dep: deps,
+            });
+            per.push({ id: m.id, name: m.name, report: rep });
+          } catch (e) {
+            per.push({ id: m.id, name: m.name, report: null, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+        setPerModule(per);
+        const firstOk = per.find((p) => p.report) || per[0];
+        setActiveLogId(firstOk?.id ?? null);
+        showReport(firstOk?.report ?? null);
+      } else {
+        // Single module: unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
+        const all = !hasSelection || !limitToSelection;
+        const rep = await analyzeLog(file, {
+          version, country, sourceDir, repo, branch, all, app, dep: deps,
+          apis: all ? undefined : selectedApis,
+          backends: all ? undefined : selectedBackends,
+        });
+        setPerModule([]);
+        showReport(rep);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
+  };
+
+  const selectLogModule = (id: string) => {
+    const p = perModule.find((x) => x.id === id);
+    setActiveLogId(id);
+    showReport(p?.report ?? null);
   };
 
   // Status distribution across BOTH sections (front-end APIs + backends).
@@ -278,6 +339,11 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   const pick = (f: LogStatus | 'ALL' | 'ISSUES') => setFilter((cur) => (cur === f ? 'ALL' : f));
 
   const exportPdf = () => {
+    if (multi) {
+      if (!perModule.length) return;
+      exportLogPdfMulti(perModule.map((p) => ({ name: p.name, report: p.report, error: p.error })), app, version, needsReview).catch(() => {});
+      return;
+    }
     if (!report) return;
     exportLogPdf(report, app, version, needsReview).catch(() => {});
   };
@@ -328,7 +394,13 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
             : <span>Click to choose an output log — <b>.txt</b> / .log, or a Splunk export (format auto-detected)</span>}
       </div>
 
-      {hasSelection && (
+      {multi && (
+        <div className="sub" style={{ marginTop: 8 }}>
+          The same log is correlated against all <b>{modules!.length}</b> modules (each with its own marker), so the report shows
+          which repo&rsquo;s APIs were tested or missed for release <b>{version || 'BASE'}</b>. The whole release is checked per module.
+        </div>
+      )}
+      {!multi && hasSelection && (
         <>
           <label className="check" style={{ marginTop: 8 }}>
             <input type="checkbox" checked={limitToSelection} onChange={(e) => setLimitToSelection(e.target.checked)} />
@@ -345,8 +417,36 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
 
       {error && <div className="err">Error: {error}</div>}
 
+      {multi && perModule.length > 0 && (
+        <div style={{ marginTop: 12 }} ref={resultsRef}>
+          <div className="sub" style={{ marginBottom: 6 }}>Test coverage by module — click one to see its APIs below. The exported PDF covers all {perModule.length}.</div>
+          <div className="logmods">
+            {perModule.map((p) => {
+              const t = p.report ? tally(p.report) : null;
+              return (
+                <button key={p.id} className={'logmod' + (p.id === activeLogId ? ' active' : '') + (p.error ? ' err' : '')}
+                        onClick={() => selectLogModule(p.id)} title={p.error || undefined}>
+                  <div className="logmod-name">{p.name}</div>
+                  {p.error ? <div className="logmod-sub err">not analysed</div>
+                    : t ? (
+                      <div className="logmod-stats">
+                        <span className="lm-ok">{t.passed}✓</span>
+                        <span className="lm-bad">{t.issues} issue{t.issues === 1 ? '' : 's'}</span>
+                        <span className={'lm-nt' + (t.notTested ? ' hot' : '')}>{t.notTested} not tested</span>
+                      </div>
+                    ) : <div className="logmod-sub">—</div>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {report && (
-        <div style={{ marginTop: 12, scrollMarginTop: 12 }} ref={resultsRef}>
+        <div style={{ marginTop: 12, scrollMarginTop: 12 }} ref={multi ? undefined : resultsRef}>
+          {multi && activeLogId && (
+            <div className="sub" style={{ marginBottom: 6 }}>Showing module <b>{perModule.find((p) => p.id === activeLogId)?.name || 'module'}</b>.</div>
+          )}
           <div className="report-sticky">
           <div className="kv">
             <b>{report.transactions}</b> transactions · <b>{report.matchedLines}</b> matched / {report.linesScanned} lines
@@ -422,6 +522,14 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {multi && perModule.length > 0 && !report && activeLogId && (
+        <div className="sub" style={{ marginTop: 10 }}>
+          {perModule.find((p) => p.id === activeLogId)?.error
+            ? 'This module was not analysed — ' + perModule.find((p) => p.id === activeLogId)?.error
+            : 'No APIs were correlated from the log for this module — its export still lists it as not tested.'}
         </div>
       )}
     </div>

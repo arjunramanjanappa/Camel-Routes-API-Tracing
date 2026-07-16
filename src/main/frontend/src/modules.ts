@@ -38,6 +38,15 @@ export function moduleValid(m: ModuleSource): boolean {
     : !!(m.sourceDir && m.sourceDir.trim());
 }
 
+/**
+ * The log marker flavour for a module in a multi-module release.
+ * Entry app (Mighty/SPL) is the main module (index 0); every sub-module is called over HTTP and
+ * logs as SPL. spl-secure is auto-detected by the backend from the repo, so 'SPL' is safe for it.
+ */
+export function markerAppFor(entryApp: string | undefined, index: number): string {
+  return index === 0 ? (entryApp || 'Mighty') : 'SPL';
+}
+
 /** A convenient display label before the backend returns the pom module name. */
 export function moduleLabel(m: ModuleSource): string {
   if (m.sourceType === 'bitbucket') {

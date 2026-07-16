@@ -89,17 +89,100 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
 
   // ===== API breakdown =====
   r.banner('API breakdown', PAL.blue, 'Every API from the uploaded logs, grouped by outcome (worst first).');
+  apiBreakdown(r, report, true);
+
+  r.reviewSection(needsReview);
+  r.save(file(ver), footer);
+}
+
+/** One module's log verification for the grouped report (or an error). */
+export interface ModuleLog { name: string; report: LogAnalysisReport | null; error?: string; }
+
+function statusCounts(report: LogAnalysisReport) {
+  const c: Record<LogStatus, number> = { SUCCESS: 0, PARTIAL: 0, FAILED: 0, TIMEOUT: 0, INDETERMINATE: 0, NOT_TESTED: 0 };
+  report.apis.forEach((a) => { c[a.status]++; });
+  const total = report.apis.length;
+  return { c, total, passed: c.SUCCESS, notTested: c.NOT_TESTED, issues: total - c.SUCCESS - c.NOT_TESTED };
+}
+
+/** The API-breakdown (grouped by outcome) + backend calls for one report — shared by single and multi. */
+function apiBreakdown(r: ReportDoc, report: LogAnalysisReport, useSections: boolean) {
   for (const status of ORDER) {
     const list = report.apis.filter((a) => a.status === status).sort((a, b) => a.api.localeCompare(b.api));
     if (!list.length) continue;
-    r.section(ST[status].label + ' APIs', list.length, ST[status].ramp, SECTION_BLURB[status]);
+    if (useSections) r.section(ST[status].label + ' APIs', list.length, ST[status].ramp, SECTION_BLURB[status]);
+    else r.para(`${ST[status].label} (${list.length})`, M, CONTENT_W, 'bold', 10, ST[status].ramp.text, 13);
     list.forEach((a, i) => { if (i > 0) r.separator(); apiEntry(r, a); });
   }
-
   if (report.backends.length) {
     const sorted = [...report.backends].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.backend.localeCompare(b.backend));
-    r.section('Backend calls', sorted.length, PAL.gray, 'Backends correlated directly from the logs (across the analysed APIs).');
+    if (useSections) r.section('Backend calls', sorted.length, PAL.gray, 'Backends correlated directly from the logs (across the analysed APIs).');
+    else r.para(`Backend calls (${sorted.length})`, M, CONTENT_W, 'bold', 10, PAL.gray.text, 13);
     sorted.forEach((b, i) => { if (i > 0) r.separator(); backendEntry(r, b); });
+  }
+}
+
+/**
+ * Render a multi-module log verification to ONE PDF: a per-module coverage table (which repo's
+ * APIs passed / had issues / were not tested), then each module's breakdown grouped by outcome.
+ */
+export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version?: string, needsReview?: string[]) {
+  const r = await ReportDoc.create();
+  const first = mods.find((m) => m.report)?.report;
+  const ver = version || first?.clientVersion || 'BASE';
+  const country = first?.country;
+
+  const rows = mods.map((m) => {
+    const s = m.report ? statusCounts(m.report) : { total: 0, passed: 0, issues: 0, notTested: 0 };
+    return { name: m.name, error: m.error, total: s.total, passed: s.passed, issues: s.issues, notTested: s.notTested };
+  });
+  const tot = { total: 0, passed: 0, issues: 0, notTested: 0 };
+  rows.forEach((x) => { tot.total += x.total; tot.passed += x.passed; tot.issues += x.issues; tot.notTested += x.notTested; });
+
+  r.header('Release Test Report',
+    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
+    `Generated ${generatedStamp()}`);
+
+  // ===== Release Test Summary =====
+  r.banner('Release Test Summary', PAL.blue);
+  r.statBand([
+    { n: tot.total, label: 'Total APIs', ramp: PAL.gray },
+    { n: tot.passed, label: 'Passed', ramp: PAL.green },
+    { n: tot.issues, label: 'Issues', ramp: PAL.orange },
+    { n: tot.notTested, label: 'Not tested', ramp: PAL.red },
+  ]);
+  r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} verified across ${mods.length} module(s): `
+    + `${tot.passed} passed end-to-end, ${tot.issues} had issues and ${tot.notTested} were not seen in the uploaded logs. `
+    + `Test coverage by module — a "Not tested" count flags which repo's APIs the run missed:`);
+  r.dataTable(
+    ['Module (pom artifactId)', 'APIs', 'Passed', 'Issues', 'Not tested'],
+    rows.map((x) => [x.name + (x.error ? '  (failed)' : ''),
+      x.error ? '—' : x.total, x.error ? '—' : x.passed, x.error ? '—' : x.issues, x.error ? '—' : x.notTested]),
+    ['Total', tot.total, tot.passed, tot.issues, tot.notTested],
+  );
+
+  // ===== How to read this report =====
+  r.legend('How to read this report', [
+    'The same uploaded log is correlated against each module (repo) for this release — grouped so it is clear which module was tested.',
+    'Each API is verified end-to-end by correlation id: the front-end request paired with its backend call.',
+    'Passed = success both ends; Failed/Timeout = backend error or no response; Not tested = no matching log lines for that module.',
+    'A module with a high "Not tested" count is a repo whose APIs the uploaded logs did not exercise.',
+  ]);
+
+  const footer = `TraceGuard - Release test ${ver}${app ? ' - ' + app : ''}`;
+
+  // ===== Test coverage by module =====
+  r.banner('Test coverage by module', PAL.blue, 'Each module’s APIs grouped by outcome (worst first). "Not tested" = the logs did not exercise it.');
+  for (const m of mods) {
+    if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
+    const rep = m.report; if (!rep) continue;
+    const s = statusCounts(rep);
+    const ramp = s.total === 0 ? PAL.red : s.issues > 0 ? PAL.orange : s.notTested > 0 ? PAL.amber : PAL.green;
+    r.section('Module — ' + m.name, s.total, ramp,
+      `${s.passed} passed · ${s.issues} issue(s) · ${s.notTested} not tested`
+      + `  —  ${rep.transactions} transaction(s), ${rep.matchedLines}/${rep.linesScanned} lines matched.`);
+    if (s.total === 0 && rep.backends.length === 0) { r.emptyNote('No APIs or backends were correlated for this module.'); continue; }
+    apiBreakdown(r, rep, false);
   }
 
   r.reviewSection(needsReview);

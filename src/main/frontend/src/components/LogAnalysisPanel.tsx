@@ -225,7 +225,7 @@ const SIZE_CAVEAT = 'Up to 1 GB per file and 6 GB per upload. Larger logs — sp
 /** A reusable drop-zone: pick one or more files, list them with size + remove, add more on click. */
 function FileZone({ files, onAdd, onRemove, hint, label }: {
   files: File[];
-  onAdd: (list: FileList | null) => void;
+  onAdd: (picked: File[]) => void;
   onRemove: (i: number) => void;
   hint: string;
   label?: string;
@@ -237,7 +237,13 @@ function FileZone({ files, onAdd, onRemove, hint, label }: {
       {label && <div className="filezone-label">{label}</div>}
       <div className={'uploader' + (files.length ? ' has' : '')} onClick={() => ref.current?.click()}>
         <input ref={ref} type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
-               onChange={(e) => { onAdd(e.target.files); if (ref.current) ref.current.value = ''; }} />
+               onChange={(e) => {
+                 // Read the FileList into a File[] SYNCHRONOUSLY — resetting value='' below empties the
+                 // live FileList, so the async state updater would otherwise see nothing selected.
+                 const picked = e.target.files ? Array.from(e.target.files) : [];
+                 if (ref.current) ref.current.value = '';   // allow re-picking the same file after a remove
+                 onAdd(picked);
+               }} />
         {files.length
           ? <span><b>{files.length} file{files.length === 1 ? '' : 's'}</b> · {kb(total)} — click to add more</span>
           : <span>{hint}</span>}
@@ -284,15 +290,14 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   const multi = !!modules && modules.length > 1;
   const hasSelection = selectedApis.length > 0 || selectedBackends.length > 0;
 
-  const mergeFiles = (prev: File[], list: FileList | null) => {
-    if (!list) return prev;
+  const mergeFiles = (prev: File[], picked: File[]) => {
     const next = [...prev];
-    Array.from(list).forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
+    picked.forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
     return next;
   };
-  const addFiles = (list: FileList | null) => setFiles((prev) => mergeFiles(prev, list));
+  const addFiles = (picked: File[]) => setFiles((prev) => mergeFiles(prev, picked));
   const removeFile = (i: number) => setFiles((prev) => prev.filter((_, ix) => ix !== i));
-  const addModuleFiles = (id: string, list: FileList | null) => setModuleFiles((prev) => ({ ...prev, [id]: mergeFiles(prev[id] || [], list) }));
+  const addModuleFiles = (id: string, picked: File[]) => setModuleFiles((prev) => ({ ...prev, [id]: mergeFiles(prev[id] || [], picked) }));
   const removeModuleFile = (id: string, i: number) => setModuleFiles((prev) => ({ ...prev, [id]: (prev[id] || []).filter((_, ix) => ix !== i) }));
 
   const perModuleMode = multi && uploadMode === 'perModule';

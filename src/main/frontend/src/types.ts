@@ -168,6 +168,10 @@ export interface VersionDiffReport {
   mode: 'version-diff';
   version?: string | null;
   country?: string | null;
+  /** The module's pom.xml artifactId (else source folder) — for grouping multi-module analyses. */
+  moduleName?: string;
+  /** True when the repo has no versioned routes, so it was analysed at N/A (snapshot). */
+  unversioned?: boolean;
   changedCount: number;
   newCount: number;
   unchangedCount: number;

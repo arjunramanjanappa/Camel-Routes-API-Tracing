@@ -11,91 +11,94 @@ function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string 
     blurb: 'A version bump with no behavioural change, or APIs this release did not touch.' };
 }
 
-/** Render the (filtered) release-diff to a downloadable PDF report. */
-export async function exportDiffPdf(report: VersionDiffReport, apis: ApiDiff[], filtered: boolean, app?: string) {
-  const r = await ReportDoc.create();
+/** One module's version-diff for the report (or an error). */
+export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; }
 
-  if (report.snapshot) { await exportSnapshotPdf(r, report, apis, app); return; }
+/** Render the multi-module release-diff to one PDF: a per-module impact summary, then each module's changes. */
+export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
+  const r = await ReportDoc.create();
+  const first = mods.find((m) => m.report)?.report;
+  const ver = first?.version || 'N/A';
+  const country = first?.country;
+
+  const rows = mods.map((m) => {
+    const rep = m.report;
+    return { name: m.name, error: m.error, snapshot: !!rep?.snapshot,
+      changed: rep?.changedCount ?? 0, added: rep?.newCount ?? 0, unchanged: rep?.unchangedCount ?? 0,
+      snap: rep?.snapshotCount ?? (rep?.snapshot ? rep.apis.length : 0) };
+  });
+  const tot = { changed: 0, added: 0, unchanged: 0 };
+  rows.forEach((x) => { tot.changed += x.changed; tot.added += x.added; tot.unchanged += x.unchanged; });
 
   r.header('Release Impact Report',
-    `${app ? app + '  -  ' : ''}Release ${report.version || 'BASE'}${report.country ? '  -  ' + report.country : ''}`,
+    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
     `Generated ${generatedStamp()}`);
 
   // ===== Release Impact Summary =====
   r.banner('Release Impact Summary', PAL.blue);
   r.statBand([
-    { n: report.changedCount, label: 'Changed', ramp: PAL.amber },
-    { n: report.newCount, label: 'New', ramp: PAL.green },
-    { n: report.unchangedCount, label: 'Unchanged', ramp: PAL.gray },
+    { n: tot.changed, label: 'Changed', ramp: PAL.amber },
+    { n: tot.added, label: 'New', ramp: PAL.green },
+    { n: mods.length, label: 'Modules', ramp: PAL.gray },
   ]);
+  r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
+    + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged. Impact by module:`);
+  r.dataTable(
+    ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Unchanged'],
+    rows.map((x) => [x.name + (x.error ? '  (failed)' : ''),
+      x.error ? '—' : (x.snapshot ? 'N/A' : ver),
+      x.snapshot ? '—' : x.changed, x.snapshot ? '—' : x.added, x.snapshot ? x.snap : x.unchanged]),
+    ['Total', '', tot.changed, tot.added, tot.unchanged],
+  );
 
-  r.paragraph(`Release ${report.version || 'BASE'} changes ${report.changedCount} existing API(s) and introduces `
-    + `${report.newCount} new API(s) relative to the previous version; ${report.unchangedCount} are unaffected.`
-    + `  Each API is compared against its immediately-preceding version.`
-    + (filtered ? `  Filtered view: ${apis.length} of ${report.apis.length} API(s) shown.` : ''));
-
-  // ===== How to read this report =====
+  // ===== How to read =====
   r.legend('How to read this report', [
+    'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
     'Changed = the resolved Camel flow differs (routes, backends or service versions).',
     'New = first appears in this release; Unchanged = version bump with no behavioural change.',
     'Under "What changed", lines marked - were removed and + were added vs the previous version.',
-    'svc = the backend service version sent to the host (read from the request template).',
   ]);
 
-  const footer = `TraceGuard - Release impact ${report.version || 'BASE'}${app ? ' - ' + app : ''}`;
-  if (apis.length === 0) { r.emptyNote('No APIs in the current view.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
+  const footer = `TraceGuard - Release impact ${ver}${app ? ' - ' + app : ''}`;
 
-  const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
-  apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status].push(a); });
-
-  // ===== API changes =====
-  r.banner('API changes', PAL.blue, 'APIs grouped by how this release affects them (changed first).');
-  for (const status of STATUS_ORDER) {
-    const list = grouped[status];
-    if (!list.length) continue;
-    const meta = sectionMeta(status);
-    r.section(meta.title, list.length, meta.ramp, meta.blurb);
-    list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
+  // ===== Impact by module =====
+  r.banner('Impact by module', PAL.blue, 'Each module’s changes (changed first). N/A modules list their latest routes.');
+  for (const m of mods) {
+    if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
+    const rep = m.report; if (!rep) continue;
+    if (rep.snapshot) {
+      r.section('Module — ' + m.name + '  (N/A)', rep.apis.length, PAL.amber,
+        'Unversioned — the latest route each API is on (no prior release to compare).');
+      rep.apis.forEach((a, idx) => { if (idx > 0) r.separator(); snapshotRow(r, a); });
+    } else {
+      const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
+      rep.apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status as DiffStatus].push(a); });
+      r.section('Module — ' + m.name, rep.changedCount + rep.newCount + rep.unchangedCount, PAL.blue, '');
+      for (const status of STATUS_ORDER) {
+        const list = grouped[status];
+        if (!list.length) continue;
+        const meta = sectionMeta(status);
+        r.para(`${meta.title} (${list.length})`, M, CONTENT_W, 'bold', 10, meta.ramp.text, 13);
+        list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
+      }
+    }
+    r.reviewSection(rep.needsReview);
   }
-
-  r.reviewSection(report.needsReview);
-  r.save(fileName(report), footer);
+  r.save(file(ver), footer);
 }
 
-/** N/A snapshot report: each API and the latest (else base) route it resolves to — not a diff. */
-async function exportSnapshotPdf(r: ReportDoc, report: VersionDiffReport, apis: ApiDiff[], app?: string) {
-  r.header('Release Impact - Latest versions',
-    `${app ? app + '  -  ' : ''}Release ${report.version || 'N/A'}${report.country ? '  -  ' + report.country : ''}`,
-    `Generated ${generatedStamp()}`);
-
-  // ===== Summary =====
-  r.banner('Latest-versions Summary', PAL.blue);
-  r.statBand([{ n: apis.length, label: 'APIs', ramp: PAL.blue }]);
-  r.paragraph(`Showing each API at its latest version (or its default when it has no versions). `
-    + `${apis.length} API(s)${report.country ? ' for ' + report.country : ''}. `
-    + `This is a current snapshot for review, not a comparison against a previous release.`);
-
-  const footer = `TraceGuard - Latest versions ${report.version || 'N/A'}${app ? ' - ' + app : ''}`;
-  if (apis.length === 0) { r.emptyNote('No APIs found in this scope.'); r.reviewSection(report.needsReview); r.save(fileName(report), footer); return; }
-
-  // ===== APIs =====
-  r.banner('APIs by latest version', PAL.blue);
-  r.section('Latest versions', apis.length, PAL.blue, 'Each API and the version it is currently on (Base = no version).');
-  apis.forEach((a, idx) => {
-    if (idx > 0) r.separator();
-    r.ensure(30);
-    const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
-    r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
-    const label = a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion;
-    const vw = r.width(label, 'bold', 8) + 12;
-    r.pill(label, PAGE.w - M - vw, PAL.blue.fill, PAL.blue.text, 8);
-    r.y += 16;
-    r.para(`Route: ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
-    r.y += 6;
-  });
-
-  r.reviewSection(report.needsReview);
-  r.save(fileName(report), footer);
+/** One row of a latest-routes snapshot (an unversioned/N/A module). */
+function snapshotRow(r: ReportDoc, a: ApiDiff) {
+  r.ensure(30);
+  const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
+  r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
+  const base = a.targetVersion === 'BASE';
+  const label = base ? 'N/A' : 'Release ' + a.targetVersion;
+  const vw = r.width(label, 'bold', 8) + 12;
+  r.pill(label, PAGE.w - M - vw, base ? PAL.amber.fill : PAL.blue.fill, base ? PAL.amber.text : PAL.blue.text, 8);
+  r.y += 16;
+  r.para(`Route: ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  r.y += 6;
 }
 
 function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
@@ -146,7 +149,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   r.y += 6;
 }
 
-function fileName(report: VersionDiffReport): string {
-  const v = (report.version || 'base').replace(/[^a-zA-Z0-9._-]+/g, '-');   // N/A -> N-A (no path chars)
+function file(ver: string): string {
+  const v = (ver || 'base').replace(/[^a-zA-Z0-9._-]+/g, '-');   // N/A -> N-A (no path chars)
   return `release-impact-${v}-${stamp()}.pdf`;
 }

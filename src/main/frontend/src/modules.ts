@@ -18,6 +18,19 @@ export function newModule(partial?: Partial<ModuleSource>): ModuleSource {
   return { id: 'm' + seq + Math.random().toString(36).slice(2, 6), sourceType: 'local', sourceDir: '', repo: '', branch: '', ...partial };
 }
 
+/** Load the persisted module list for an app (migrating an old single-source layout to one module). */
+export function loadModulesForApp(app: string): ModuleSource[] {
+  try {
+    const raw = localStorage.getItem(`tracer.${app}.modules`);
+    if (raw) { const arr = JSON.parse(raw) as ModuleSource[]; if (Array.isArray(arr) && arr.length) return arr; }
+  } catch { /* fall through */ }
+  const g = (f: string) => localStorage.getItem(`tracer.${app}.${f}`) || '';
+  return [newModule({ sourceType: (g('sourceType') as ModuleSource['sourceType']) || 'local', sourceDir: g('sourceDir'), repo: g('repo'), branch: g('branch') })];
+}
+export function saveModulesForApp(app: string, modules: ModuleSource[]) {
+  localStorage.setItem(`tracer.${app}.modules`, JSON.stringify(modules));
+}
+
 /** Is this module's source fully specified for its mode? (Analyse gate.) */
 export function moduleValid(m: ModuleSource): boolean {
   return m.sourceType === 'bitbucket'

@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react';
 import { fetchVersionDiff } from '../api';
-import type { ApiDiff, DepSource, DiffStatus, RouteStepDiff, SourceType, VersionDiffReport } from '../types';
+import type { ApiDiff, DepSource, DiffStatus, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
-import SourceFields, { sourceValid, sourceParams, type SourceState } from '../components/SourceFields';
+import { sourceParams } from '../components/SourceFields';
+import ModulesEditor from '../components/ModulesEditor';
+import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
 import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import InfoBanner from '../components/InfoBanner';
 import { depParams, loadDeps, saveDeps } from '../deps';
+import { analyzeModules, moduleValid, loadModulesForApp, saveModulesForApp, type ModuleResult, type ModuleSource } from '../modules';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
@@ -182,21 +185,18 @@ const ALL_STATUSES: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
 const GROUP_LABEL: Record<DiffStatus, string> = { CHANGED: 'Changed', NEW: 'New', UNCHANGED: 'Unchanged' };
 
 export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
-  const [sourceDir, setSourceDir] = useState(() => localStorage.getItem(appKey(app, 'sourceDir')) ?? '');
-  const [sourceType, setSourceType] = useState<SourceType>((localStorage.getItem(appKey(app, 'sourceType')) as SourceType) || 'local');
-  const [repo, setRepo] = useState(() => localStorage.getItem(appKey(app, 'repo')) ?? '');
-  const [branch, setBranch] = useState(() => localStorage.getItem(appKey(app, 'branch')) ?? '');
+  const [modules, setModulesState] = useState<ModuleSource[]>(() => loadModulesForApp(app || 'Mighty'));
+  const [modulesOpen, setModulesOpen] = useState(true);
+  const setModules = (m: ModuleSource[]) => { setModulesState(m); saveModulesForApp(app || 'Mighty', m); };
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
   const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
-  const src: SourceState = { sourceType, sourceDir, repo, branch };
-  const onSrc = (p: Partial<SourceState>) => {
-    if (p.sourceType !== undefined) setSourceType(p.sourceType);
-    if (p.sourceDir !== undefined) setSourceDir(p.sourceDir);
-    if (p.repo !== undefined) setRepo(p.repo);
-    if (p.branch !== undefined) setBranch(p.branch);
-  };
+  const anyValid = modules.some(moduleValid);
+  const [reports, setReports] = useState<ModuleResult<VersionDiffReport>[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [report, setReport] = useState<VersionDiffReport | null>(null);
+  const names = useMemo(() => Object.fromEntries(reports.map((r) => [r.module.id, r.name])), [reports]);
+  const activeModule = modules.find((m) => m.id === activeId) || modules[0];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One group is shown at a time, picked from the left-hand nav. Defaults to Changed.
@@ -206,29 +206,45 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [flowApi, setFlowApi] = useState<{ api: string; version?: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const show = (rep: VersionDiffReport | null) => {
+    setReport(rep); setExpanded(new Set()); setQuery('');
+    setActiveGroup(rep && rep.changedCount > 0 ? 'CHANGED'
+      : rep && rep.newCount > 0 ? 'NEW'
+        : rep && rep.unchangedCount > 0 ? 'UNCHANGED' : 'CHANGED');
+  };
+
   const load = async () => {
-    localStorage.setItem(appKey(app, 'sourceDir'), sourceDir);
-    localStorage.setItem(appKey(app, 'sourceType'), sourceType);
-    localStorage.setItem(appKey(app, 'repo'), repo);
-    localStorage.setItem(appKey(app, 'branch'), branch);
     localStorage.setItem(appKey(app, 'country'), country);
     saveDeps(appKey(app, 'deps'), deps);
     setLoading(true); setError(null);
     try {
-      const sp = sourceParams(src);
-      const data = await fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app);
-      setReport(data);
-      setExpanded(new Set());
-      setQuery('');
-      // Preselect Changed; fall back to the first non-empty group so we don't land on an empty one.
-      setActiveGroup(data.changedCount > 0 ? 'CHANGED'
-        : data.newCount > 0 ? 'NEW'
-          : data.unchangedCount > 0 ? 'UNCHANGED' : 'CHANGED');
+      const results = await analyzeModules(
+        modules.filter(moduleValid),
+        (m) => { const sp = sourceParams(m); return fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app); },
+        (r) => r.moduleName,
+      );
+      setReports(results);
+      const first = results.find((r) => r.result) || results[0];
+      setActiveId(first?.module.id ?? null);
+      show(first?.result ?? null);
+      if (results.length > 1) setModulesOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
+  };
+
+  const selectModule = (id: string) => { setActiveId(id); show(reports.find((r) => r.module.id === id)?.result ?? null); };
+  const statsOf = (r: ModuleResult<VersionDiffReport>): ModuleStat[] => {
+    const rep = r.result;
+    if (!rep) return [];
+    if (rep.snapshot) return [{ label: 'latest', value: rep.snapshotCount ?? rep.apis.length, tone: 'info' }];
+    return [
+      { label: 'changed', value: rep.changedCount, tone: 'warn' },
+      { label: 'new', value: rep.newCount, tone: 'good' },
+      { label: 'unchanged', value: rep.unchangedCount, tone: 'muted' },
+    ];
   };
 
   const counts: Record<DiffStatus, number> = {
@@ -284,38 +300,44 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     }
   };
 
-  // The PDF is the full release report (Changed + New), independent of which group is
-  // on screen — the left-hand nav is for browsing, not for scoping the export.
-  const exportApis = useMemo(
-    () => (report ? report.apis.filter((a) => a.status !== 'UNCHANGED') : []), [report]);
-
+  // The PDF is one report covering every module (each module's Changed + New + snapshot),
+  // independent of which module/group is on screen.
   const exportPdf = () => {
-    if (!report) return;
-    exportDiffPdf(report, exportApis, false, app).catch(() => {});
+    const mods = reports.map((r) => ({ name: r.name, report: r.result, error: r.error })).filter((m) => m.report || m.error);
+    if (mods.length) exportDiffPdf(mods, app).catch(() => {});
   };
 
   return (
     <div className="impact">
-      <div className="context-bar">
-        <SourceFields value={src} onChange={onSrc} bar />
-        <div style={{ width: 160 }}>
-          <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
-          <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
+      <div className="scope-controls">
+        <ModulesEditor modules={modules} onChange={setModules} names={names}
+                       open={modulesOpen} onToggleOpen={() => setModulesOpen((o) => !o)} />
+        <div className="context-bar">
+          <div style={{ width: 160 }}>
+            <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
+            <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
+          </div>
+          <div style={{ width: 200 }}>
+            <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+            <input list="diffVersionList" value={version} placeholder="9.18 or N/A (latest / base)" onChange={(e) => setVersion(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
+            <datalist id="diffVersionList">
+              <option value="N/A" label="latest version of each API (or its default)" />
+            </datalist>
+          </div>
+          <button className="trace" style={{ width: 150, marginTop: 0, alignSelf: 'flex-end' }}
+                  disabled={loading || !country.trim() || !anyValid || !version.trim()} onClick={load}
+                  title={!anyValid ? 'Add at least one module source' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
+            {loading ? 'Comparing…' : 'Compare modules'}
+          </button>
         </div>
-        <div style={{ width: 160 }}>
-          <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
-          <input list="diffVersionList" value={version} placeholder="9.18 or N/A (latest / base)" onChange={(e) => setVersion(e.target.value)}
-                 onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && sourceValid(src) && version.trim()) load(); }} />
-          <datalist id="diffVersionList">
-            <option value="N/A" label="latest version of each API (or its default)" />
-          </datalist>
-        </div>
-        <button className="trace" style={{ width: 120, marginTop: 0, alignSelf: 'flex-end' }}
-                disabled={loading || !country.trim() || !sourceValid(src) || !version.trim()} onClick={load}
-                title={!sourceValid(src) ? 'Enter the source (path or Bitbucket repo + branch)' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
-          {loading ? 'Comparing…' : 'Compare'}
-        </button>
       </div>
+      {reports.length > 1 && (
+        <div style={{ padding: '0 18px' }}>
+          <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}
+                         statsOf={statsOf} unversionedOf={(r) => !!r.result?.snapshot} />
+        </div>
+      )}
 
       {(report?.needsReview?.length ?? 0) > 0 && (
         <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
@@ -456,9 +478,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
       )}
 
-      {flowApi && (
-        <ApiFlowModal api={flowApi.api} version={flowApi.version} sourceDir={sourceParams(src).sourceDir}
-                      repo={sourceParams(src).repo} branch={sourceParams(src).branch} country={country} app={app}
+      {flowApi && activeModule && (
+        <ApiFlowModal api={flowApi.api} version={flowApi.version} sourceDir={sourceParams(activeModule).sourceDir}
+                      repo={sourceParams(activeModule).repo} branch={sourceParams(activeModule).branch} country={country} app={app}
                       deps={depParams(deps)} colorMode={colorMode} onClose={() => setFlowApi(null)} />
       )}
     </div>

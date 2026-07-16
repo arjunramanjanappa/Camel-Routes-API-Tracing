@@ -215,6 +215,23 @@ function tally(report: LogAnalysisReport) {
 }
 
 /**
+ * Combine several uploaded logs into ONE dataset so a release spanning multiple servers/repos is
+ * correlated end-to-end (a front-end request in one log paired with its backend call in another).
+ * Text logs / Splunk exports are joined with newlines; gzip files are concatenated as raw members
+ * (a valid multi-member gzip the backend decompresses).
+ */
+async function combineFiles(files: File[]): Promise<File> {
+  if (files.length === 1) return files[0];
+  if (files.some((f) => /\.gz$/i.test(f.name))) {
+    return new File(files, 'combined-logs.gz', { type: 'application/gzip' });
+  }
+  const texts = await Promise.all(files.map((f) => f.text()));
+  return new File([texts.join('\n')], 'combined-logs.txt', { type: 'text/plain' });
+}
+
+function kb(n: number): string { return (n / 1024).toFixed(0) + ' KB'; }
+
+/**
  * Upload an output log or Splunk export and correlate it against the traced APIs
  * for the current client release. The report is log-type aware: selected
  * front-end APIs are read from front-end log lines, selected backends from backend
@@ -222,7 +239,7 @@ function tally(report: LogAnalysisReport) {
  */
 export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [limitToSelection, setLimitToSelection] = useState(true);
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
   const [perModule, setPerModule] = useState<PerModuleLog[]>([]);   // multi-module: one report per repo
@@ -238,6 +255,17 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
 
   const multi = !!modules && modules.length > 1;
   const hasSelection = selectedApis.length > 0 || selectedBackends.length > 0;
+
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    setFiles((prev) => {
+      const next = [...prev];
+      Array.from(list).forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
+      return next;
+    });
+    if (fileRef.current) fileRef.current.value = '';   // allow re-picking the same file after a remove
+  };
+  const removeFile = (i: number) => setFiles((prev) => prev.filter((_, ix) => ix !== i));
 
   // When a report lands, bring the results into view — the panel sits far down the
   // long Impact page, so otherwise the screen looks static after "Analyse".
@@ -255,17 +283,20 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   };
 
   const run = async () => {
-    if (!file) return;
+    if (!files.length) return;
     setLoading(true);
     setError(null);
     try {
+      // All uploaded files are merged into ONE dataset first, so a release that spans several
+      // servers/repos is correlated end-to-end across them (see combineFiles).
+      const corpus = await combineFiles(files);
       if (multi && modules) {
-        // Correlate the SAME log against every module for the whole release (selection ignored),
+        // Correlate the combined log against every module for the whole release (selection ignored),
         // each with its own marker flavour, so it is clear which repo's APIs were missed.
         const per: PerModuleLog[] = [];
         for (const m of modules) {
           try {
-            const rep = await analyzeLog(file, {
+            const rep = await analyzeLog(corpus, {
               version, country, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, all: true, app: m.app, dep: deps,
             });
             per.push({ id: m.id, name: m.name, report: rep });
@@ -280,7 +311,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       } else {
         // Single module: unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
         const all = !hasSelection || !limitToSelection;
-        const rep = await analyzeLog(file, {
+        const rep = await analyzeLog(corpus, {
           version, country, sourceDir, repo, branch, all, app, dep: deps,
           apis: all ? undefined : selectedApis,
           backends: all ? undefined : selectedBackends,
@@ -383,21 +414,40 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </div>
       )}
 
-      <div className={'uploader' + (file ? ' has' : '')} onClick={() => fileRef.current?.click()}>
-        <input ref={fileRef} type="file"
+      <div className={'uploader' + (files.length ? ' has' : '')} onClick={() => fileRef.current?.click()}>
+        <input ref={fileRef} type="file" multiple
                accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
-               onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        {file
-          ? <span><b>{file.name}</b> · {(file.size / 1024).toFixed(0)} KB — click to change</span>
+               onChange={(e) => addFiles(e.target.files)} />
+        {files.length
+          ? <span><b>{files.length} file{files.length === 1 ? '' : 's'}</b> · {kb(files.reduce((n, f) => n + f.size, 0))} total — click to add more</span>
           : inputType === 'SPLUNK'
-            ? <span>Click to choose a Splunk export — <b>.csv</b> / .json, or a <code>_raw</code> <b>.txt</b> (format auto-detected)</span>
-            : <span>Click to choose an output log — <b>.txt</b> / .log, or a Splunk export (format auto-detected)</span>}
+            ? <span>Click to choose Splunk export(s) — <b>.csv</b> / .json, or <code>_raw</code> <b>.txt</b> — one per server/repo, or several (format auto-detected)</span>
+            : <span>Click to choose output log(s) — <b>.txt</b> / .log — one per server/repo, or several (format auto-detected)</span>}
       </div>
+
+      {files.length > 0 && (
+        <div className="logfiles">
+          {files.map((f, i) => (
+            <div className="logfile" key={f.name + f.size}>
+              <span className="logfile-name" title={f.name}>{f.name}</span>
+              <span className="logfile-size">{kb(f.size)}</span>
+              <button type="button" className="logfile-x" title="Remove"
+                      onClick={(e) => { e.stopPropagation(); removeFile(i); }}>×</button>
+            </div>
+          ))}
+          {files.length > 1 && (
+            <div className="sub" style={{ marginTop: 2 }}>
+              All <b>{files.length}</b> files are merged into one dataset and analysed together — so a request logged on one server and its backend call on another are still correlated end-to-end.
+            </div>
+          )}
+        </div>
+      )}
 
       {multi && (
         <div className="sub" style={{ marginTop: 8 }}>
-          The same log is correlated against all <b>{modules!.length}</b> modules (each with its own marker), so the report shows
-          which repo&rsquo;s APIs were tested or missed for release <b>{version || 'BASE'}</b>. The whole release is checked per module.
+          The uploaded log(s) are merged into one dataset and correlated against all <b>{modules!.length}</b> modules (each with its own
+          marker), so the report shows which repo&rsquo;s APIs were tested or missed for release <b>{version || 'BASE'}</b>. The whole
+          release is checked per module. Upload one file per server/repo, or a single combined log — either works.
         </div>
       )}
       {!multi && hasSelection && (
@@ -411,8 +461,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </>
       )}
 
-      <button className="trace" disabled={!file || loading} onClick={run}>
-        {loading ? 'Analysing…' : 'Analyse'}
+      <button className="trace" disabled={!files.length || loading} onClick={run}>
+        {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
       </button>
 
       {error && <div className="err">Error: {error}</div>}

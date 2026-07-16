@@ -232,6 +232,15 @@ table.grid tr:hover td { background: #f7f9fb; }
 .uploader { border: 1.5px dashed #cbd2d9; border-radius: 8px; padding: 16px; text-align: center; margin-top: 10px; cursor: pointer; font-size: 13px; color: #52606d; }
 .uploader:hover { border-color: var(--accent); background: var(--accent-soft); }
 .uploader.has { border-style: solid; border-color: #86efac; background: #f0fdf4; color: #166534; }
+/* uploaded-file chips (multi-file log upload) */
+.logfiles { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.logfile { display: flex; align-items: center; gap: 8px; padding: 5px 9px; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; font-size: 12px; }
+.logfile-name { flex: 1; font-weight: 600; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logfile-size { color: #94a3b8; font-variant-numeric: tabular-nums; }
+.logfile-x { border: none; background: none; cursor: pointer; color: #94a3b8; font-size: 16px; line-height: 1; padding: 0 2px; }
+.logfile-x:hover { color: #dc2626; }
+[data-theme="dark"] .logfile { background: #101b2f; border-color: #1e293b; }
+[data-theme="dark"] .logfile-name { color: #e2e8f0; }
 .lstat { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .lstat.success { background: #dcfce7; color: #166534; }
 .lstat.failed { background: #ffe2d1; color: #9a3412; }

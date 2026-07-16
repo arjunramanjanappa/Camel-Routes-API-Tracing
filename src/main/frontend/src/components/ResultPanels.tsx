@@ -30,7 +30,7 @@ function Single({ d }: { d: TraceResponse }) {
           {d.resolvedRoute && (
             <span className={'pill ' + (d.baseFallback ? 'na' : 'versioned')}
                   title={d.baseFallback ? 'No versioned route — resolved to base (N/A)' : undefined}>
-              {d.baseFallback ? 'N/A' : 'Release ' + (d.resolvedVersion || '')}
+              {d.baseFallback ? 'Base' : 'Release ' + (d.resolvedVersion || '')}
             </span>
           )}
         </div>
@@ -102,7 +102,7 @@ function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'ca
           {concrete && base > 0 && (
             <div className="cstat na">
               <span className="cstat-num">{base}</span>
-              <span className="cstat-label">Base / N/A (not counted)</span>
+              <span className="cstat-label">Base (not counted)</span>
             </div>
           )}
           {noRoute > 0 && (
@@ -113,13 +113,13 @@ function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'ca
           )}
         </div>
         {concrete && base > 0 && (
-          <div className="sub">Release <b>{reqVer}</b> touches <b>{impacted}</b> API{impacted === 1 ? '' : 's'}. The other <b>{base}</b> have no {reqVer} route and fall back to base (N/A) — listed below but not counted as in-scope.</div>
+          <div className="sub">Release <b>{reqVer}</b> touches <b>{impacted}</b> API{impacted === 1 ? '' : 's'}. The other <b>{base}</b> have no {reqVer} route and resolve to their <b>base</b> route — listed below but not counted as in-scope.</div>
         )}
       </div>
       {cat.groups.map((g) => {
         const cls = groupClass(g.version);
         const isOpen = open.has(g.version);
-        const label = g.version === 'N/A' ? 'N/A · base fallback' : g.version === '(no route found)' ? g.version : 'Release ' + g.version;
+        const label = g.version === 'N/A' ? 'Base' : g.version === '(no route found)' ? g.version : 'Release ' + g.version;
         return (
           <div className={'panel catalog-group ' + cls} key={g.version}>
             <button type="button" className="catalog-group-head" aria-expanded={isOpen} onClick={() => toggle(g.version)}>
@@ -135,7 +135,7 @@ function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'ca
                     <div className="op">{t.operationName}
                       {t.resolvedRoute && (
                         <span className={'pill ' + (t.baseFallback ? 'na' : 'versioned')}>
-                          {t.baseFallback ? 'N/A' : 'R' + (t.resolvedVersion || '')}
+                          {t.baseFallback ? 'Base' : 'R' + (t.resolvedVersion || '')}
                         </span>
                       )}
                     </div>

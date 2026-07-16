@@ -6,7 +6,6 @@ import { apiIdsForGroup, baseCount, filterGraphByApis, inScopeCount, isNaVersion
 import ControlPanel from '../components/ControlPanel';
 import { sourceParams } from '../components/SourceFields';
 import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
-import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import { depParams, loadDeps, saveDeps } from '../deps';
 import ResultPanels from '../components/ResultPanels';
@@ -54,7 +53,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [graphGroup, setGraphGroup] = useState<string>('ALL');   // which release version's subgraph the graph shows
   const [exporting, setExporting] = useState(false);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a successful analysis
-  const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
+  const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const graphRef = useRef<GraphHandle>(null);
 
   const setModules = (m: ModuleSource[]) => { setModulesState(m); localStorage.setItem(appKey(app, 'modules'), JSON.stringify(m)); };
@@ -162,7 +161,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     // number reads as "changed this release", not "everything in the repo".
     const base = baseCount(cat);
     if (base > 0 && !isNaVersion(cat.requestedVersion) && !cat.unversioned) {
-      stats.push({ label: 'base (N/A)', value: base, tone: 'muted' });
+      stats.push({ label: 'base', value: base, tone: 'muted' });
     }
     return stats;
   };
@@ -185,9 +184,6 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           {catalogs.length > 1 && activeModule && (
             <div className="sub" style={{ padding: '2px 2px 8px' }}>Showing module <b>{names[activeModule.id] || 'module'}</b> — the report (PDF) covers all {catalogs.length}.</div>
           )}
-          {(data?.needsReview?.length ?? 0) > 0 && (
-            <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
-          )}
           {error && <div className="err">Error: {error}</div>}
           {data && data.needsReview && data.needsReview.length > 0 && (
             <NeedsReviewBox items={data.needsReview} />
@@ -206,8 +202,8 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
               <button key={g.version}
                       className={'gg-chip' + (g.version === 'N/A' ? ' na' : '') + (graphGroup === g.version ? ' on' : '')}
                       onClick={() => setGraphGroup(g.version)}
-                      title={g.version === 'N/A' ? 'Base-fallback APIs — no route at this release' : 'APIs on release ' + g.version}>
-                {g.version === 'N/A' ? 'N/A' : 'R' + g.version}<b>{g.traces.length}</b>
+                      title={g.version === 'N/A' ? 'Base-route APIs — no route at this release' : 'APIs on release ' + g.version}>
+                {g.version === 'N/A' ? 'Base' : 'R' + g.version}<b>{g.traces.length}</b>
               </button>
             ))}
             <button className={'gg-chip' + (graphGroup === 'ALL' ? ' on' : '')} onClick={() => setGraphGroup('ALL')}

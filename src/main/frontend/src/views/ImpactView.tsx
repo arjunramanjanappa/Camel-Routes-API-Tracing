@@ -4,7 +4,6 @@ import type { ApiImpact, DepSource, ImpactIndex, Meta } from '../types';
 import { sourceParams } from '../components/SourceFields';
 import ControlPanel from '../components/ControlPanel';
 import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
-import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import { depParams, loadDeps, saveDeps } from '../deps';
 import { backendPath } from '../spl';
@@ -31,7 +30,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
-  const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
+  const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const [reports, setReports] = useState<ModuleResult<ImpactIndex>[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -214,9 +213,6 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
                        statsOf={statsOf} unversionedOf={(r) => !!r.result?.unversioned} />
       )}
 
-      {(idx?.needsReview?.length ?? 0) > 0 && (
-        <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
-      )}
 
       <Steps steps={steps} />
 

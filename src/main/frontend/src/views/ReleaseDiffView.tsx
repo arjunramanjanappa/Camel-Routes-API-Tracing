@@ -7,7 +7,6 @@ import ApiFlowModal from '../components/ApiFlowModal';
 import { sourceParams } from '../components/SourceFields';
 import ModulesEditor from '../components/ModulesEditor';
 import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
-import DependencyEditor from '../components/DependencyEditor';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import InfoBanner from '../components/InfoBanner';
 import { depParams, loadDeps, saveDeps } from '../deps';
@@ -190,7 +189,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const setModules = (m: ModuleSource[]) => { setModulesState(m); saveModulesForApp(app || 'Mighty', m); };
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
-  const [deps, setDeps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
+  const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const anyValid = modules.some(moduleValid);
   const [reports, setReports] = useState<ModuleResult<VersionDiffReport>[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -341,9 +340,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
       )}
 
-      {(report?.needsReview?.length ?? 0) > 0 && (
-        <div className="dep-zone"><DependencyEditor deps={deps} onChange={setDeps} /></div>
-      )}
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 

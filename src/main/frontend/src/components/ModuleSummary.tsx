@@ -10,17 +10,32 @@ interface Props<T> {
   statsOf: (r: ModuleResult<T>) => ModuleStat[];
   /** True when the module is unversioned (analysed at N/A) — shows the amber chip. */
   unversionedOf?: (r: ModuleResult<T>) => boolean;
+  /** Export the ONE report covering all modules. Rendered as a single button in the strip header. */
+  onExport?: () => void;
+  exportLabel?: string;
+  exportDisabled?: boolean;
+  exportTitle?: string;
 }
 
 /**
  * The coordinator's at-a-glance strip: one card per module with its headline stats, doubling as
  * the selector — clicking a card shows that module's detail below (in the tab's existing view).
+ * The single "export the whole report" button lives in the header here (a common place), so it is
+ * clearly one report for all modules — not per selected module.
  */
-export default function ModuleSummary<T>({ results, activeId, onSelect, statsOf, unversionedOf }: Props<T>) {
+export default function ModuleSummary<T>({ results, activeId, onSelect, statsOf, unversionedOf, onExport, exportLabel, exportDisabled, exportTitle }: Props<T>) {
   if (results.length <= 1) return null;
   return (
     <div className="mod-summary">
-      <div className="mod-summary-h">By module <span className="muted">— click a module to see its detail</span></div>
+      <div className="mod-summary-h row between">
+        <span>By module <span className="muted">— click a module to see its detail</span></span>
+        {onExport && (
+          <button className="minibtn" onClick={onExport} disabled={exportDisabled}
+                  title={exportTitle || 'Download one PDF report covering every module'}>
+            {exportLabel || '⤓ Export PDF'}
+          </button>
+        )}
+      </div>
       <div className="mod-cards">
         {results.map((r) => {
           const na = unversionedOf ? unversionedOf(r) : false;

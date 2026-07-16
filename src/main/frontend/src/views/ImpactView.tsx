@@ -313,7 +313,11 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
                 {impacted.length > 0 && (
                   <span className="row" style={{ gap: 6 }}>
                     <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}>+ select for analysis</button>
-                    <button className="minibtn" onClick={exportPdf} title={multi ? 'PDF of this module’s impacted APIs (the log verification below covers all modules)' : 'Download a shareable PDF report'}>⤓ Export PDF</button>
+                    {/* Multi-module: the one Release Test report is the log verification below (all modules),
+                        so the per-module impact-footprint export is hidden to keep a single, common export. */}
+                    {!multi && (
+                      <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ Export PDF</button>
+                    )}
                   </span>
                 )}
               </div>

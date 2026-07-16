@@ -335,7 +335,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       {reports.length > 1 && (
         <div style={{ padding: '0 18px' }}>
           <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}
-                         statsOf={statsOf} unversionedOf={(r) => !!r.result?.snapshot} />
+                         statsOf={statsOf} unversionedOf={(r) => !!r.result?.snapshot}
+                         onExport={exportPdf}
+                         exportTitle="One PDF covering every module — changed + new APIs to test" />
         </div>
       )}
 
@@ -362,7 +364,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
               <span className="diff-nav-label">Latest routes</span>
               <span className="diff-nav-count">{report.snapshotCount ?? report.apis.length}</span>
             </div>
-            {report.apis.length > 0 && (
+            {report.apis.length > 0 && reports.length <= 1 && (
               <button className="minibtn diff-nav-export" onClick={exportPdf} title="Download the latest-routes snapshot as a PDF">⤓ Export PDF</button>
             )}
           </div>
@@ -421,7 +423,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                 <span className="diff-nav-count">{counts[s]}</span>
               </button>
             ))}
-            {report.apis.length > 0 && (
+            {report.apis.length > 0 && reports.length <= 1 && (
               <button className="minibtn diff-nav-export" onClick={exportPdf} title="Download the full report as a PDF">⤓ Export PDF</button>
             )}
           </div>

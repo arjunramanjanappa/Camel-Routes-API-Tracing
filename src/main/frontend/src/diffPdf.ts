@@ -1,7 +1,9 @@
 import type { ApiDiff, DiffStatus, VersionDiffReport } from './types';
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
 
-const STATUS_ORDER: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
+// Only changed + new APIs are listed in the report body — the utility goal is "what to test this
+// release". Unchanged APIs are still counted in the summary table, just not enumerated.
+const LISTED_STATUSES: DiffStatus[] = ['CHANGED', 'NEW'];
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
   if (s === 'CHANGED') return { title: 'Changed APIs', ramp: PAL.amber,
     blurb: 'Existing APIs whose Camel flow differs from the previous version - review and regression-test these.' };
@@ -54,15 +56,15 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   // ===== How to read =====
   r.legend('How to read this report', [
     'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
-    'Changed = the resolved Camel flow differs (routes, backends or service versions).',
-    'New = first appears in this release; Unchanged = version bump with no behavioural change.',
+    'Only changed and new APIs are listed — the ones to regression-test this release. Unchanged APIs are counted in the summary above but not listed.',
+    'Changed = the resolved Camel flow differs (routes, backends or service versions). New = first appears in this release.',
     'Under "What changed", lines marked - were removed and + were added vs the previous version.',
   ]);
 
   const footer = `TraceGuard - Release impact ${ver}${app ? ' - ' + app : ''}`;
 
   // ===== Impact by module =====
-  r.banner('Impact by module', PAL.blue, 'Each module’s changes (changed first). N/A modules list their latest routes.');
+  r.banner('Impact by module', PAL.blue, 'Each module’s changed + new APIs to test (changed first). N/A modules list their latest routes.');
   for (const m of mods) {
     if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
     const rep = m.report; if (!rep) continue;
@@ -73,13 +75,22 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     } else {
       const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
       rep.apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status as DiffStatus].push(a); });
-      r.section('Module — ' + m.name, rep.changedCount + rep.newCount + rep.unchangedCount, PAL.blue, '');
-      for (const status of STATUS_ORDER) {
-        const list = grouped[status];
-        if (!list.length) continue;
-        const meta = sectionMeta(status);
-        r.para(`${meta.title} (${list.length})`, M, CONTENT_W, 'bold', 10, meta.ramp.text, 13);
-        list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
+      const listedCount = rep.changedCount + rep.newCount;
+      const blurb = rep.unchangedCount > 0
+        ? `${rep.unchangedCount} unchanged API(s) not listed — this report focuses on what to test.`
+        : '';
+      r.section('Module — ' + m.name, listedCount, PAL.blue, blurb);
+      if (listedCount === 0) {
+        r.emptyNote(`Nothing to test in this module — no changed or new APIs`
+          + (rep.unchangedCount > 0 ? ` (${rep.unchangedCount} unchanged).` : '.'));
+      } else {
+        for (const status of LISTED_STATUSES) {
+          const list = grouped[status];
+          if (!list.length) continue;
+          const meta = sectionMeta(status);
+          r.para(`${meta.title} (${list.length})`, M, CONTENT_W, 'bold', 10, meta.ramp.text, 13);
+          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
+        }
       }
     }
     r.reviewSection(rep.needsReview);

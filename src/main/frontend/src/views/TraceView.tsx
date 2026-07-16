@@ -145,7 +145,10 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
                     onField={onField} onAnalyse={analyseAll} />
       {catalogs.length > 1 && (
         <ModuleSummary results={catalogs} activeId={activeId} onSelect={selectModule}
-                       statsOf={statsOf} unversionedOf={(r) => !!asCatalog(r.result)?.unversioned} />
+                       statsOf={statsOf} unversionedOf={(r) => !!asCatalog(r.result)?.unversioned}
+                       onExport={exportPdf} exportDisabled={exporting || !catalogs.length}
+                       exportLabel={exporting ? 'PDF…' : '⤓ Export PDF'}
+                       exportTitle="One PDF covering every module for this release" />
       )}
       <div className="layout">
         <aside className="sidebar">
@@ -171,10 +174,13 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph">Fit</button>
           <button className="minibtn" onClick={() => graphRef.current?.exportPng()}>PNG</button>
-          <button className="minibtn" onClick={exportPdf} disabled={exporting || !catalogs.length}
-                  title="Export one report covering every module for this release">
-            {exporting ? 'PDF…' : 'PDF'}
-          </button>
+          {/* Multi-module: the report export lives in the common "By module" strip header instead. */}
+          {catalogs.length <= 1 && (
+            <button className="minibtn" onClick={exportPdf} disabled={exporting || !catalogs.length}
+                    title="Export the report for this release">
+              {exporting ? 'PDF…' : 'PDF'}
+            </button>
+          )}
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
         {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="multi-module analysis" /></div>}

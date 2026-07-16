@@ -6,9 +6,12 @@ spring:
     name: camel-route-tracer
   servlet:
     multipart:
-      # Uploaded output logs / Splunk exports can be large — allow bulky files.
-      max-file-size: 512MB
-      max-request-size: 512MB
+      # Output logs / Splunk exports can be very large and are often uploaded in several chunks
+      # (each may exceed 200 MB). max-file-size caps a single chunk; max-request-size caps the whole
+      # upload (sum of all chunks). Large parts are spooled to a temp file, so memory stays bounded.
+      max-file-size: 1GB
+      max-request-size: 6GB
+      file-size-threshold: 2MB
 
 # Framework source directory to analyse. No default — set it to your framework
 # checkout via the TRACER_SOURCE_DIR environment variable, or supply it per

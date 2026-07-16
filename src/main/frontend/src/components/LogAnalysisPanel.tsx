@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { analyzeLog } from '../api';
+import { analyzeLog, analyzeLogMulti } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
 import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
@@ -214,22 +214,10 @@ function tally(report: LogAnalysisReport) {
   return { passed, notTested, issues, total: report.apis.length };
 }
 
-/**
- * Combine several uploaded logs into ONE dataset so a release spanning multiple servers/repos is
- * correlated end-to-end (a front-end request in one log paired with its backend call in another).
- * Text logs / Splunk exports are joined with newlines; gzip files are concatenated as raw members
- * (a valid multi-member gzip the backend decompresses).
- */
-async function combineFiles(files: File[]): Promise<File> {
-  if (files.length === 1) return files[0];
-  if (files.some((f) => /\.gz$/i.test(f.name))) {
-    return new File(files, 'combined-logs.gz', { type: 'application/gzip' });
-  }
-  const texts = await Promise.all(files.map((f) => f.text()));
-  return new File([texts.join('\n')], 'combined-logs.txt', { type: 'text/plain' });
+function kb(n: number): string {
+  const mb = n / (1024 * 1024);
+  return mb >= 1 ? mb.toFixed(mb >= 10 ? 0 : 1) + ' MB' : (n / 1024).toFixed(0) + ' KB';
 }
-
-function kb(n: number): string { return (n / 1024).toFixed(0) + ' KB'; }
 
 /**
  * Upload an output log or Splunk export and correlate it against the traced APIs
@@ -287,31 +275,26 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     setLoading(true);
     setError(null);
     try {
-      // All uploaded files are merged into ONE dataset first, so a release that spans several
-      // servers/repos is correlated end-to-end across them (see combineFiles).
-      const corpus = await combineFiles(files);
       if (multi && modules) {
-        // Correlate the combined log against every module for the whole release (selection ignored),
-        // each with its own marker flavour, so it is clear which repo's APIs were missed.
-        const per: PerModuleLog[] = [];
-        for (const m of modules) {
-          try {
-            const rep = await analyzeLog(corpus, {
-              version, country, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, all: true, app: m.app, dep: deps,
-            });
-            per.push({ id: m.id, name: m.name, report: rep });
-          } catch (e) {
-            per.push({ id: m.id, name: m.name, report: null, error: e instanceof Error ? e.message : String(e) });
-          }
-        }
+        // Upload the chunk(s) ONCE; the backend re-reads them per module (no re-upload of a 200 MB+
+        // log) and correlates the whole merged dataset against each module with its own marker.
+        const specs = modules.map((m) => ({ name: m.name, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, app: m.app }));
+        const results = await analyzeLogMulti(files, specs, { version, country, dep: deps });
+        const per: PerModuleLog[] = results.map((res, i) => ({
+          id: modules[i]?.id ?? String(i),
+          name: res.name || modules[i]?.name || 'module',
+          report: res.report,
+          error: res.error || undefined,
+        }));
         setPerModule(per);
         const firstOk = per.find((p) => p.report) || per[0];
         setActiveLogId(firstOk?.id ?? null);
         showReport(firstOk?.report ?? null);
       } else {
         // Single module: unchecked (or nothing selected) ⇒ analyse the whole release (front-end + backends).
+        // Multiple chunks are merged into one dataset server-side.
         const all = !hasSelection || !limitToSelection;
-        const rep = await analyzeLog(corpus, {
+        const rep = await analyzeLog(files, {
           version, country, sourceDir, repo, branch, all, app, dep: deps,
           apis: all ? undefined : selectedApis,
           backends: all ? undefined : selectedBackends,

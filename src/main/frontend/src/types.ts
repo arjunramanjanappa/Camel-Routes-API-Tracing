@@ -245,6 +245,13 @@ export interface BackendLogResult {
   failuresByCode?: Record<string, number> | null;
 }
 
+/** One module's log-verification result in a multi-module release test (backend /log-analysis-multi). */
+export interface ModuleLogReport {
+  name: string;
+  report: LogAnalysisReport | null;
+  error?: string | null;
+}
+
 export interface LogAnalysisReport {
   uploadType: string;
   clientVersion?: string | null;

@@ -1,6 +1,7 @@
 package com.uob.tracer.web;
 
 import com.uob.tracer.api.LogAnalysisReport;
+import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.api.TraceRequest;
 import com.uob.tracer.service.LogAnalysisService;
 import com.uob.tracer.service.RouteTraceService;
@@ -12,12 +13,18 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Vector;
 
 /**
  * Exposes the route trace. Supports both a GET (for the UI / quick links) and a
@@ -120,7 +127,7 @@ public class RouteGraphController {
      */
     @PostMapping("/internal/log-analysis")
     public LogAnalysisReport logAnalysis(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam("file") List<MultipartFile> file,
             @RequestParam(required = false) String version,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String sourceDir,
@@ -131,15 +138,86 @@ public class RouteGraphController {
             @RequestParam(required = false) String repo,
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) List<String> dep) throws IOException {
-        try (InputStream in = file.getInputStream()) {
-            return logService.analyze(in, file.getOriginalFilename(), version, country, sourceDir,
+        try (InputStream in = combined(file)) {
+            return logService.analyze(in, firstName(file), version, country, sourceDir,
                     apis, backends, all, app, repo, branch, dep == null ? List.of() : dep);
         }
+    }
+
+    /**
+     * Multi-module release test: the uploaded log chunk(s) are uploaded ONCE and correlated against
+     * every module's APIs in one request. Each module is re-read from the spooled upload (so a
+     * 200&nbsp;MB+ log is not re-uploaded per module) with its own marker flavour ({@code moduleApp}).
+     * Module specs are parallel lists indexed together; a module that fails carries an error.
+     */
+    @PostMapping("/internal/log-analysis-multi")
+    public List<ModuleLogReport> logAnalysisMulti(
+            @RequestParam("file") List<MultipartFile> file,
+            @RequestParam(required = false) String version,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) List<String> dep,
+            @RequestParam(required = false) List<String> moduleName,
+            @RequestParam(required = false) List<String> moduleSourceDir,
+            @RequestParam(required = false) List<String> moduleRepo,
+            @RequestParam(required = false) List<String> moduleBranch,
+            @RequestParam(required = false) List<String> moduleApp) {
+        int n = moduleName == null ? 0 : moduleName.size();
+        List<String> deps = dep == null ? List.of() : dep;
+        String filename = firstName(file);
+        List<ModuleLogReport> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            String name = moduleName.get(i);
+            try (InputStream in = combined(file)) {   // fresh stream per module — the upload is re-read, not re-sent
+                LogAnalysisReport rep = logService.analyze(in, filename, version, country,
+                        at(moduleSourceDir, i), List.of(), List.of(), true, at(moduleApp, i),
+                        at(moduleRepo, i), at(moduleBranch, i), deps);
+                out.add(new ModuleLogReport(name, rep, null));
+            } catch (Exception e) {
+                out.add(new ModuleLogReport(name, null, e.getMessage() == null ? e.toString() : e.getMessage()));
+            }
+        }
+        return out;
+    }
+
+    private static String firstName(List<MultipartFile> files) {
+        return files == null || files.isEmpty() ? null : files.get(0).getOriginalFilename();
+    }
+
+    /** Blank/missing → null (matches the single-source params); else the value at index i. */
+    private static String at(List<String> l, int i) {
+        if (l == null || i >= l.size()) return null;
+        String v = l.get(i);
+        return (v == null || v.isBlank()) ? null : v;
+    }
+
+    /**
+     * Concatenate the uploaded chunks into one stream so a log split across files (or servers) is
+     * analysed as a single dataset. Text chunks get a newline between them (so a missing trailing
+     * newline never merges two lines); gzip chunks are concatenated raw as multi-member gzip.
+     * Each part is read via {@code getInputStream()}, which the servlet spools re-readably to disk.
+     */
+    private static InputStream combined(List<MultipartFile> files) throws IOException {
+        if (files.size() == 1) return files.get(0).getInputStream();
+        String first = firstName(files);
+        boolean gz = first != null && first.toLowerCase().endsWith(".gz");
+        Vector<InputStream> streams = new Vector<>();
+        for (int i = 0; i < files.size(); i++) {
+            if (i > 0 && !gz) streams.add(new ByteArrayInputStream("\n".getBytes(StandardCharsets.UTF_8)));
+            streams.add(files.get(i).getInputStream());
+        }
+        return new SequenceInputStream(streams.elements());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> badRequest(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, String>> tooLarge(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Map.of("error", "Upload exceeds the server limit. Reduce the number/size of files, "
+                        + "or raise spring.servlet.multipart.max-request-size / max-file-size."));
     }
 }

@@ -88,7 +88,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           const list = grouped[status];
           if (!list.length) continue;
           const meta = sectionMeta(status);
-          r.para(`${meta.title} (${list.length})`, M, CONTENT_W, 'bold', 10, meta.ramp.text, 13);
+          r.groupHead(meta.title, list.length, meta.ramp);
           list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
         }
       }

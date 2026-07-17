@@ -110,14 +110,15 @@ function apiBreakdown(r: ReportDoc, report: LogAnalysisReport, useSections: bool
   for (const status of ORDER) {
     const list = report.apis.filter((a) => a.status === status).sort((a, b) => a.api.localeCompare(b.api));
     if (!list.length) continue;
+    // The header (section band, or a colour-coded group pill) carries the status; rows don't repeat it.
     if (useSections) r.section(ST[status].label + ' APIs', list.length, ST[status].ramp, SECTION_BLURB[status]);
-    else r.para(`${ST[status].label} (${list.length})`, M, CONTENT_W, 'bold', 10, ST[status].ramp.text, 13);
+    else r.groupHead(ST[status].label, list.length, ST[status].ramp);
     list.forEach((a, i) => { if (i > 0) r.separator(); apiEntry(r, a); });
   }
   if (report.backends.length) {
     const sorted = [...report.backends].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.backend.localeCompare(b.backend));
     if (useSections) r.section('Backend calls', sorted.length, PAL.gray, 'Backends correlated directly from the logs (across the analysed APIs).');
-    else r.para(`Backend calls (${sorted.length})`, M, CONTENT_W, 'bold', 10, PAL.gray.text, 13);
+    else r.groupHead('Backend calls', sorted.length, PAL.gray);
     sorted.forEach((b, i) => { if (i > 0) r.separator(); backendEntry(r, b); });
   }
 }
@@ -220,9 +221,8 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
 
 function apiEntry(r: ReportDoc, a: ApiLogResult) {
   r.ensure(60);
-  const meta = ST[a.status];
-  const pw = r.pill(meta.label, M, meta.ramp.fill, meta.ramp.text, 8);
-  r.text(a.api, M + pw + 8, 'bold', 11, PAL.ink);   // API path only (operation name dropped)
+  // No status pill here — the group header above already states it (Passed / Failed / Not tested …).
+  r.text(a.api, M, 'bold', 11, PAL.ink);   // API path only (operation name dropped)
   r.y += 18;
 
   // Overall numbers as a compact summary strip (replaces the old dense stats line).

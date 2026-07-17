@@ -80,15 +80,14 @@ export async function exportApiTracePdf(mods: ModuleCat[], app?: string, version
     if (!traces.length) {
       r.para('No APIs resolve to a route for this release in this module.', M + 4, CONTENT_W - 4, 'normal', 9, PAL.muted, 12);
     }
-    // --- Release group (green heading) ---
+    // --- Release group (green group header) ---
     if (release.length) {
-      r.para(`Release ${ver} (${release.length})`, M, CONTENT_W, 'bold', 10, PAL.green.text, 13);
+      r.groupHead(`Release ${ver}`, release.length, PAL.green);
       release.forEach((t, i) => { if (i > 0) r.separator(); apiRow(r, t, svc); });
     }
-    // --- Base group (amber heading, compact rows) — matches the UI's base styling ---
+    // --- Base group (amber group header, compact rows) — matches the UI's base styling ---
     if (base.length) {
-      r.y += 6;
-      r.para(`Base (${base.length})`, M, CONTENT_W, 'bold', 10, PAL.amber.text, 13);
+      r.groupHead('Base', base.length, PAL.amber);
       r.para(`Resolved to their base route — no ${ver} version.`, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
       base.forEach((t) => baseRow(r, t));
     }

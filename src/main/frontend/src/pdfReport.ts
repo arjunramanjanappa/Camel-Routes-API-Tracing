@@ -242,6 +242,17 @@ export class ReportDoc {
     if (blurb) { this.para(blurb, M, CONTENT_W, 'normal', 9, PAL.muted, 12); this.y += 4; }
   }
 
+  /**
+   * A compact, colour-coded group header — a filled pill with its count (e.g. "Not tested  (13)"),
+   * for labelling a subgroup INSIDE a section without a second heavy full-width band. Scannable,
+   * and the colour carries the status so the rows below don't need to repeat it.
+   */
+  groupHead(label: string, count: number, r: Ramp) {
+    this.ensure(30); this.y += 8;
+    this.pill(`${label}   (${count})`, M, r.fill, r.text, 9.5);
+    this.y += 17;
+  }
+
   separator() { this.ensure(14); this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y); this.y += 12; }
 
   /** Monospace +added / -removed lines with coloured backgrounds. */

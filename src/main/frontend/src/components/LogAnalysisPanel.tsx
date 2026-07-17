@@ -223,10 +223,11 @@ function kb(n: number): string {
 const SIZE_CAVEAT = 'Up to 1 GB per file and 6 GB per upload. Larger logs — split into chunks and add them all.';
 
 /** A reusable drop-zone: pick one or more files, list them with size + remove, add more on click. */
-function FileZone({ files, onAdd, onRemove, hint, label }: {
+function FileZone({ files, onAdd, onRemove, onClear, hint, label }: {
   files: File[];
   onAdd: (picked: File[]) => void;
   onRemove: (i: number) => void;
+  onClear: () => void;
   hint: string;
   label?: string;
 }) {
@@ -250,6 +251,10 @@ function FileZone({ files, onAdd, onRemove, hint, label }: {
       </div>
       {files.length > 0 && (
         <div className="logfiles">
+          <div className="logfiles-head">
+            <span className="muted">This set will be analysed ({files.length} file{files.length === 1 ? '' : 's'} · {kb(total)})</span>
+            <button type="button" className="logfiles-clear" onClick={onClear}>Clear all</button>
+          </div>
           {files.map((f, i) => (
             <div className="logfile" key={f.name + f.size}>
               <span className="logfile-name" title={f.name}>{f.name}</span>
@@ -453,7 +458,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </div>
       )}
 
-      <FileZone files={files} onAdd={addFiles} onRemove={removeFile}
+      <FileZone files={files} onAdd={addFiles} onRemove={removeFile} onClear={() => setFiles([])}
                 hint={inputType === 'SPLUNK'
                   ? 'Click to choose Splunk export(s) — .csv / .json, or a _raw .txt — one file or several chunks (format auto-detected)'
                   : 'Click to choose output log(s) — .txt / .log — one file or several chunks (format auto-detected)'} />

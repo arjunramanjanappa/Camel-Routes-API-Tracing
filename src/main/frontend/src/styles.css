@@ -234,6 +234,9 @@ table.grid tr:hover td { background: #f7f9fb; }
 .uploader.has { border-style: solid; border-color: #86efac; background: #f0fdf4; color: #166534; }
 /* uploaded-file chips (multi-file log upload) */
 .logfiles { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.logfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 1px; }
+.logfiles-clear { border: none; background: none; cursor: pointer; color: #dc2626; font-size: 12px; font-weight: 600; padding: 0; }
+.logfiles-clear:hover { text-decoration: underline; }
 .logfile { display: flex; align-items: center; gap: 8px; padding: 5px 9px; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; font-size: 12px; }
 .logfile-name { flex: 1; font-weight: 600; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logfile-size { color: #94a3b8; font-variant-numeric: tabular-nums; }

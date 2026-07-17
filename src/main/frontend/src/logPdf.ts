@@ -122,6 +122,23 @@ function apiBreakdown(r: ReportDoc, report: LogAnalysisReport, useSections: bool
   }
 }
 
+/** Release-test readiness (issues-only rule): issues → At risk, else not-tested → Review, else Ready. */
+function readinessLabel(s: { issues: number; notTested: number; total: number }): string {
+  if (s.total === 0) return 'No APIs';
+  if (s.issues > 0) return 'At risk';
+  if (s.notTested > 0) return 'Review';
+  return 'Ready';
+}
+function readinessRank(m: ModuleLog): number {
+  if (m.error) return 0;   // not analysed → most attention
+  if (!m.report) return 5;
+  const s = statusCounts(m.report);
+  if (s.total === 0) return 4;
+  if (s.issues > 0) return 1;
+  if (s.notTested > 0) return 2;
+  return 3;   // ready
+}
+
 /**
  * Render a multi-module log verification to ONE PDF: a per-module coverage table (which repo's
  * APIs passed / had issues / were not tested), then each module's breakdown grouped by outcome.
@@ -132,12 +149,16 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
   const ver = version || first?.clientVersion || 'BASE';
   const country = first?.country;
 
-  const rows = mods.map((m) => {
+  // Worst first: errored, at-risk, review, ready — so what needs attention leads the report.
+  const ordered = [...mods].sort((a, b) => readinessRank(a) - readinessRank(b));
+  const rows = ordered.map((m) => {
     const s = m.report ? statusCounts(m.report) : { total: 0, passed: 0, issues: 0, notTested: 0 };
-    return { name: m.name, error: m.error, total: s.total, passed: s.passed, issues: s.issues, notTested: s.notTested };
+    return { name: m.name, error: m.error, total: s.total, passed: s.passed, issues: s.issues, notTested: s.notTested,
+      status: m.error ? 'Failed' : readinessLabel(s) };
   });
   const tot = { total: 0, passed: 0, issues: 0, notTested: 0 };
   rows.forEach((x) => { tot.total += x.total; tot.passed += x.passed; tot.issues += x.issues; tot.notTested += x.notTested; });
+  const attention = rows.filter((x) => x.error || x.status === 'At risk' || x.status === 'Review').length;
 
   r.header('Release Test Report',
     `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
@@ -152,20 +173,21 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
     { n: tot.notTested, label: 'Not tested', ramp: PAL.red },
   ]);
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} verified across ${mods.length} module(s): `
-    + `${tot.passed} passed end-to-end, ${tot.issues} had issues and ${tot.notTested} were not seen in the uploaded logs. `
-    + `Test coverage by module — a "Not tested" count flags which repo's APIs the run missed:`);
+    + `${tot.passed} passed end-to-end, ${tot.issues} had issues and ${tot.notTested} were not seen in the uploaded logs`
+    + (attention > 0 ? `. ${attention} module(s) need attention (at risk or to review), shown first.` : '. ')
+    + ` Test coverage by module:`);
   // A zero count is shown as a dash so only the outcomes the log actually derived stand out.
   const n0 = (v: number) => (v > 0 ? v : '—');
   r.dataTable(
-    ['Module (pom artifactId)', 'APIs', 'Passed', 'Issues', 'Not tested'],
-    rows.map((x) => [x.name + (x.error ? '  (failed)' : ''),
-      x.error ? '—' : x.total, x.error ? '—' : n0(x.passed), x.error ? '—' : n0(x.issues), x.error ? '—' : n0(x.notTested)]),
-    ['Total', tot.total, n0(tot.passed), n0(tot.issues), n0(tot.notTested)],
+    ['Module (pom artifactId)', 'APIs', 'Passed', 'Issues', 'Not tested', 'Status'],
+    rows.map((x) => [x.name,
+      x.error ? '—' : x.total, x.error ? '—' : n0(x.passed), x.error ? '—' : n0(x.issues), x.error ? '—' : n0(x.notTested), x.status]),
+    ['Total', tot.total, n0(tot.passed), n0(tot.issues), n0(tot.notTested), ''],
   );
 
   // ===== How to read this report =====
   r.legend('How to read this report', [
-    'The same uploaded log is correlated against each module (repo) for this release — grouped so it is clear which module was tested.',
+    'Modules are ordered worst-first: At risk (has issues), then Review (has not-tested APIs), then Ready — so what needs attention leads.',
     'Each API is verified end-to-end by correlation id: the front-end request paired with its backend call.',
     'Passed = success both ends; Failed/Timeout = backend error or no response; Not tested = no matching log lines for that module.',
     'A module with a high "Not tested" count is a repo whose APIs the uploaded logs did not exercise.',
@@ -175,7 +197,7 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
 
   // ===== Test coverage by module =====
   r.banner('Test coverage by module', PAL.blue, 'Each module’s APIs grouped by outcome (worst first). "Not tested" = the logs did not exercise it.');
-  for (const m of mods) {
+  for (const m of ordered) {
     if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
     const rep = m.report; if (!rep) continue;
     const s = statusCounts(rep);

@@ -139,6 +139,19 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
     if (patch.version !== undefined) setVersion(patch.version);
   };
 
+  const scopeRollup = useMemo<ModuleStat[]>(() => {
+    if (catalogs.length <= 1) return [];
+    const cats = catalogs.map((r) => asCatalog(r.result)).filter((c): c is CatalogResponse => !!c);
+    const apis = cats.reduce((n, c) => n + inScopeCount(c), 0);
+    const base = cats.reduce((n, c) => n + baseCount(c), 0);
+    const tiles: ModuleStat[] = [
+      { label: 'modules', value: catalogs.length, tone: 'muted' },
+      { label: 'APIs in scope', value: apis, tone: 'info' },
+    ];
+    if (base > 0) tiles.push({ label: 'base', value: base, tone: 'muted' });
+    return tiles;
+  }, [catalogs]);
+
   const statsOf = (r: ModuleResult<AnalyzeResponse>): ModuleStat[] => {
     const cat = asCatalog(r.result);
     if (!cat) return [];
@@ -162,6 +175,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
       {catalogs.length > 1 && (
         <ModuleSummary results={catalogs} activeId={activeId} onSelect={selectModule}
                        statsOf={statsOf} unversionedOf={(r) => !!asCatalog(r.result)?.unversioned}
+                       rollup={scopeRollup}
                        onExport={exportPdf} exportDisabled={exporting || !catalogs.length}
                        exportLabel={exporting ? 'PDF…' : '⤓ Export PDF'}
                        exportTitle="One PDF covering every module for this release" />

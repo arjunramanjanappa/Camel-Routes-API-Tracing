@@ -235,6 +235,16 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   };
 
   const selectModule = (id: string) => { setActiveId(id); show(reports.find((r) => r.module.id === id)?.result ?? null); };
+  const impactRollup = useMemo<ModuleStat[]>(() => {
+    if (reports.length <= 1) return [];
+    const reps = reports.map((r) => r.result).filter((x): x is VersionDiffReport => !!x);
+    return [
+      { label: 'modules', value: reports.length, tone: 'muted' },
+      { label: 'changed', value: reps.reduce((n, r) => n + r.changedCount, 0), tone: 'warn' },
+      { label: 'new', value: reps.reduce((n, r) => n + r.newCount, 0), tone: 'good' },
+      { label: 'unchanged', value: reps.reduce((n, r) => n + r.unchangedCount, 0), tone: 'muted' },
+    ];
+  }, [reports]);
   const statsOf = (r: ModuleResult<VersionDiffReport>): ModuleStat[] => {
     const rep = r.result;
     if (!rep) return [];
@@ -337,6 +347,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         <div style={{ padding: '0 18px' }}>
           <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}
                          statsOf={statsOf} unversionedOf={(r) => !!r.result?.snapshot}
+                         rollup={impactRollup}
                          onExport={exportPdf}
                          exportTitle="One PDF covering every module — changed + new APIs to test" />
         </div>

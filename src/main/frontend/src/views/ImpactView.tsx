@@ -190,6 +190,13 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
     if (!ix) return [];
     return [{ label: 'APIs', value: ix.apis.length, tone: 'info' }];
   };
+  const testRollup = useMemo<ModuleStat[]>(() => {
+    if (reports.length <= 1) return [];
+    return [
+      { label: 'modules', value: reports.length, tone: 'muted' },
+      { label: 'APIs', value: reports.reduce((n, r) => n + (r.result?.apis.length || 0), 0), tone: 'info' },
+    ];
+  }, [reports]);
 
   const loaded = !!idx;
   const picked = selectedApis.size > 0;
@@ -211,7 +218,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
 
       {multi && (
         <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}
-                       statsOf={statsOf} unversionedOf={(r) => !!r.result?.unversioned} />
+                       statsOf={statsOf} unversionedOf={(r) => !!r.result?.unversioned} rollup={testRollup} />
       )}
 
 

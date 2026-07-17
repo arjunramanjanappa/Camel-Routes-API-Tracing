@@ -15,6 +15,8 @@ interface Props<T> {
   exportLabel?: string;
   exportDisabled?: boolean;
   exportTitle?: string;
+  /** Release-wide rollup tiles (aggregate across modules) shown as a band above the cards. */
+  rollup?: ModuleStat[];
 }
 
 /**
@@ -23,10 +25,20 @@ interface Props<T> {
  * The single "export the whole report" button lives in the header here (a common place), so it is
  * clearly one report for all modules — not per selected module.
  */
-export default function ModuleSummary<T>({ results, activeId, onSelect, statsOf, unversionedOf, onExport, exportLabel, exportDisabled, exportTitle }: Props<T>) {
+export default function ModuleSummary<T>({ results, activeId, onSelect, statsOf, unversionedOf, onExport, exportLabel, exportDisabled, exportTitle, rollup }: Props<T>) {
   if (results.length <= 1) return null;
   return (
     <div className="mod-summary">
+      {rollup && rollup.length > 0 && (
+        <div className="mod-rollup">
+          {rollup.map((s, i) => (
+            <div key={i} className="mr-tile">
+              <div className={'mr-n ' + (s.tone || 'muted')}>{s.value}</div>
+              <div className="mr-l">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mod-summary-h row between">
         <span>By module <span className="muted">— click a module to see its detail</span></span>
         {onExport && (

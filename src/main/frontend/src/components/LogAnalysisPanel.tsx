@@ -214,6 +214,21 @@ function tally(report: LogAnalysisReport) {
   return { passed, notTested, issues, total: report.apis.length };
 }
 
+/** Release-test readiness for a module (issues-only rule): issues → at risk, else not-tested → review, else ready. */
+type Readiness = 'risk' | 'review' | 'ready' | 'empty';
+function readiness(t: { passed: number; issues: number; notTested: number; total: number }): Readiness {
+  if (t.total === 0) return 'empty';
+  if (t.issues > 0) return 'risk';
+  if (t.notTested > 0) return 'review';
+  return 'ready';
+}
+const READINESS: Record<Readiness, { label: string; cls: string }> = {
+  risk: { label: 'At risk', cls: 'risk' },
+  review: { label: 'Review', cls: 'review' },
+  ready: { label: 'Ready', cls: 'ready' },
+  empty: { label: 'No APIs', cls: 'empty' },
+};
+
 function kb(n: number): string {
   const mb = n / (1024 * 1024);
   return mb >= 1 ? mb.toFixed(mb >= 10 ? 0 : 1) + ' MB' : (n / 1024).toFixed(0) + ' KB';
@@ -378,6 +393,25 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     }
   };
 
+  // Coverage rollup across modules + attention count (a module errored, at-risk, or to-review).
+  const cov = useMemo(() => {
+    let passed = 0, issues = 0, notTested = 0, attention = 0;
+    perModule.forEach((p) => {
+      if (p.error) { attention++; return; }
+      if (!p.report) return;
+      const t = tally(p.report);
+      passed += t.passed; issues += t.issues; notTested += t.notTested;
+      const r = readiness(t);
+      if (r === 'risk' || r === 'review') attention++;
+    });
+    return { passed, issues, notTested, attention };
+  }, [perModule]);
+  // Worst-first: errored, then at-risk, review, ready, empty — so what needs attention leads.
+  const sortedPer = useMemo(() => {
+    const rank = (p: PerModuleLog) => (p.error ? 0 : p.report ? ({ risk: 1, review: 2, ready: 3, empty: 4 } as const)[readiness(tally(p.report))] : 4);
+    return [...perModule].map((p, i) => ({ p, i })).sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i).map((x) => x.p);
+  }, [perModule]);
+
   const selectLogModule = (id: string) => {
     const p = perModule.find((x) => x.id === id);
     setActiveLogId(id);
@@ -516,15 +550,27 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
 
       {multi && perModule.length > 0 && (
         <div style={{ marginTop: 12 }} ref={resultsRef}>
-          <div className="sub" style={{ marginBottom: 6 }}>Test coverage by module — click one to see its APIs below. The exported PDF covers all {perModule.length}.</div>
+          <div className="row between" style={{ marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+            <span className="sub" style={{ margin: 0 }}>Test coverage by module — worst first · click one to see its APIs below. The exported PDF covers all {perModule.length}.</span>
+            <span className="cov-roll">
+              {cov.passed > 0 && <span className="lm-ok">{cov.passed} passed</span>}
+              {cov.notTested > 0 && <span className="lm-nt">{cov.notTested} not tested</span>}
+              {cov.issues > 0 && <span className="lm-bad">{cov.issues} issue{cov.issues === 1 ? '' : 's'}</span>}
+              {cov.attention > 0 && <span className="attn-chip">{cov.attention} need attention</span>}
+            </span>
+          </div>
           <div className="logmods">
-            {perModule.map((p) => {
+            {sortedPer.map((p) => {
               const t = p.report ? tally(p.report) : null;
+              const rd = p.error ? null : t ? READINESS[readiness(t)] : null;
               return (
                 <button key={p.id} className={'logmod' + (p.id === activeLogId ? ' active' : '') + (p.error ? ' err' : '')}
                         onClick={() => selectLogModule(p.id)} title={p.error || undefined}>
-                  <div className="logmod-name">{p.name}</div>
-                  {p.error ? <div className="logmod-sub err">not analysed</div>
+                  <div className="logmod-name">{p.name}
+                    {p.error ? <span className="rd-pill risk">Not analysed</span>
+                      : rd && <span className={'rd-pill ' + rd.cls}>{rd.label}</span>}
+                  </div>
+                  {p.error ? <div className="logmod-sub err">{p.error}</div>
                     : t ? (
                       <div className="logmod-stats">
                         {/* Show a count only when it's non-zero — a 0 means "the log derived none of

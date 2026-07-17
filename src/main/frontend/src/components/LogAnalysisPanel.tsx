@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { analyzeLog, analyzeLogMulti } from '../api';
+import { analyzeLog, analyzeLogMulti, type UploadProgress } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
 import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
@@ -274,6 +274,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [files, setFiles] = useState<File[]>([]);   // one upload (chunks) analysed against every selected module
   const [limitToSelection, setLimitToSelection] = useState(true);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);   // upload progress while analysing
+  const [elapsed, setElapsed] = useState(0);                                // seconds since Analyse was clicked
   const [report, setReport] = useState<LogAnalysisReport | null>(null);
   const [perModule, setPerModule] = useState<PerModuleLog[]>([]);   // multi-module: one report per repo
   const [activeLogId, setActiveLogId] = useState<string | null>(null);
@@ -305,6 +307,14 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
+  // Tick an elapsed-seconds counter while a scan is running, so the wait is visible.
+  useEffect(() => {
+    if (!loading) { setElapsed(0); return; }
+    const t0 = Date.now();
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 500);
+    return () => window.clearInterval(id);
+  }, [loading]);
+
   const showReport = (rep: LogAnalysisReport | null) => {
     setReport(rep);
     setOpen(new Set());
@@ -316,13 +326,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     if (!canAnalyse) return;
     setLoading(true);
     setError(null);
+    setProgress({ loaded: 0, total: files.reduce((n, f) => n + f.size, 0) || 1, done: false });
+    const onProg = (p: UploadProgress) => setProgress(p);
     try {
       if (multi && modules) {
         // Upload the chunk(s) ONCE; the backend parses the merged dataset once per distinct marker
         // flavour and correlates it against every module — so each API is attributed to its owning
         // module, and a line logged on one server still matches wherever it appears in the upload.
         const specs = modules.map((m) => ({ name: m.name, sourceDir: m.sourceDir, repo: m.repo, branch: m.branch, app: m.app }));
-        const results = await analyzeLogMulti(files, specs, { version, country, dep: deps });
+        const results = await analyzeLogMulti(files, specs, { version, country, dep: deps }, onProg);
         const per: PerModuleLog[] = results.map((res, i) => ({
           id: modules[i]?.id ?? String(i),
           name: res.name || modules[i]?.name || 'module',
@@ -341,7 +353,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
           version, country, sourceDir, repo, branch, all, app, dep: deps,
           apis: all ? undefined : selectedApis,
           backends: all ? undefined : selectedBackends,
-        });
+        }, onProg);
         setPerModule([]);
         showReport(rep);
       }
@@ -349,6 +361,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -467,6 +480,24 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       <button className="trace" disabled={!canAnalyse || loading} onClick={run}>
         {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
       </button>
+
+      {loading && (() => {
+        const uploading = !!progress && !progress.done;
+        const pct = progress && progress.total > 0 ? Math.min(100, (progress.loaded / progress.total) * 100) : 0;
+        return (
+          <div className="analyse-progress">
+            <div className={'ap-bar' + (uploading ? '' : ' indet')}>
+              <div className="ap-fill" style={uploading ? { width: pct + '%' } : undefined} />
+            </div>
+            <div className="ap-label">
+              {uploading
+                ? <>Uploading the log… <b>{Math.round(pct)}%</b> {progress ? <span className="muted">({kb(progress.loaded)} / {kb(progress.total)})</span> : null}</>
+                : <>Upload complete — scanning on the server… <span className="muted">large logs take a little longer</span></>}
+              {' '}· {elapsed}s elapsed
+            </div>
+          </div>
+        );
+      })()}
 
       {error && <div className="err">Error: {error}</div>}
 

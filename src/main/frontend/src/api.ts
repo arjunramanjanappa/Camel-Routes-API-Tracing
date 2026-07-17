@@ -41,10 +41,42 @@ export async function fetchVersionDiff(sourceDir?: string, country?: string, ver
   return data as VersionDiffReport;
 }
 
+/** Upload progress: bytes sent so far / total; `done` once the body is fully sent (server now processing). */
+export interface UploadProgress { loaded: number; total: number; done: boolean; }
+
+/**
+ * POST a multipart form via XHR so upload progress can be reported (fetch can't). onProgress fires
+ * during the upload; when the body is fully sent it fires once with done=true (the server is then
+ * parsing/correlating, which has no client-visible progress).
+ */
+function postForm<T>(url: string, form: FormData, onProgress?: (p: UploadProgress) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress({ loaded: e.loaded, total: e.total, done: e.loaded >= e.total }); };
+      xhr.upload.onload = () => onProgress({ loaded: 1, total: 1, done: true });
+    }
+    xhr.onload = () => {
+      let data: unknown = null;
+      try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON error body */ }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(data as T); return; }
+      const msg = data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
+        ? (data as { error: string }).error
+        : `HTTP ${xhr.status}`;
+      reject(new Error(msg));
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.ontimeout = () => reject(new Error('The upload timed out'));
+    xhr.send(form);
+  });
+}
+
 /** Upload one or more output logs / Splunk exports (chunks) and correlate them against the traced APIs. */
 export async function analyzeLog(
   file: File | File[],
   params: { version?: string; country?: string; sourceDir?: string; apis?: string[]; backends?: string[]; all?: boolean; app?: string; repo?: string; branch?: string; dep?: string[] },
+  onProgress?: (p: UploadProgress) => void,
 ): Promise<LogAnalysisReport> {
   const form = new FormData();
   (Array.isArray(file) ? file : [file]).forEach((f) => form.append('file', f));
@@ -58,10 +90,7 @@ export async function analyzeLog(
   (params.backends ?? []).forEach((b) => form.append('backends', b));
   if (params.all) form.append('all', 'true');
   if (params.app) form.append('app', params.app);
-  const res = await fetch('/internal/log-analysis', { method: 'POST', body: form });
-  const data = await res.json();
-  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
-  return data as LogAnalysisReport;
+  return postForm<LogAnalysisReport>('/internal/log-analysis', form, onProgress);
 }
 
 /** One module's source + marker flavour for a multi-module log verification. */
@@ -76,6 +105,7 @@ export async function analyzeLogMulti(
   files: File[],
   modules: LogModuleSpec[],
   params: { version?: string; country?: string; dep?: string[] },
+  onProgress?: (p: UploadProgress) => void,
 ): Promise<ModuleLogReport[]> {
   const form = new FormData();
   files.forEach((f) => form.append('file', f));
@@ -90,8 +120,5 @@ export async function analyzeLogMulti(
     form.append('moduleBranch', m.branch || '');
     form.append('moduleApp', m.app || '');
   });
-  const res = await fetch('/internal/log-analysis-multi', { method: 'POST', body: form });
-  const data = await res.json();
-  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
-  return data as ModuleLogReport[];
+  return postForm<ModuleLogReport[]>('/internal/log-analysis-multi', form, onProgress);
 }

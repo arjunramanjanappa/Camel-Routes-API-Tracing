@@ -154,11 +154,13 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} verified across ${mods.length} module(s): `
     + `${tot.passed} passed end-to-end, ${tot.issues} had issues and ${tot.notTested} were not seen in the uploaded logs. `
     + `Test coverage by module — a "Not tested" count flags which repo's APIs the run missed:`);
+  // A zero count is shown as a dash so only the outcomes the log actually derived stand out.
+  const n0 = (v: number) => (v > 0 ? v : '—');
   r.dataTable(
     ['Module (pom artifactId)', 'APIs', 'Passed', 'Issues', 'Not tested'],
     rows.map((x) => [x.name + (x.error ? '  (failed)' : ''),
-      x.error ? '—' : x.total, x.error ? '—' : x.passed, x.error ? '—' : x.issues, x.error ? '—' : x.notTested]),
-    ['Total', tot.total, tot.passed, tot.issues, tot.notTested],
+      x.error ? '—' : x.total, x.error ? '—' : n0(x.passed), x.error ? '—' : n0(x.issues), x.error ? '—' : n0(x.notTested)]),
+    ['Total', tot.total, n0(tot.passed), n0(tot.issues), n0(tot.notTested)],
   );
 
   // ===== How to read this report =====
@@ -178,8 +180,13 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
     const rep = m.report; if (!rep) continue;
     const s = statusCounts(rep);
     const ramp = s.total === 0 ? PAL.red : s.issues > 0 ? PAL.orange : s.notTested > 0 ? PAL.amber : PAL.green;
+    // Only mention a count that's non-zero — a 0 means the log derived none of that outcome (noise).
+    const parts: string[] = [];
+    if (s.passed > 0) parts.push(`${s.passed} passed`);
+    if (s.issues > 0) parts.push(`${s.issues} issue${s.issues === 1 ? '' : 's'}`);
+    if (s.notTested > 0) parts.push(`${s.notTested} not tested`);
     r.section('Module — ' + m.name, s.total, ramp,
-      `${s.passed} passed · ${s.issues} issue(s) · ${s.notTested} not tested`
+      (parts.length ? parts.join(' · ') : `${s.total} API${s.total === 1 ? '' : 's'}`)
       + `  —  ${rep.transactions} transaction(s), ${rep.matchedLines}/${rep.linesScanned} lines matched.`);
     if (s.total === 0 && rep.backends.length === 0) { r.emptyNote('No APIs or backends were correlated for this module.'); continue; }
     apiBreakdown(r, rep, false);

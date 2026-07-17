@@ -527,9 +527,12 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
                   {p.error ? <div className="logmod-sub err">not analysed</div>
                     : t ? (
                       <div className="logmod-stats">
-                        <span className="lm-ok">{t.passed}✓</span>
-                        <span className="lm-bad">{t.issues} issue{t.issues === 1 ? '' : 's'}</span>
-                        <span className={'lm-nt' + (t.notTested ? ' hot' : '')}>{t.notTested} not tested</span>
+                        {/* Show a count only when it's non-zero — a 0 means "the log derived none of
+                            these", which is noise. All-not-tested reads as just "N not tested". */}
+                        {t.passed > 0 && <span className="lm-ok">{t.passed} passed</span>}
+                        {t.issues > 0 && <span className="lm-bad">{t.issues} issue{t.issues === 1 ? '' : 's'}</span>}
+                        {t.notTested > 0 && <span className="lm-nt hot">{t.notTested} not tested</span>}
+                        {t.passed === 0 && t.issues === 0 && t.notTested === 0 && <span className="lm-nt">{t.total} API{t.total === 1 ? '' : 's'}</span>}
                       </div>
                     ) : <div className="logmod-sub">—</div>}
                 </button>

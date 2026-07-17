@@ -15,10 +15,8 @@ import ApiFlowModal from '../components/ApiFlowModal';
 import Loader, { IMPACT_MESSAGES } from '../components/Loader';
 import Collapsible from '../components/Collapsible';
 import Steps, { type StepState } from '../components/Steps';
-import {
-  analyzeModules, loadModulesForApp, markerAppFor, moduleValid, saveModulesForApp,
-  type ModuleResult, type ModuleSource,
-} from '../modules';
+import { analyzeModules, markerAppFor, moduleValid, type ModuleResult } from '../modules';
+import { useAppModules } from '../appModules';
 
 // The context (country + modules) is remembered per application — Mighty and SPL are separate
 // codebases — so switching apps restores that app's settings. Version is per-test, never persisted.
@@ -26,7 +24,7 @@ function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
 export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
-  const [modules, setModulesState] = useState<ModuleSource[]>(() => loadModulesForApp(app));
+  const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
@@ -44,7 +42,6 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
   const [flowApi, setFlowApi] = useState<string | null>(null);   // which API's graph is open
   const [analysed, setAnalysed] = useState(false);               // a log report has landed (drives the steps)
 
-  const setModules = (m: ModuleSource[]) => { setModulesState(m); saveModulesForApp(app, m); };
   const names = useMemo(() => Object.fromEntries(reports.map((r) => [r.module.id, r.name])), [reports]);
   const activeModule = modules.find((m) => m.id === activeId) || modules[0];
   const idx = reports.find((r) => r.module.id === activeId)?.result ?? null;
@@ -59,7 +56,6 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
   const load = async () => {
     localStorage.setItem(appKey(app, 'country'), country);
     localStorage.removeItem(appKey(app, 'version'));   // version is per-test, never persisted
-    saveModulesForApp(app, modules);
     saveDeps(appKey(app, 'deps'), deps);
     setLoading(true); setError(null); setAnalysed(false); resetSelection();
     try {
@@ -210,7 +206,8 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
       <ControlPanel modules={modules} onModulesChange={setModules} names={names}
                     country={country} version={version} meta={EMPTY_META} loading={loading}
                     modulesOpen={modulesOpen} onToggleModules={() => setModulesOpen((o) => !o)}
-                    onField={onField} onAnalyse={load} />
+                    onField={onField} onAnalyse={load}
+                    config={{ fromConfig, hasConfig, hasLocal, onReset: resetToConfig, onSaveDefault: saveAsDefault, saving }} />
 
       {multi && (
         <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}

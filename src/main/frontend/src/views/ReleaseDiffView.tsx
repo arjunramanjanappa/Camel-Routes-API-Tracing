@@ -10,7 +10,8 @@ import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import InfoBanner from '../components/InfoBanner';
 import { depParams, loadDeps, saveDeps } from '../deps';
-import { analyzeModules, moduleValid, loadModulesForApp, saveModulesForApp, type ModuleResult, type ModuleSource } from '../modules';
+import { analyzeModules, moduleValid, type ModuleResult } from '../modules';
+import { useAppModules } from '../appModules';
 
 // Context (sourceDir + country) is remembered per application, like the other tabs.
 function appKey(app: string | undefined, f: string) { return `tracer.${app || 'Mighty'}.${f}`; }
@@ -184,9 +185,8 @@ const ALL_STATUSES: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
 const GROUP_LABEL: Record<DiffStatus, string> = { CHANGED: 'Changed', NEW: 'New', UNCHANGED: 'Unchanged' };
 
 export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
-  const [modules, setModulesState] = useState<ModuleSource[]>(() => loadModulesForApp(app || 'Mighty'));
+  const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app || 'Mighty');
   const [modulesOpen, setModulesOpen] = useState(true);
-  const setModules = (m: ModuleSource[]) => { setModulesState(m); saveModulesForApp(app || 'Mighty', m); };
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
@@ -310,7 +310,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     <div className="impact">
       <div className="scope-controls">
         <ModulesEditor modules={modules} onChange={setModules} names={names}
-                       open={modulesOpen} onToggleOpen={() => setModulesOpen((o) => !o)} />
+                       open={modulesOpen} onToggleOpen={() => setModulesOpen((o) => !o)}
+                       fromConfig={fromConfig} hasConfig={hasConfig} hasLocal={hasLocal}
+                       onReset={resetToConfig} onSaveDefault={saveAsDefault} saving={saving} />
         <div className="context-bar">
           <div style={{ width: 160 }}>
             <label>Country <span style={{ color: '#dc2626' }}>*</span></label>

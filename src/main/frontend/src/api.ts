@@ -1,4 +1,26 @@
-import type { AnalyzeResponse, ImpactIndex, LogAnalysisReport, Meta, ModuleLogReport, TraceParams, VersionDiffReport } from './types';
+import type { AnalyzeResponse, ImpactIndex, LogAnalysisReport, Meta, ModuleLogReport, SourceType, TraceParams, VersionDiffReport } from './types';
+
+/** One configured module in the app config (the ModuleSource shape without a client-side id). */
+export interface ConfigModule { sourceType: SourceType; sourceDir?: string; repo?: string; branch?: string; }
+
+/** The per-app module lists the UI prepopulates from (Mighty / SPL → their modules). */
+export async function fetchAppConfig(): Promise<Record<string, ConfigModule[]>> {
+  const res = await fetch('/internal/app-config');
+  if (!res.ok) return {};
+  return (await res.json()) as Record<string, ConfigModule[]>;
+}
+
+/** "Save as default": persist one app's module list back to the server config file. */
+export async function saveAppConfig(app: string, modules: ConfigModule[]): Promise<void> {
+  const body = modules.map((m) => ({ sourceType: m.sourceType, sourceDir: m.sourceDir ?? '', repo: m.repo ?? '', branch: m.branch ?? '' }));
+  const res = await fetch('/internal/app-config/' + encodeURIComponent(app), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => null);
+    throw new Error((d && d.error) || `HTTP ${res.status}`);
+  }
+}
 
 /** Build a query string; string values are set once, string[] values are appended once per entry (repeated params). */
 function qs(params: Record<string, string | string[] | undefined>): string {

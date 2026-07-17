@@ -14,23 +14,10 @@ import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 import Loader, { SCAN_MESSAGES } from '../components/Loader';
 import { exportApiTracePdf } from '../apiTracePdf';
-import { analyzeModules, moduleValid, newModule, type ModuleResult, type ModuleSource } from '../modules';
+import { analyzeModules, moduleValid, type ModuleResult, type ModuleSource } from '../modules';
+import { useAppModules } from '../appModules';
 
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
-
-/** Load the persisted module list for this app (migrating an old single-source layout to one module). */
-function loadModules(app: string): ModuleSource[] {
-  try {
-    const raw = localStorage.getItem(appKey(app, 'modules'));
-    if (raw) { const arr = JSON.parse(raw) as ModuleSource[]; if (Array.isArray(arr) && arr.length) return arr; }
-  } catch { /* fall through */ }
-  return [newModule({
-    sourceType: (localStorage.getItem(appKey(app, 'sourceType')) as ModuleSource['sourceType']) || 'local',
-    sourceDir: localStorage.getItem(appKey(app, 'sourceDir')) || '',
-    repo: localStorage.getItem(appKey(app, 'repo')) || '',
-    branch: localStorage.getItem(appKey(app, 'branch')) || '',
-  })];
-}
 
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
@@ -39,7 +26,7 @@ function asCatalog(r: AnalyzeResponse | null): CatalogResponse | null {
 }
 
 export default function TraceView({ app = 'Mighty', colorMode }: { app?: string; colorMode: 'light' | 'dark' }) {
-  const [modules, setModulesState] = useState<ModuleSource[]>(() => loadModules(app));
+  const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) || '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base (per-run)
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
@@ -56,7 +43,6 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const graphRef = useRef<GraphHandle>(null);
 
-  const setModules = (m: ModuleSource[]) => { setModulesState(m); localStorage.setItem(appKey(app, 'modules'), JSON.stringify(m)); };
   const names = useMemo(() => Object.fromEntries(
     catalogs.map((r) => [r.module.id, r.name])), [catalogs]);
   const activeModule = modules.find((m) => m.id === activeId) || modules[0];
@@ -171,7 +157,8 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
       <ControlPanel modules={modules} onModulesChange={setModules} names={names}
                     country={country} version={version} meta={meta} loading={loading}
                     modulesOpen={modulesOpen} onToggleModules={() => setModulesOpen((o) => !o)}
-                    onField={onField} onAnalyse={analyseAll} />
+                    onField={onField} onAnalyse={analyseAll}
+                    config={{ fromConfig, hasConfig, hasLocal, onReset: resetToConfig, onSaveDefault: saveAsDefault, saving }} />
       {catalogs.length > 1 && (
         <ModuleSummary results={catalogs} activeId={activeId} onSelect={selectModule}
                        statsOf={statsOf} unversionedOf={(r) => !!asCatalog(r.result)?.unversioned}

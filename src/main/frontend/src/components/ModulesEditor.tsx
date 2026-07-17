@@ -8,6 +8,13 @@ interface Props {
   names?: Record<string, string>;
   open: boolean;
   onToggleOpen: () => void;
+  /** App-config integration (see useAppModules). When provided, the header shows the config state + actions. */
+  fromConfig?: boolean;      // current list matches the saved config
+  hasConfig?: boolean;       // a config exists for this app
+  hasLocal?: boolean;        // list contains a Local source (warn before saving as the shared default)
+  onReset?: () => void;      // discard the local override, reload from config
+  onSaveDefault?: () => void; // write the current list back to the config file
+  saving?: boolean;
 }
 
 /**
@@ -15,12 +22,20 @@ interface Props {
  * scrollable when there are many. Collapses to a row of chips (used after an analysis) so the
  * results below aren't pushed off-screen; the header toggles editing back open.
  */
-export default function ModulesEditor({ modules, onChange, names = {}, open, onToggleOpen }: Props) {
+export default function ModulesEditor({ modules, onChange, names = {}, open, onToggleOpen,
+                                        fromConfig, hasConfig, hasLocal, onReset, onSaveDefault, saving }: Props) {
   const update = (id: string, patch: Partial<ModuleSource>) =>
     onChange(modules.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   const remove = (id: string) => onChange(modules.filter((m) => m.id !== id));
   const add = () => onChange([...modules, newModule()]);
   const label = (m: ModuleSource) => names[m.id] || moduleLabel(m);
+
+  const configAware = onReset != null || onSaveDefault != null;
+  const saveDefault = () => {
+    if (!onSaveDefault) return;
+    if (hasLocal && !window.confirm('This list includes a Local source path, which is specific to this machine and won’t resolve for teammates. Save it as the shared default anyway?')) return;
+    onSaveDefault();
+  };
 
   return (
     <div className="modules-editor">
@@ -29,13 +44,34 @@ export default function ModulesEditor({ modules, onChange, names = {}, open, onT
                 aria-expanded={open} title={open ? 'Collapse modules' : 'Edit modules'}>
           <span className="caret">{open ? '▾' : '▸'}</span> Modules <span className="muted">({modules.length})</span>
         </button>
-        {open
-          ? <button type="button" className="addmod" onClick={add}>＋ Add module</button>
-          : <div className="mod-chiprow">
-              {modules.map((m) => (
-                <span key={m.id} className={'mchip' + (moduleValid(m) ? '' : ' invalid')}>{label(m)}</span>
-              ))}
-            </div>}
+        {configAware && (
+          <span className={'cfg-chip' + (fromConfig ? ' on' : '')}
+                title={fromConfig ? 'This list matches the saved config' : 'You have unsaved edits to the module list'}>
+            {fromConfig ? 'from config' : 'edited · not saved'}
+          </span>
+        )}
+        {open ? (
+          <>
+            <span className="mod-head-spacer" />
+            {configAware && (
+              <>
+                <button type="button" className="mod-cfgbtn" onClick={onReset} disabled={!hasConfig || saving}
+                        title="Discard your edits and reload the module list from the config">↺ Reset to config</button>
+                <button type="button" className="mod-cfgbtn" onClick={saveDefault} disabled={saving || !modules.some(moduleValid)}
+                        title="Save this module list back to the config as the default for everyone">
+                  {saving ? 'Saving…' : '💾 Save as default'}
+                </button>
+              </>
+            )}
+            <button type="button" className="addmod" onClick={add}>＋ Add module</button>
+          </>
+        ) : (
+          <div className="mod-chiprow">
+            {modules.map((m) => (
+              <span key={m.id} className={'mchip' + (moduleValid(m) ? '' : ' invalid')}>{label(m)}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       {open && (

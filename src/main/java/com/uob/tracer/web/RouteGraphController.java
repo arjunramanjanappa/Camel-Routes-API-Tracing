@@ -3,12 +3,14 @@ package com.uob.tracer.web;
 import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.api.TraceRequest;
+import com.uob.tracer.service.AppConfigService;
 import com.uob.tracer.service.LogAnalysisService;
 import com.uob.tracer.service.RouteTraceService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -35,10 +37,12 @@ public class RouteGraphController {
 
     private final RouteTraceService service;
     private final LogAnalysisService logService;
+    private final AppConfigService appConfig;
 
-    public RouteGraphController(RouteTraceService service, LogAnalysisService logService) {
+    public RouteGraphController(RouteTraceService service, LogAnalysisService logService, AppConfigService appConfig) {
         this.service = service;
         this.logService = logService;
+        this.appConfig = appConfig;
     }
 
     /**
@@ -171,6 +175,20 @@ public class RouteGraphController {
         // The upload is spooled by the servlet, so combined(files) can be re-opened once per flavour.
         return logService.analyzeModules(() -> combined(files), firstName(files), version, country,
                 specs, dep == null ? List.of() : dep);
+    }
+
+    /** The per-app module lists (main repo + sub-modules) the UI prepopulates from. */
+    @GetMapping("/internal/app-config")
+    public Map<String, List<AppConfigService.ModuleEntry>> appConfig() {
+        return appConfig.readAll();
+    }
+
+    /** "Save as default": overwrite one app's configured module list with the posted entries. */
+    @PostMapping("/internal/app-config/{app}")
+    public Map<String, String> saveAppConfig(@PathVariable String app,
+                                             @RequestBody List<AppConfigService.ModuleEntry> modules) {
+        appConfig.save(app, modules);
+        return Map.of("status", "saved");
     }
 
     private static String firstName(List<MultipartFile> files) {

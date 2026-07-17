@@ -297,6 +297,16 @@ tr.lsub code { background: transparent; }
 .mod-toggle { background: none; border: 0; cursor: pointer; font-size: 13px; font-weight: 700; color: #1e293b; padding: 2px 0; display: inline-flex; align-items: center; gap: 6px; }
 .mod-toggle .caret { color: #64748b; font-size: 11px; }
 .addmod { font-size: 12.5px; font-weight: 700; color: #2563eb; background: #eef4ff; border: 1px dashed #cdddff; border-radius: 8px; padding: 5px 11px; cursor: pointer; }
+/* app-config: prepopulate state + reset/save-default controls */
+.mod-head-spacer { flex: 1; }
+.cfg-chip { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+.cfg-chip.on { background: #dbeafe; color: #1e40af; }
+.mod-cfgbtn { font-size: 12px; font-weight: 600; color: #334155; background: #fff; border: 1px solid #d7dee8; border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.mod-cfgbtn:hover:not(:disabled) { border-color: #94a3b8; }
+.mod-cfgbtn:disabled { opacity: .5; cursor: default; }
+[data-theme="dark"] .cfg-chip { background: #3a2c10; color: #f0c675; }
+[data-theme="dark"] .cfg-chip.on { background: #17325c; color: #bcd3ff; }
+[data-theme="dark"] .mod-cfgbtn { background: #16243f; border-color: #2a3d5f; color: #cbd5e1; }
 .mod-chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
 .mchip { font-size: 12px; font-weight: 600; color: #334155; background: #eef2f7; border: 1px solid #e2e8f0; border-radius: 999px; padding: 3px 10px; }
 .mchip.invalid { color: #b45309; background: #fef3c7; border-color: transparent; }

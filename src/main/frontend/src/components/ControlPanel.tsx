@@ -15,17 +15,24 @@ interface Props {
   onToggleModules: () => void;
   onField: (patch: { country?: string; version?: string }) => void;
   onAnalyse: () => void;
+  /** App-config controls, forwarded to ModulesEditor (see useAppModules). */
+  config?: {
+    fromConfig?: boolean; hasConfig?: boolean; hasLocal?: boolean;
+    onReset?: () => void; onSaveDefault?: () => void; saving?: boolean;
+  };
 }
 
 /** Release Scope inputs — the module list, then the shared Country + release version for all modules. */
-export default function ControlPanel({ modules, onModulesChange, names, country, version, meta, loading, modulesOpen, onToggleModules, onField, onAnalyse }: Props) {
+export default function ControlPanel({ modules, onModulesChange, names, country, version, meta, loading, modulesOpen, onToggleModules, onField, onAnalyse, config }: Props) {
   const anyValid = modules.some(moduleValid);
   const noCountry = !country.trim();
   const noVersion = !version.trim();
   return (
     <div className="scope-controls">
       <ModulesEditor modules={modules} onChange={onModulesChange} names={names}
-                     open={modulesOpen} onToggleOpen={onToggleModules} />
+                     open={modulesOpen} onToggleOpen={onToggleModules}
+                     fromConfig={config?.fromConfig} hasConfig={config?.hasConfig} hasLocal={config?.hasLocal}
+                     onReset={config?.onReset} onSaveDefault={config?.onSaveDefault} saving={config?.saving} />
       <div className="context-bar">
         <div style={{ width: 150 }}>
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>

@@ -233,6 +233,9 @@ table.grid tr:hover td { background: #f7f9fb; }
 .uploader:hover { border-color: var(--accent); background: var(--accent-soft); }
 .uploader.has { border-style: solid; border-color: #86efac; background: #f0fdf4; color: #166534; }
 /* uploaded-file chips (multi-file log upload) */
+.uploader.busy { cursor: default; }
+.mini-spinner { display: inline-block; width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; border: 2px solid var(--accent-border, #cdddff); border-top-color: var(--accent, #2563eb); border-radius: 50%; animation: mini-spin .7s linear infinite; }
+@keyframes mini-spin { to { transform: rotate(360deg); } }
 .logfiles { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
 .logfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 1px; }
 .logfiles-clear { border: none; background: none; cursor: pointer; color: #dc2626; font-size: 12px; font-weight: 600; padding: 0; }

@@ -232,22 +232,30 @@ function FileZone({ files, onAdd, onRemove, onClear, hint, label }: {
   label?: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const [adding, setAdding] = useState(false);   // brief feedback between picking a file and the list updating
   const total = files.reduce((n, f) => n + f.size, 0);
   return (
     <div className="filezone">
       {label && <div className="filezone-label">{label}</div>}
-      <div className={'uploader' + (files.length ? ' has' : '')} onClick={() => ref.current?.click()}>
+      <div className={'uploader' + (files.length ? ' has' : '') + (adding ? ' busy' : '')}
+           onClick={() => { if (!adding) ref.current?.click(); }}>
         <input ref={ref} type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
                onChange={(e) => {
                  // Read the FileList into a File[] SYNCHRONOUSLY — resetting value='' below empties the
                  // live FileList, so the async state updater would otherwise see nothing selected.
                  const picked = e.target.files ? Array.from(e.target.files) : [];
                  if (ref.current) ref.current.value = '';   // allow re-picking the same file after a remove
-                 onAdd(picked);
+                 if (!picked.length) return;
+                 // Show "Adding…" first, then add on the next tick so it paints before the (possibly
+                 // heavy) list + report re-render — otherwise nothing changes on screen for a beat.
+                 setAdding(true);
+                 setTimeout(() => { onAdd(picked); setAdding(false); }, 0);
                }} />
-        {files.length
-          ? <span><b>{files.length} file{files.length === 1 ? '' : 's'}</b> · {kb(total)} — click to add more</span>
-          : <span>{hint}</span>}
+        {adding
+          ? <span><span className="mini-spinner" aria-hidden="true" /> Adding file…</span>
+          : files.length
+            ? <span><b>{files.length} file{files.length === 1 ? '' : 's'}</b> · {kb(total)} — click to add more</span>
+            : <span>{hint}</span>}
       </div>
       {files.length > 0 && (
         <div className="logfiles">

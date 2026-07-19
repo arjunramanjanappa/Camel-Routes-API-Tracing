@@ -27,18 +27,63 @@ public class RouteRegistry {
     /** Matches versioned route names: {@code R9.4_<operation>} -> version, operation. */
     private static final Pattern VERSIONED =
             Pattern.compile("^R(\\d+(?:\\.\\d+)*)_(.+)$");
+    /** A Camel property placeholder {@code {{key}}} or {@code {{key:default}}} inside a route name. */
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([^}]+)\\}\\}");
 
     private final Map<String, RouteModel> byFromName = new LinkedHashMap<>();
     private final Map<String, RouteModel> byRouteId = new LinkedHashMap<>();
     private final List<RouteModel> all = new ArrayList<>();
+    /** application.properties (+ other source properties): resolves {@code {{key}}} in route names. */
+    private final Map<String, String> properties;
+
+    public RouteRegistry() {
+        this(Map.of());
+    }
+
+    public RouteRegistry(Map<String, String> properties) {
+        this.properties = properties == null ? Map.of() : properties;
+    }
+
+    /**
+     * Substitute Camel property placeholders in a route name, so a hop like
+     * {@code direct:logoutversion{{sso.version}}} resolves against a route named
+     * {@code logoutversionV5} when {@code sso.version=V5} is defined in the source. A
+     * {@code {{key:default}}} falls back to its default; an unknown key with no default is left as the
+     * literal {@code {{key}}} so it never silently matches the wrong route (it surfaces as needs-review).
+     */
+    public String resolveName(String name) {
+        if (name == null || name.indexOf("{{") < 0) {
+            return name;
+        }
+        Matcher m = PLACEHOLDER.matcher(name);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String expr = m.group(1).trim();
+            int c = expr.indexOf(':');
+            String key = (c >= 0 ? expr.substring(0, c) : expr).trim();
+            String val = properties.get(key);
+            if (val == null && c >= 0) {
+                val = expr.substring(c + 1);   // {{key:default}} → the default
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(val != null ? val : m.group(0)));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /** The lookup key for a route: its from-name (else route id), with placeholders resolved. */
+    private String keyOf(RouteModel route) {
+        String raw = route.fromName() != null ? route.fromName() : route.routeId();
+        return resolveName(raw);
+    }
 
     public void add(RouteModel route) {
         all.add(route);
         if (route.fromName() != null) {
-            byFromName.putIfAbsent(route.fromName(), route);
+            byFromName.putIfAbsent(resolveName(route.fromName()), route);
         }
         if (route.routeId() != null) {
-            byRouteId.putIfAbsent(route.routeId(), route);
+            byRouteId.putIfAbsent(resolveName(route.routeId()), route);
         }
     }
 
@@ -50,9 +95,10 @@ public class RouteRegistry {
         if (name == null) {
             return null;
         }
-        RouteModel m = byFromName.get(name);
+        String key = resolveName(name);   // direct:logoutversion{{sso.version}} -> logoutversionV5
+        RouteModel m = byFromName.get(key);
         if (m == null) {
-            m = byRouteId.get(name);
+            m = byRouteId.get(key);
         }
         return m;
     }
@@ -77,7 +123,7 @@ public class RouteRegistry {
     public List<String> availableVersionsFor(String operationName) {
         List<String> versions = new ArrayList<>();
         for (RouteModel route : all) {
-            String key = route.fromName() != null ? route.fromName() : route.routeId();
+            String key = keyOf(route);
             if (key == null) {
                 continue;
             }
@@ -98,7 +144,7 @@ public class RouteRegistry {
     public Set<String> operationNames() {
         Set<String> ops = new LinkedHashSet<>();
         for (RouteModel route : all) {
-            String key = route.fromName() != null ? route.fromName() : route.routeId();
+            String key = keyOf(route);
             if (key == null) {
                 continue;
             }
@@ -112,7 +158,7 @@ public class RouteRegistry {
     public List<String> allVersions() {
         Set<String> versions = new LinkedHashSet<>();
         for (RouteModel route : all) {
-            String key = route.fromName() != null ? route.fromName() : route.routeId();
+            String key = keyOf(route);
             if (key == null) {
                 continue;
             }

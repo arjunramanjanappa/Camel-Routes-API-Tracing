@@ -46,6 +46,8 @@ public class SourceIndex {
     private final Set<FileInfo> sharedIncludeFiles = new java.util.LinkedHashSet<>();
     /** camel routes-include-pattern entries from application*.yml — the second bootstrap-discovery way. */
     private final List<RouteIncludePattern> includePatterns;
+    /** application.properties (+ flat config) key→value, for resolving {@code {{key}}} in route names. */
+    private final Map<String, String> properties;
     /**
      * True when the source shows the intercepted-UFW dispatcher (a {@code direct:redirectRoute} /
      * dynamic {@code send${...}Route} toD). Auto-selects the SPL-Secure resolver for this repo:
@@ -61,12 +63,24 @@ public class SourceIndex {
     public SourceIndex(OperationResolver operations, List<FileInfo> files,
                        List<java.nio.file.Path> allFiles, List<String> warnings,
                        List<RouteIncludePattern> includePatterns) {
+        this(operations, files, allFiles, warnings, includePatterns, Map.of());
+    }
+
+    public SourceIndex(OperationResolver operations, List<FileInfo> files,
+                       List<java.nio.file.Path> allFiles, List<String> warnings,
+                       List<RouteIncludePattern> includePatterns, Map<String, String> properties) {
         this.operations = operations;
         this.files = files;
         this.allFiles = allFiles;
         this.warnings = warnings;
         this.includePatterns = includePatterns;
+        this.properties = properties == null ? Map.of() : properties;
         index();
+    }
+
+    /** application.properties (+ flat config) values — resolves {@code {{key}}} placeholders in route names. */
+    public Map<String, String> properties() {
+        return properties;
     }
 
     /** Every regular source file found in the scan — for in-memory template lookups. */
@@ -249,7 +263,7 @@ public class SourceIndex {
 
     /** A registry containing every route in the tree (no country filter). */
     public RouteRegistry fullRegistry() {
-        RouteRegistry registry = new RouteRegistry();
+        RouteRegistry registry = new RouteRegistry(properties);
         for (FileInfo f : files) {
             f.routes().forEach(registry::add);
         }
@@ -263,7 +277,7 @@ public class SourceIndex {
      * {@code scopeWarnings}.
      */
     public RouteRegistry scopedRegistry(String country, List<String> scopeWarnings) {
-        RouteRegistry registry = new RouteRegistry();
+        RouteRegistry registry = new RouteRegistry(properties);
         List<FileInfo> starts = new ArrayList<>();
         List<FileInfo> countrySpecific = countryToFiles.get(country);
         if (countrySpecific != null) {

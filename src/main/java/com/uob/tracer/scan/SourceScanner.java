@@ -12,7 +12,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -52,14 +54,15 @@ public class SourceScanner {
         List<Path> allFiles = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         List<RouteIncludePattern> includes = new ArrayList<>();
+        Map<String, String> properties = new LinkedHashMap<>();
 
-        scanInto(primary, operations, files, allFiles, warnings, includes, false);
+        scanInto(primary, operations, files, allFiles, warnings, includes, properties, false);
         for (Path dep : deps) {
             if (dep != null) {
-                scanInto(dep, operations, files, allFiles, warnings, includes, true);
+                scanInto(dep, operations, files, allFiles, warnings, includes, properties, true);
             }
         }
-        return new SourceIndex(operations, files, allFiles, warnings, includes);
+        return new SourceIndex(operations, files, allFiles, warnings, includes, properties);
     }
 
     // application.yml / application-<profile>.yml / .yaml / .properties — the config that can carry a
@@ -73,7 +76,7 @@ public class SourceScanner {
     /** Walk one root and add its controllers / route XMLs / config include-patterns to the index state. */
     private void scanInto(Path root, OperationResolver operations, List<FileInfo> files,
                           List<Path> allFiles, List<String> warnings, List<RouteIncludePattern> includes,
-                          boolean fromDependency) {
+                          Map<String, String> properties, boolean fromDependency) {
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !isUnderSkippedDir(root, p))
@@ -95,14 +98,60 @@ public class SourceScanner {
                         } else {
                             java.util.regex.Matcher cfg = APP_CONFIG.matcher(name);
                             if (cfg.matches()) {
-                                readQuietly(p).ifPresent(text ->
-                                        collectIncludes(cfg.group(1), text, includes));
+                                readQuietly(p).ifPresent(text -> {
+                                    collectIncludes(cfg.group(1), text, includes);
+                                    collectProperties(name, text, properties);
+                                });
                             }
                         }
                     });
         } catch (IOException e) {
             throw new IllegalStateException("Failed to scan source directory: " + root, e);
         }
+    }
+
+    // A flat, already-dotted YAML key on one line, e.g. "sso.version: V5". Nested YAML (sso:\n version:)
+    // is NOT flattened — .properties (the common case) is parsed fully; unresolved keys stay needs-review.
+    private static final java.util.regex.Pattern YAML_FLAT =
+            java.util.regex.Pattern.compile("^\\s*([A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)+)\\s*:\\s*(\\S.*?)\\s*$");
+
+    /**
+     * Collect {@code key → value} from a config file so route-name placeholders resolve
+     * (e.g. {@code sso.version=V5} lets {@code direct:logoutversion{{sso.version}}} find
+     * {@code logoutversionV5}). {@code .properties} is parsed fully; YAML picks up flat dotted keys.
+     * The primary source is scanned first, so its values win over a dependency's (putIfAbsent).
+     */
+    private void collectProperties(String name, String text, Map<String, String> properties) {
+        boolean props = name.endsWith(".properties");
+        for (String raw : text.split("\\R")) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("#") || line.startsWith("!")) {
+                continue;
+            }
+            String key, value;
+            if (props) {
+                int sep = line.indexOf('=');
+                if (sep < 0) sep = line.indexOf(':');
+                if (sep <= 0) continue;
+                key = line.substring(0, sep).trim();
+                value = line.substring(sep + 1).trim();
+            } else {
+                java.util.regex.Matcher m = YAML_FLAT.matcher(line);
+                if (!m.matches()) continue;
+                key = m.group(1).trim();
+                value = unquote(m.group(2).trim());
+            }
+            if (!key.isEmpty() && !value.isEmpty()) {
+                properties.putIfAbsent(key, value);
+            }
+        }
+    }
+
+    private static String unquote(String s) {
+        if (s.length() >= 2 && (s.charAt(0) == '"' || s.charAt(0) == '\'') && s.charAt(s.length() - 1) == s.charAt(0)) {
+            return s.substring(1, s.length() - 1);
+        }
+        return s;
     }
 
     /** Pull every {@code routes-include-pattern} value out of one config file (comma-separated split). */

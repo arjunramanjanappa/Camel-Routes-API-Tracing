@@ -3,7 +3,7 @@ import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } 
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
 // release". Unchanged APIs are still counted in the summary table, just not enumerated.
-const LISTED_STATUSES: DiffStatus[] = ['CHANGED', 'NEW'];
+const LISTED_STATUSES: ('CHANGED' | 'NEW')[] = ['CHANGED', 'NEW'];
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
   if (s === 'CHANGED') return { title: 'Changed APIs', ramp: PAL.amber,
     blurb: 'Existing APIs whose Camel flow differs from the previous version - review and regression-test these.' };

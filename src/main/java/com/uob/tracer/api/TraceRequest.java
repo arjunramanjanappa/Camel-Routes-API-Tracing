@@ -21,20 +21,31 @@ import java.util.List;
  * @param app          the selected application flavour (e.g. {@code Mighty}, {@code SPL},
  *                     {@code SPL-Secure}); drives framework-specific route resolution. Null/blank
  *                     means the default method-name resolution (Mighty/SPL/BAU).
+ * @param appVersion   optional app/commit version for Release-Impact code-change detection
+ *                     (e.g. {@code 19.18.0}, the version token in commit messages). Blank means
+ *                     no Java code-change analysis is done. Distinct from {@code version}, which is
+ *                     the client release version whose routes ({@code R9.18_*}) are analysed.
  */
 public record TraceRequest(String api, String version, String transferType,
                            String sourceDir, String country, String repo, String branch,
-                           List<String> dependencies, String app) {
+                           List<String> dependencies, String app, String appVersion) {
 
     /** Normalise a null dependency list to an immutable empty one. */
     public TraceRequest {
         dependencies = dependencies == null ? List.of() : List.copyOf(dependencies);
     }
 
+    /** Full source + app flavour, without an app/commit version (no code-change analysis). */
+    public TraceRequest(String api, String version, String transferType,
+                        String sourceDir, String country, String repo, String branch,
+                        List<String> dependencies, String app) {
+        this(api, version, transferType, sourceDir, country, repo, branch, dependencies, app, null);
+    }
+
     /** Bitbucket-source + dependencies, no app flavour (default resolution). */
     public TraceRequest(String api, String version, String transferType,
                         String sourceDir, String country, String repo, String branch, List<String> dependencies) {
-        this(api, version, transferType, sourceDir, country, repo, branch, dependencies, null);
+        this(api, version, transferType, sourceDir, country, repo, branch, dependencies, null, null);
     }
 
     /** Bitbucket-source constructor without dependencies. */

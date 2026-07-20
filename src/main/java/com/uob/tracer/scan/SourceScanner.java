@@ -55,14 +55,15 @@ public class SourceScanner {
         List<String> warnings = new ArrayList<>();
         List<RouteIncludePattern> includes = new ArrayList<>();
         Map<String, String> properties = new LinkedHashMap<>();
+        Map<String, String> beans = new LinkedHashMap<>();   // bean name -> source-relative .java path
 
-        scanInto(primary, operations, files, allFiles, warnings, includes, properties, false);
+        scanInto(primary, operations, files, allFiles, warnings, includes, properties, beans, false);
         for (Path dep : deps) {
             if (dep != null) {
-                scanInto(dep, operations, files, allFiles, warnings, includes, properties, true);
+                scanInto(dep, operations, files, allFiles, warnings, includes, properties, beans, true);
             }
         }
-        return new SourceIndex(operations, files, allFiles, warnings, includes, properties);
+        return new SourceIndex(operations, files, allFiles, warnings, includes, properties, beans);
     }
 
     // application.yml / application-<profile>.yml / .yaml / .properties — the config that can carry a
@@ -76,7 +77,7 @@ public class SourceScanner {
     /** Walk one root and add its controllers / route XMLs / config include-patterns to the index state. */
     private void scanInto(Path root, OperationResolver operations, List<FileInfo> files,
                           List<Path> allFiles, List<String> warnings, List<RouteIncludePattern> includes,
-                          Map<String, String> properties, boolean fromDependency) {
+                          Map<String, String> properties, Map<String, String> beans, boolean fromDependency) {
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> !isUnderSkippedDir(root, p))
@@ -90,6 +91,12 @@ public class SourceScanner {
                             readQuietly(p).ifPresent(src -> {
                                 if (src.contains("Mapping")) {
                                     operations.addSource(src);
+                                }
+                                // A Camel <to uri="bean:name"/> resolves to a @Component("name") class —
+                                // record name -> file so a code change to that class can be mapped to the
+                                // routes (and APIs) that reference it (release-impact code-change analysis).
+                                if (src.contains("@Component") || src.contains("@Service") || src.contains("@Repository") || src.contains("@Named")) {
+                                    collectBeans(src, relPath(root, p), beans);
                                 }
                             });
                         } else if (name.endsWith(".xml")) {
@@ -152,6 +159,36 @@ public class SourceScanner {
             return s.substring(1, s.length() - 1);
         }
         return s;
+    }
+
+    // @Component("residenceProcessor") / @Service(value="x") — the explicit Spring bean name.
+    private static final java.util.regex.Pattern BEAN_NAMED =
+            java.util.regex.Pattern.compile("@(?:Component|Service|Repository|Named)\\s*\\(\\s*(?:value\\s*=\\s*)?\"([^\"]+)\"");
+    // A bare @Component (no name) — the bean name defaults to the decapitalised class name.
+    private static final java.util.regex.Pattern BEAN_BARE =
+            java.util.regex.Pattern.compile("@(?:Component|Service|Repository)\\b(?!\\s*\\()");
+    private static final java.util.regex.Pattern CLASS_NAME =
+            java.util.regex.Pattern.compile("\\bclass\\s+(\\w+)");
+
+    /** Map every Spring bean name a class declares → its source-relative path, for {@code bean:name} resolution. */
+    private void collectBeans(String src, String relPath, Map<String, String> beans) {
+        java.util.regex.Matcher m = BEAN_NAMED.matcher(src);
+        boolean named = false;
+        while (m.find()) {
+            beans.putIfAbsent(m.group(1), relPath);
+            named = true;
+        }
+        if (!named && BEAN_BARE.matcher(src).find()) {
+            java.util.regex.Matcher c = CLASS_NAME.matcher(src);
+            if (c.find()) {
+                String cn = c.group(1);
+                beans.putIfAbsent(Character.toLowerCase(cn.charAt(0)) + cn.substring(1), relPath);
+            }
+        }
+    }
+
+    private static String relPath(Path root, Path p) {
+        return root.relativize(p).toString().replace('\\', '/');
     }
 
     /** Pull every {@code routes-include-pattern} value out of one config file (comma-separated split). */

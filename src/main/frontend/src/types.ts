@@ -161,6 +161,14 @@ export interface ApiDiff {
   payloadChange?: PayloadChange | null;
   note?: string | null;
   authors?: string[];
+  /** True when a Java bean class or route XML wired into this API's flow was changed by the app-version release. */
+  codeChanged?: boolean;
+  /** Changed bean classes in the flow, e.g. `statusProcessor (StatusProcessor.java)`. */
+  changedClasses?: string[];
+  /** Base names of routes in the flow whose XML the release changed. */
+  changedRoutes?: string[];
+  /** Routes in the flow at a different release version the code change also touches (shared-code alert). */
+  crossVersionRoutes?: string[];
 }
 
 export interface PayloadChange {
@@ -182,6 +190,16 @@ export interface VersionDiffReport {
   /** True for the N/A snapshot: `apis` are the latest/base routes in scope, not a diff. */
   snapshot?: boolean;
   snapshotCount?: number;
+  /** The app/commit version whose Java code changes were analysed (e.g. `19.18.0`); null when not requested. */
+  appVersion?: string | null;
+  /** How many commits carried the app-version token. */
+  matchedCommits?: number;
+  /** APIs whose Java/route code the app-version release changed. */
+  codeChangedCount?: number;
+  /** True when appVersion was given but the source isn't a git work tree, so no code-change analysis ran. */
+  codeChangeUnavailable?: boolean;
+  /** Changed .java files not wired to any in-scope route — review manually. */
+  unmappedChangedFiles?: string[];
   apis: ApiDiff[];
   warnings: string[];
   needsReview?: string[];

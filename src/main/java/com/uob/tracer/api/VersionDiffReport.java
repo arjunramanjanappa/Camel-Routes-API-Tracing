@@ -24,10 +24,24 @@ public class VersionDiffReport {
     /** True for the N/A snapshot: {@link #apis} are the latest/base routes in scope, NOT a diff. */
     private boolean snapshot;
     private int snapshotCount;
+    /** The app/commit version whose code changes were analysed (e.g. {@code 19.18.0}); null when not requested. */
+    private String appVersion;
+    /** How many commits carried the app-version token — 0 means the release touched nothing (or git unavailable). */
+    private int matchedCommits;
+    /** APIs whose Java/route code the app-version release changed (may overlap New/Changed/Unchanged). */
+    private int codeChangedCount;
+    /** True when {@link #appVersion} was given but the source isn't a git work tree, so no code-change analysis ran. */
+    private boolean codeChangeUnavailable;
     private final List<ApiDiff> apis = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
     /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
     private final List<String> needsReview = new ArrayList<>();
+    /**
+     * Java files the app-version release changed that are NOT wired to any route in scope (no
+     * {@code @Component} bean reference reached from an analysed flow) — a human should review whether
+     * they affect this release.
+     */
+    private final List<String> unmappedChangedFiles = new ArrayList<>();
 
     public String getVersion() { return version; }
     public void setVersion(String version) { this.version = version; }
@@ -56,7 +70,20 @@ public class VersionDiffReport {
     public int getSnapshotCount() { return snapshotCount; }
     public void setSnapshotCount(int snapshotCount) { this.snapshotCount = snapshotCount; }
 
+    public String getAppVersion() { return appVersion; }
+    public void setAppVersion(String appVersion) { this.appVersion = appVersion; }
+
+    public int getMatchedCommits() { return matchedCommits; }
+    public void setMatchedCommits(int matchedCommits) { this.matchedCommits = matchedCommits; }
+
+    public int getCodeChangedCount() { return codeChangedCount; }
+    public void setCodeChangedCount(int codeChangedCount) { this.codeChangedCount = codeChangedCount; }
+
+    public boolean isCodeChangeUnavailable() { return codeChangeUnavailable; }
+    public void setCodeChangeUnavailable(boolean codeChangeUnavailable) { this.codeChangeUnavailable = codeChangeUnavailable; }
+
     public List<ApiDiff> getApis() { return apis; }
     public List<String> getWarnings() { return warnings; }
     public List<String> getNeedsReview() { return needsReview; }
+    public List<String> getUnmappedChangedFiles() { return unmappedChangedFiles; }
 }

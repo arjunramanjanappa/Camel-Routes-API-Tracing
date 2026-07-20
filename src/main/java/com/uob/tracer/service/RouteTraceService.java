@@ -15,6 +15,13 @@ import com.uob.tracer.api.TraceResponse;
 import com.uob.tracer.api.VersionDiffReport;
 import com.uob.tracer.api.VersionGroup;
 import com.uob.tracer.loader.RouteRegistry;
+import com.uob.tracer.model.ChoiceElement;
+import com.uob.tracer.model.ContainerElement;
+import com.uob.tracer.model.RecipientListElement;
+import com.uob.tracer.model.RouteElement;
+import com.uob.tracer.model.RouteModel;
+import com.uob.tracer.model.ToElement;
+import com.uob.tracer.model.WhenElement;
 import com.uob.tracer.resolve.OperationInfo;
 import com.uob.tracer.resolve.OperationResolver;
 import com.uob.tracer.resolve.VersionResolver;
@@ -84,6 +91,8 @@ public class RouteTraceService {
     // log-analysis reusing the index), rebuilding only when the tree actually changed on disk.
     private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final GitBlameService gitBlame = new GitBlameService();
+    // Release code-change detection for the Release Impact tab: which files an app-version release changed.
+    private final GitChangeService gitChange = new GitChangeService();
     // Resolves a "Bitbucket branch" source to a local checkout; unused in local-path mode.
     private final SourceResolver sourceResolver;
 
@@ -318,7 +327,8 @@ public class RouteTraceService {
         try {
             roots = resolveRoots(request);
             key = roots.key()
-                    + "|" + nz(request.country()) + "|" + nz(request.version());
+                    + "|" + nz(request.country()) + "|" + nz(request.version())
+                    + "|" + nz(request.appVersion());
         } catch (RuntimeException e) {
             return computeVersionDiff(request);   // no source dir → preserve the original error path
         }
@@ -355,7 +365,7 @@ public class RouteTraceService {
         // (else base) route each in-scope API resolves to, for unversioned repos or to review the latest
         // routes in scope. A specific version below stays a real diff (target vs its immediate-lower).
         if (VersionResolver.isLatest(target) || unversioned) {
-            return latestSnapshot(prepared, registry, report, harvested);
+            return latestSnapshot(request, prepared, registry, report, harvested);
         }
         boolean unversionedScope = unversioned;
 
@@ -363,6 +373,10 @@ public class RouteTraceService {
         int added = 0;
         int unchanged = 0;
         boolean commandDispatch = prepared.commandDispatch();
+        // For code-change detection we need each API's full resolved flow (all routes traversed, including
+        // shared lower-version routes). Only captured when an app version is given, to avoid extra traces otherwise.
+        boolean wantCode = !nz(request.appVersion()).isEmpty();
+        Map<String, List<String>> flowByApi = new LinkedHashMap<>();
         for (OperationInfo op : operationsInScope(prepared)) {
             String routeOp = entryOperation(op, registry, commandDispatch);   // send<command>/send<method>Route or the method name
             String effTarget = target;
@@ -389,10 +403,18 @@ public class RouteTraceService {
                         ApiDiff.UNCHANGED, List.of(), List.of(), List.of(), List.of(), null,
                         note, List.of()));
                 unchanged++;
+                // Scenario 2: even with no target-version route, the base/lower route this client
+                // resolves to may itself have changed in this release — capture its flow for the code check.
+                if (wantCode) {
+                    flowByApi.put(op.path(), traceFor(prepared, op, targetResolved, templateVersion).getFlow());
+                }
                 continue;
             }
             TraceResponse targetTrace = traceFor(prepared, op, targetResolved, templateVersion);
             harvested.addAll(targetTrace.getWarnings());
+            if (wantCode) {
+                flowByApi.put(op.path(), targetTrace.getFlow());
+            }
 
             // Immediate-lower baseline: highest versioned route below target, else BASE, else NEW.
             String lowerVer = versionResolver.immediateLowerVersion(registry, routeOp, effTarget);
@@ -436,6 +458,10 @@ public class RouteTraceService {
             report.getWarnings().add("No API resolves to version " + target
                     + " in this scope — nothing was introduced or changed by this release here.");
         }
+        if (wantCode) {
+            applyCodeChanges(report, roots, registry, locations, prepared.index().beans(),
+                    flowByApi, request.appVersion());
+        }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         // Changed first, then new, then version-bumped-no-change; alphabetical within each.
         report.getApis().sort(Comparator
@@ -450,9 +476,12 @@ public class RouteTraceService {
      * No prior version is diffed, so nothing is marked changed/new/unchanged; each row just states what
      * the API resolves to (a version like {@code 9.18}, or {@code BASE}). Applies to any repo.
      */
-    private VersionDiffReport latestSnapshot(Prepared prepared, RouteRegistry registry,
+    private VersionDiffReport latestSnapshot(TraceRequest request, Prepared prepared, RouteRegistry registry,
                                              VersionDiffReport report, List<String> harvested) {
         boolean commandDispatch = prepared.commandDispatch();
+        boolean wantCode = !nz(request.appVersion()).isEmpty();
+        var templateVersion = templateVersionResolver(request);
+        Map<String, List<String>> flowByApi = new LinkedHashMap<>();
         for (OperationInfo op : operationsInScope(prepared)) {
             String routeOp = entryOperation(op, registry, commandDispatch);
             ResolvedRoute resolved = versionResolver.resolveLatest(registry, routeOp);
@@ -463,6 +492,10 @@ public class RouteTraceService {
             report.getApis().add(new ApiDiff(op.path(), op.operationName(),
                     resolved.routeName(), label, null, null,
                     ApiDiff.SNAPSHOT, List.of(), List.of(), List.of(), List.of(), null, null, List.of()));
+            // Scenario 2: for the N/A snapshot, flag which of these latest/base routes the release changed.
+            if (wantCode) {
+                flowByApi.put(op.path(), traceFor(prepared, op, resolved, templateVersion).getFlow());
+            }
         }
         report.setSnapshot(true);
         report.setSnapshotCount(report.getApis().size());
@@ -470,8 +503,202 @@ public class RouteTraceService {
         if (report.getApis().isEmpty()) {
             report.getWarnings().add("No API resolves to a route in this scope.");
         }
+        if (wantCode) {
+            Roots roots = resolveRoots(request);
+            applyCodeChanges(report, roots, registry, routeLocationsCached(roots),
+                    prepared.index().beans(), flowByApi, request.appVersion());
+        }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         return report;
+    }
+
+    // --- Release code-change detection (Release Impact tab) ---
+
+    /**
+     * Annotate the report with the Java/route code changes an app-version release made. For each API,
+     * walks its captured flow and marks routes whose XML the release changed and {@code @Component} beans
+     * (referenced as {@code bean:name}) whose class the release changed. A route/bean touched at a version
+     * other than the API's target is also recorded as a cross-version alert — the shared-code case where an
+     * older release's route must be re-tested. Java files the release changed but that aren't wired to any
+     * in-scope route are listed for manual review.
+     */
+    private void applyCodeChanges(VersionDiffReport report, Roots roots, RouteRegistry registry,
+                                  Map<String, RouteXmlDiff.RouteLocation> locations, Map<String, String> beans,
+                                  Map<String, List<String>> flowByApi, String appVersion) {
+        String wanted = nz(appVersion);
+        report.setAppVersion(wanted);
+        GitChangeService.ReleaseChanges rc = gitChange.changedFor(roots.primary(), wanted);
+        report.setMatchedCommits(rc.matchedCommits());
+        if (!rc.gitAvailable()) {
+            report.setCodeChangeUnavailable(true);
+            report.getWarnings().add("App version " + wanted
+                    + ": source is not a git work tree, so Java code-change detection was skipped.");
+            return;
+        }
+        Set<String> changed = rc.changedFiles();
+        if (changed.isEmpty()) {
+            report.getWarnings().add(rc.matchedCommits() == 0
+                    ? "No commit is tagged with app version " + wanted + " — nothing to check for code changes."
+                    : "App version " + wanted + " changed no files (whitespace-only changes are ignored).");
+            return;
+        }
+
+        Set<String> mapped = new LinkedHashSet<>();   // changed files we attributed to a route/bean in scope
+        int codeChangedCount = 0;
+        List<ApiDiff> apis = report.getApis();
+        for (int i = 0; i < apis.size(); i++) {
+            ApiDiff d = apis.get(i);
+            List<String> flow = flowByApi.getOrDefault(d.api(), List.of());
+            LinkedHashSet<String> changedRoutes = new LinkedHashSet<>();
+            LinkedHashSet<String> changedClasses = new LinkedHashSet<>();
+            LinkedHashSet<String> crossVersion = new LinkedHashSet<>();
+            String targetVer = d.targetVersion();
+            for (String routeId : flow) {
+                String routeVer = routeVersionOf(routeId);
+                // Route XML changed?
+                RouteXmlDiff.RouteLocation loc = locations.get(routeId);
+                if (loc != null) {
+                    String hit = matchChanged(loc.file().toString(), changed);
+                    if (hit != null) {
+                        changedRoutes.add(baseName(routeId));
+                        mapped.add(hit);
+                        if (isCrossVersion(routeVer, targetVer)) {
+                            crossVersion.add(routeId);
+                        }
+                    }
+                }
+                // @Component beans this route references (bean:name) whose class changed?
+                RouteModel rm = registry.lookup(routeId);
+                if (rm != null) {
+                    for (String beanName : beanRefs(rm)) {
+                        String classFile = beans.get(beanName);
+                        if (classFile == null) {
+                            continue;
+                        }
+                        String hit = matchChanged(classFile, changed);
+                        if (hit != null) {
+                            changedClasses.add(beanName + " (" + fileName(classFile) + ")");
+                            mapped.add(hit);
+                            if (isCrossVersion(routeVer, targetVer)) {
+                                crossVersion.add(routeId);
+                            }
+                        }
+                    }
+                }
+            }
+            boolean codeChanged = !changedRoutes.isEmpty() || !changedClasses.isEmpty();
+            if (codeChanged) {
+                apis.set(i, d.withCodeChange(true,
+                        new ArrayList<>(changedClasses), new ArrayList<>(changedRoutes),
+                        new ArrayList<>(crossVersion)));
+                codeChangedCount++;
+            }
+        }
+        report.setCodeChangedCount(codeChangedCount);
+
+        // Changed .java the release touched but which no in-scope route references → review manually.
+        List<String> unmapped = new ArrayList<>();
+        for (String f : changed) {
+            if (f.endsWith(".java") && !mapped.contains(f)) {
+                unmapped.add(f);
+            }
+        }
+        unmapped.sort(String.CASE_INSENSITIVE_ORDER);
+        report.getUnmappedChangedFiles().addAll(unmapped);
+    }
+
+    /** The release version of a route id ({@code R9.14_getStatus} → {@code 9.14}), or null for a BASE route. */
+    private static String routeVersionOf(String routeId) {
+        if (routeId == null) {
+            return null;
+        }
+        String id = routeId;
+        int hash = id.indexOf('#');
+        if (hash >= 0) {
+            id = id.substring(0, hash);
+        }
+        Matcher m = VERSIONED_ID.matcher(id);
+        return m.matches() ? m.group(1) : null;
+    }
+
+    /** True when a touched route's version differs from the API's target version (the shared-code alert). */
+    private static boolean isCrossVersion(String routeVer, String targetVer) {
+        if (routeVer == null || targetVer == null || BASE_GROUP.equals(targetVer)) {
+            return false;
+        }
+        return !routeVer.equals(targetVer);
+    }
+
+    /** Distinct {@code bean:name} references in a route's steps (walks nested choice/container branches). */
+    private static List<String> beanRefs(RouteModel route) {
+        Set<String> out = new LinkedHashSet<>();
+        collectBeanRefs(route.elements(), out);
+        return new ArrayList<>(out);
+    }
+
+    private static void collectBeanRefs(List<RouteElement> elements, Set<String> out) {
+        for (RouteElement el : elements) {
+            if (el instanceof ToElement to) {
+                addBeanRef(to.uri(), out);
+            } else if (el instanceof RecipientListElement rl) {
+                addBeanRef(rl.expression(), out);
+            } else if (el instanceof ChoiceElement choice) {
+                for (WhenElement when : choice.whens()) {
+                    collectBeanRefs(when.children(), out);
+                }
+                collectBeanRefs(choice.otherwise(), out);
+            } else if (el instanceof ContainerElement container) {
+                collectBeanRefs(container.children(), out);
+            }
+        }
+    }
+
+    /** Pull the bean name out of a {@code bean:residenceProcessor?method=foo} uri (ignores non-bean endpoints). */
+    private static void addBeanRef(String uri, Set<String> out) {
+        if (uri == null) {
+            return;
+        }
+        String u = uri.trim();
+        if (!u.startsWith("bean:")) {
+            return;
+        }
+        String name = u.substring("bean:".length());
+        int q = name.indexOf('?');
+        if (q >= 0) {
+            name = name.substring(0, q);
+        }
+        name = name.trim();
+        if (!name.isEmpty() && !name.contains("{")) {   // skip unresolved placeholders
+            out.add(name);
+        }
+    }
+
+    /**
+     * A changed file (git repo-relative, forward-slashed) matched against a candidate source path
+     * (an absolute route-XML path or a scan-relative bean-class path). True when one is a
+     * path-segment suffix of the other, so different roots (repo root vs scan root) still line up.
+     * Returns the matched changed-file entry, or null.
+     */
+    private static String matchChanged(String candidate, Set<String> changed) {
+        if (candidate == null) {
+            return null;
+        }
+        String cand = candidate.replace('\\', '/');
+        for (String c : changed) {
+            String cc = c.replace('\\', '/');
+            if (cand.equals(cc)
+                    || cand.endsWith("/" + cc) || cc.endsWith("/" + cand)) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /** The last path segment of a file path, e.g. {@code .../StatusProcessor.java} → {@code StatusProcessor.java}. */
+    private static String fileName(String path) {
+        String p = path.replace('\\', '/');
+        int slash = p.lastIndexOf('/');
+        return slash >= 0 ? p.substring(slash + 1) : p;
     }
 
     private static int statusRank(String status) {

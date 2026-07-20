@@ -119,8 +119,9 @@ public class RouteGraphController {
             @RequestParam(required = false) String repo,
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) List<String> dep,
-            @RequestParam(required = false) String app) {
-        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch, dep, app));
+            @RequestParam(required = false) String app,
+            @RequestParam(required = false) String appVersion) {
+        return service.versionDiff(new TraceRequest(null, version, null, sourceDir, country, repo, branch, dep, app, appVersion));
     }
 
     /**

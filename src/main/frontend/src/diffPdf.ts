@@ -27,37 +27,51 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     const rep = m.report;
     return { name: m.name, error: m.error, snapshot: !!rep?.snapshot,
       changed: rep?.changedCount ?? 0, added: rep?.newCount ?? 0, unchanged: rep?.unchangedCount ?? 0,
+      code: rep?.codeChangedCount ?? 0,
       snap: rep?.snapshotCount ?? (rep?.snapshot ? rep.apis.length : 0) };
   });
-  const tot = { changed: 0, added: 0, unchanged: 0 };
-  rows.forEach((x) => { tot.changed += x.changed; tot.added += x.added; tot.unchanged += x.unchanged; });
+  const tot = { changed: 0, added: 0, unchanged: 0, code: 0 };
+  rows.forEach((x) => { tot.changed += x.changed; tot.added += x.added; tot.unchanged += x.unchanged; tot.code += x.code; });
+  // The app/commit version whose Java code changes were analysed (same across modules); null if not requested.
+  const appVersion = mods.find((m) => m.report?.appVersion)?.report?.appVersion || null;
 
   r.header('Release Impact Report',
-    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
+    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`
+      + `${appVersion ? '  -  app ' + appVersion : ''}`,
     `Generated ${generatedStamp()}`);
 
   // ===== Release Impact Summary =====
   r.banner('Release Impact Summary', PAL.blue);
-  r.statBand([
+  const band = [
     { n: tot.changed, label: 'Changed', ramp: PAL.amber },
     { n: tot.added, label: 'New', ramp: PAL.green },
     { n: mods.length, label: 'Modules', ramp: PAL.gray },
-  ]);
+  ];
+  if (appVersion) band.splice(2, 0, { n: tot.code, label: 'Code changed', ramp: PAL.purple });
+  r.statBand(band);
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
-    + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged. Impact by module:`);
+    + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged`
+    + `${appVersion ? `. App version ${appVersion} changed Java/route code for ${tot.code} API(s)` : ''}. Impact by module:`);
   r.dataTable(
-    ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Unchanged'],
-    rows.map((x) => [x.name + (x.error ? '  (failed)' : ''),
-      x.error ? '—' : (x.snapshot ? 'N/A' : ver),
-      x.snapshot ? '—' : x.changed, x.snapshot ? '—' : x.added, x.snapshot ? x.snap : x.unchanged]),
-    ['Total', '', tot.changed, tot.added, tot.unchanged],
+    appVersion
+      ? ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Code', 'Unchanged']
+      : ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Unchanged'],
+    rows.map((x) => appVersion
+      ? [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.snapshot ? 'N/A' : ver),
+         x.snapshot ? '—' : x.changed, x.snapshot ? '—' : x.added, x.code, x.snapshot ? x.snap : x.unchanged]
+      : [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.snapshot ? 'N/A' : ver),
+         x.snapshot ? '—' : x.changed, x.snapshot ? '—' : x.added, x.snapshot ? x.snap : x.unchanged]),
+    appVersion
+      ? ['Total', '', tot.changed, tot.added, tot.code, tot.unchanged]
+      : ['Total', '', tot.changed, tot.added, tot.unchanged],
   );
 
   // ===== How to read =====
   r.legend('How to read this report', [
     'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
-    'Only changed and new APIs are listed — the ones to regression-test this release. Unchanged APIs are counted in the summary above but not listed.',
+    'Only changed, new and code-changed APIs are listed — the ones to regression-test this release. Unchanged APIs are counted in the summary above but not listed.',
     'Changed = the resolved Camel flow differs (routes, backends or service versions). New = first appears in this release.',
+    ...(appVersion ? ['Code changed = a Java @Component class or route XML in the API\'s flow was changed by app version ' + appVersion + ' (whitespace-only changes ignored). "Shared code — also re-test" flags an older release\'s route that the same change touches.'] : []),
     'Under "What changed", lines marked - were removed and + were added vs the previous version.',
   ]);
 
@@ -71,15 +85,35 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     if (rep.snapshot) {
       r.section('Module — ' + m.name + '  (N/A)', rep.apis.length, PAL.amber,
         'Unversioned — the latest route each API is on (no prior release to compare).');
+      if (rep.appVersion) {
+        r.para(rep.codeChangeUnavailable
+          ? `App version ${rep.appVersion}: source is not a git work tree — Java code-change detection skipped.`
+          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a Java/route code change.`,
+          M, CONTENT_W, 'normal', 9, PAL.body, 12);
+      }
       rep.apis.forEach((a, idx) => { if (idx > 0) r.separator(); snapshotRow(r, a); });
+      const unmapped = rep.unmappedChangedFiles ?? [];
+      if (unmapped.length) {
+        r.groupHead('Changed files to review manually', unmapped.length, PAL.orange);
+        unmapped.forEach((f) => r.para(f, M + 4, CONTENT_W - 4, 'normal', 8, PAL.body, 11));
+      }
     } else {
       const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
       rep.apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status as DiffStatus].push(a); });
-      const listedCount = rep.changedCount + rep.newCount;
+      // Code-only changes: an UNCHANGED API (no flow diff) whose Java/route code the app version still changed.
+      // These would otherwise be hidden, so list them in their own group — they still need testing.
+      const codeOnly = grouped.UNCHANGED.filter((a) => a.codeChanged);
+      const listedCount = rep.changedCount + rep.newCount + codeOnly.length;
       const blurb = rep.unchangedCount > 0
         ? `${rep.unchangedCount} unchanged API(s) not listed — this report focuses on what to test.`
         : '';
       r.section('Module — ' + m.name, listedCount, PAL.blue, blurb);
+      if (rep.appVersion) {
+        r.para(rep.codeChangeUnavailable
+          ? `App version ${rep.appVersion}: source is not a git work tree — Java code-change detection skipped.`
+          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a Java/route code change.`,
+          M, CONTENT_W, 'normal', 9, PAL.body, 12);
+      }
       if (listedCount === 0) {
         r.emptyNote(`Nothing to test in this module — no changed or new APIs`
           + (rep.unchangedCount > 0 ? ` (${rep.unchangedCount} unchanged).` : '.'));
@@ -91,6 +125,16 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           r.groupHead(meta.title, list.length, meta.ramp);
           list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
         }
+        if (codeOnly.length) {
+          r.groupHead('Code-changed APIs (no flow diff)', codeOnly.length, PAL.purple);
+          codeOnly.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, 'UNCHANGED'); });
+        }
+      }
+      // Changed Java files not wired to any in-scope route — a human should review these.
+      const unmapped = rep.unmappedChangedFiles ?? [];
+      if (unmapped.length) {
+        r.groupHead('Changed files to review manually', unmapped.length, PAL.orange);
+        unmapped.forEach((f) => r.para(f, M + 4, CONTENT_W - 4, 'normal', 8, PAL.body, 11));
       }
     }
     r.reviewSection(rep.needsReview);
@@ -109,7 +153,23 @@ function snapshotRow(r: ReportDoc, a: ApiDiff) {
   r.pill(label, PAGE.w - M - vw, base ? PAL.amber.fill : PAL.blue.fill, base ? PAL.amber.text : PAL.blue.text, 8);
   r.y += 16;
   r.para(`Route: ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  const summarize = (label: string, names: string[], col: typeof PAL.amber.text) => {
+    if (names.length) r.para(`${label}: ${names.join(', ')}`, M + 4, CONTENT_W - 4, 'normal', 9, col, 12);
+  };
+  codeChangeLines(r, a, summarize);
   r.y += 6;
+}
+
+/** Render the app-version code-change causes for one API (shared by diff + snapshot rows). */
+function codeChangeLines(r: ReportDoc, a: ApiDiff,
+                         summarize: (label: string, names: string[], col: typeof PAL.amber.text) => void) {
+  if (!a.codeChanged) return;
+  summarize('Code changed - classes', a.changedClasses || [], PAL.purple.text);
+  summarize('Code changed - route XML', a.changedRoutes || [], PAL.purple.text);
+  if (a.crossVersionRoutes && a.crossVersionRoutes.length) {
+    r.para('Shared code - also re-test: ' + a.crossVersionRoutes.join(', '),
+      M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
+  }
 }
 
 function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
@@ -143,6 +203,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   summarize('Removed routes', a.removedRoutes || [], PAL.delText);
   (a.backendVersionChanges || []).forEach((s) =>
     summarize('Backend service version', [`${s.backend}  ${s.fromVersion} -> ${s.toVersion}`], PAL.amber.text));
+  codeChangeLines(r, a, summarize);
 
   (a.routeDiffs || []).forEach((rd) => {
     r.ensure(18);

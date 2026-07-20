@@ -702,6 +702,30 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .diff-payload .pk.add { background: #052e16; color: #86efac; }
 [data-theme="dark"] .diff-payload .pk.del { background: #2a1416; color: #fca5a5; }
 
+/* --- Release code-change (app version): violet, distinct from amber "changed" and blue "payload" --- */
+.diff-badge.code { background: #ede9fe; color: #6d28d9; }
+[data-theme="dark"] .diff-badge.code { background: #2e1065; color: #c4b5fd; }
+.diff-card.code { border-left-color: #7c3aed; }
+.chg.code { background: #ede9fe; color: #6d28d9; }
+[data-theme="dark"] .chg.code { background: #2e1065; color: #c4b5fd; }
+.diff-code { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 8px; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 6px; padding: 5px 9px; }
+.diff-code-label { font-size: 11px; font-weight: 700; color: #6d28d9; }
+.diff-code-cross { flex-basis: 100%; margin-top: 4px; font-size: 11px; font-weight: 600; color: #b45309; }
+[data-theme="dark"] .diff-code { background: #1a0f33; border-color: #4c1d95; }
+[data-theme="dark"] .diff-code-label { color: #c4b5fd; }
+[data-theme="dark"] .diff-code-cross { color: #fbbf24; }
+
+.codebanner { margin: 10px 0; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 9px 12px; font-size: 12px; }
+.codebanner-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.codebanner-icon { color: #7c3aed; font-size: 14px; }
+.codebanner-review { margin-top: 6px; }
+.codebanner-review summary { cursor: pointer; font-weight: 600; color: #b45309; }
+.codebanner-review ul { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
+.codebanner-review code { word-break: break-all; }
+[data-theme="dark"] .codebanner { background: #1a0f33; border-color: #4c1d95; }
+[data-theme="dark"] .codebanner-icon { color: #c4b5fd; }
+[data-theme="dark"] .codebanner-review summary { color: #fbbf24; }
+
 .rdiff { margin-top: 8px; border: 1px solid #eef2f7; border-radius: 6px; overflow: hidden; }
 .rdiff-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; background: #f8fafc; font-size: 12px; }
 .rdiff-head code { font-weight: 700; }

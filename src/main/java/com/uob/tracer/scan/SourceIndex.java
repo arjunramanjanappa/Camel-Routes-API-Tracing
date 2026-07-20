@@ -48,6 +48,8 @@ public class SourceIndex {
     private final List<RouteIncludePattern> includePatterns;
     /** application.properties (+ flat config) key→value, for resolving {@code {{key}}} in route names. */
     private final Map<String, String> properties;
+    /** Spring bean name → its source-relative {@code .java} path — resolves {@code bean:name} to a class. */
+    private final Map<String, String> beans;
     /**
      * True when the source shows the intercepted-UFW dispatcher (a {@code direct:redirectRoute} /
      * dynamic {@code send${...}Route} toD). Auto-selects the SPL-Secure resolver for this repo:
@@ -63,24 +65,37 @@ public class SourceIndex {
     public SourceIndex(OperationResolver operations, List<FileInfo> files,
                        List<java.nio.file.Path> allFiles, List<String> warnings,
                        List<RouteIncludePattern> includePatterns) {
-        this(operations, files, allFiles, warnings, includePatterns, Map.of());
+        this(operations, files, allFiles, warnings, includePatterns, Map.of(), Map.of());
     }
 
     public SourceIndex(OperationResolver operations, List<FileInfo> files,
                        List<java.nio.file.Path> allFiles, List<String> warnings,
                        List<RouteIncludePattern> includePatterns, Map<String, String> properties) {
+        this(operations, files, allFiles, warnings, includePatterns, properties, Map.of());
+    }
+
+    public SourceIndex(OperationResolver operations, List<FileInfo> files,
+                       List<java.nio.file.Path> allFiles, List<String> warnings,
+                       List<RouteIncludePattern> includePatterns, Map<String, String> properties,
+                       Map<String, String> beans) {
         this.operations = operations;
         this.files = files;
         this.allFiles = allFiles;
         this.warnings = warnings;
         this.includePatterns = includePatterns;
         this.properties = properties == null ? Map.of() : properties;
+        this.beans = beans == null ? Map.of() : beans;
         index();
     }
 
     /** application.properties (+ flat config) values — resolves {@code {{key}}} placeholders in route names. */
     public Map<String, String> properties() {
         return properties;
+    }
+
+    /** Spring bean name → source-relative {@code .java} path, for {@code bean:name} → class resolution. */
+    public Map<String, String> beans() {
+        return beans;
     }
 
     /** Every regular source file found in the scan — for in-memory template lookups. */

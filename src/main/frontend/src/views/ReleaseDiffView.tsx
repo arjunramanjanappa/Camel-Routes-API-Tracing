@@ -34,7 +34,8 @@ function searchHaystack(a: ApiDiff): string {
   return [a.api, a.operation, a.targetRoute, a.lowerRoute,
     ...(a.addedRoutes || []), ...(a.removedRoutes || []),
     ...(a.routeDiffs || []).map((r) => r.routeBase),
-    ...(a.backendVersionChanges || []).map((s) => s.backend)]
+    ...(a.backendVersionChanges || []).map((s) => s.backend),
+    ...(a.changedClasses || []), ...(a.changedRoutes || [])]
     .filter(Boolean).join(' ').toLowerCase();
 }
 
@@ -51,7 +52,62 @@ function apiDiffText(a: ApiDiff): string {
     rd.removed.forEach((l) => lines.push(`        - ${l}`));
     rd.added.forEach((l) => lines.push(`        + ${l}`));
   });
+  if (a.codeChanged) {
+    lines.push('    ⚙ code changed by app version:');
+    (a.changedClasses || []).forEach((c) => lines.push(`        ~ class ${c}`));
+    (a.changedRoutes || []).forEach((r) => lines.push(`        ~ route ${r} (xml)`));
+    (a.crossVersionRoutes || []).forEach((r) => lines.push(`        ! also re-test shared route ${r}`));
+  }
   return lines.join('\n');
+}
+
+/** The code-change section: which Java classes / route XML the app-version release touched for this API. */
+function CodeChangeBlock({ d }: { d: ApiDiff }) {
+  if (!d.codeChanged) return null;
+  const classes = d.changedClasses || [];
+  const routes = d.changedRoutes || [];
+  const cross = d.crossVersionRoutes || [];
+  return (
+    <div className="diff-code" title="Java bean classes / route XML wired into this API's flow that the app-version release changed">
+      <span className="diff-code-label">⚙ Code changed</span>
+      {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class">{c}</span>)}
+      {routes.map((r) => <span key={'r' + r} className="chg code" title="route XML changed">{r} (xml)</span>)}
+      {cross.length > 0 && (
+        <div className="diff-code-cross" title="A shared class/route used by a different release version also changed — those routes must be re-tested too">
+          ⚠ Shared code — also re-test: {cross.join(', ')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A release-level banner summarising the app-version code scan + the review-manually file list. */
+function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
+  if (!report.appVersion) return null;
+  const unmapped = report.unmappedChangedFiles ?? [];
+  const n = report.codeChangedCount ?? 0;
+  return (
+    <div className="codebanner">
+      <div className="codebanner-head">
+        <span className="codebanner-icon">⚙</span>
+        <b>App version {report.appVersion}</b>
+        {report.codeChangeUnavailable ? (
+          <span className="muted"> · source is not a git work tree — code-change detection skipped</span>
+        ) : (
+          <span className="muted">
+            {' · '}{report.matchedCommits ?? 0} commit{(report.matchedCommits ?? 0) === 1 ? '' : 's'} tagged
+            {' · '}{n} API{n === 1 ? '' : 's'} with a Java/route code change
+          </span>
+        )}
+      </div>
+      {unmapped.length > 0 && (
+        <details className="codebanner-review">
+          <summary>⚠ {unmapped.length} changed Java file{unmapped.length === 1 ? '' : 's'} not wired to any route — review manually</summary>
+          <ul>{unmapped.map((f) => <li key={f}><code>{f}</code></li>)}</ul>
+        </details>
+      )}
+    </div>
+  );
 }
 
 /** At-a-glance change chips: which routes were edited / added / removed. */
@@ -107,6 +163,9 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
         <span className="row" style={{ gap: 6 }}>
           {showPill && (
             <span className="ver-pill"><b>{d.lowerVersion}</b><span className="ver-arrow">→</span><b>{d.targetVersion}</b></span>
+          )}
+          {d.codeChanged && (
+            <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
           )}
           <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
@@ -173,6 +232,8 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
         </div>
       )}
 
+      <CodeChangeBlock d={d} />
+
       <div className="diff-actions">
         <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
         <button className="linkbtn" onClick={onCopy}>{copied ? 'Copied ✓' : 'Copy'}</button>
@@ -189,6 +250,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [modulesOpen, setModulesOpen] = useState(true);
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
+  // Optional app/commit version (e.g. 19.18.0) for Java code-change detection — the version token in commits.
+  const [appVersion, setAppVersion] = useState(() => localStorage.getItem(appKey(app, 'appVersion')) ?? '');
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const anyValid = modules.some(moduleValid);
   const [reports, setReports] = useState<ModuleResult<VersionDiffReport>[]>([]);
@@ -214,12 +277,13 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
 
   const load = async () => {
     localStorage.setItem(appKey(app, 'country'), country);
+    localStorage.setItem(appKey(app, 'appVersion'), appVersion);
     saveDeps(appKey(app, 'deps'), deps);
     setLoading(true); setError(null);
     try {
       const results = await analyzeModules(
         modules.filter(moduleValid),
-        (m) => { const sp = sourceParams(m); return fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app); },
+        (m) => { const sp = sourceParams(m); return fetchVersionDiff(sp.sourceDir, country, version, sp.repo, sp.branch, depParams(deps), app, appVersion.trim() || undefined); },
         (r) => r.moduleName,
       );
       setReports(results);
@@ -336,6 +400,11 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
               <option value="N/A" label="latest version of each API (or its default)" />
             </datalist>
           </div>
+          <div style={{ width: 200 }}>
+            <label title="The version token in your commit messages, e.g. 19.18.0. Detects Java/route code changes for this release.">App version <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+            <input value={appVersion} placeholder="19.18.0 — detect code changes" onChange={(e) => setAppVersion(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
+          </div>
           <button className="trace" style={{ width: 150, marginTop: 0, alignSelf: 'flex-end' }}
                   disabled={loading || !country.trim() || !anyValid || !version.trim()} onClick={load}
                   title={!anyValid ? 'Add at least one module source' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
@@ -387,6 +456,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
               ) : null;
             })()}
             <InfoBanner>Showing each API at its latest version{report.country ? ` for ${report.country}` : ''} (or its default when it has no versions). This is a current snapshot for review — there is no earlier release to compare it against.</InfoBanner>
+            <CodeChangeSummary report={report} />
             <div className="diff-main-head row between">
               <h2 style={{ margin: 0 }}>Latest routes <span className="muted">{snapshotVisible.length}</span></h2>
               <input className="diff-search" placeholder="🔍 filter by path, route or operation"
@@ -400,16 +470,22 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             ) : (
               <div className="diff-list">
                 {snapshotVisible.map((a) => (
-                  <div className="diff-card snapshot" key={a.api + '|' + a.operation}>
+                  <div className={'diff-card snapshot' + (a.codeChanged ? ' code' : '')} key={a.api + '|' + a.operation}>
                     <div className="diff-card-head row between">
                       <div className="diff-card-id"><code>{a.api}</code><span className="muted op">{a.operation}</span></div>
-                      <span className="diff-badge" title="the version this API is currently on">
-                        {a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion}
+                      <span className="row" style={{ gap: 6 }}>
+                        {a.codeChanged && report.appVersion && (
+                          <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">changed in {report.appVersion}</span>
+                        )}
+                        <span className="diff-badge" title="the version this API is currently on">
+                          {a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion}
+                        </span>
                       </span>
                     </div>
                     <div className="diff-verdict">
                       <span className="tag route">{a.targetRoute}</span>
                     </div>
+                    <CodeChangeBlock d={a} />
                     <div className="diff-actions">
                       <button className="linkbtn" onClick={() => setFlowApi({ api: a.api, version: report.version || undefined })}>View flow ▸</button>
                     </div>
@@ -448,6 +524,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                 <div className="warnbox">{other.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
               ) : null;
             })()}
+
+            <CodeChangeSummary report={report} />
 
             <div className="diff-main-head row between">
               <h2 style={{ margin: 0 }}>{GROUP_LABEL[activeGroup]} APIs <span className="muted">{visible.length}</span></h2>

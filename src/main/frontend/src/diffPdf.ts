@@ -92,11 +92,6 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           M, CONTENT_W, 'normal', 9, PAL.body, 12);
       }
       rep.apis.forEach((a, idx) => { if (idx > 0) r.separator(); snapshotRow(r, a); });
-      const unmapped = rep.unmappedChangedFiles ?? [];
-      if (unmapped.length) {
-        r.groupHead('Changed files to review manually', unmapped.length, PAL.orange);
-        unmapped.forEach((f) => r.para(f, M + 4, CONTENT_W - 4, 'normal', 8, PAL.body, 11));
-      }
     } else {
       // Group by EFFECTIVE status: a NEW API that changed shared BAU code is listed under Changed (mirrors the
       // backend's New->Changed promotion), because that Java change means BAU APIs using the class need testing.
@@ -130,12 +125,6 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           r.groupHead(meta.title, list.length, meta.ramp);
           list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus); });
         }
-      }
-      // Changed Java files not wired to any in-scope route — a human should review these.
-      const unmapped = rep.unmappedChangedFiles ?? [];
-      if (unmapped.length) {
-        r.groupHead('Changed files to review manually', unmapped.length, PAL.orange);
-        unmapped.forEach((f) => r.para(f, M + 4, CONTENT_W - 4, 'normal', 8, PAL.body, 11));
       }
     }
     r.reviewSection(rep.needsReview);

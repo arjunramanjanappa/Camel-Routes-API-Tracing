@@ -573,7 +573,6 @@ public class RouteTraceService {
             }
         }
 
-        Set<String> mapped = new LinkedHashSet<>();   // changed files we attributed to a bean in scope
         int codeChangedCount = 0;
         int newToChanged = 0;   // NEW APIs promoted to the Changed group because they change shared code
         List<ApiDiff> apis = report.getApis();
@@ -598,7 +597,6 @@ public class RouteTraceService {
                     if (hit == null) {
                         continue;
                     }
-                    mapped.add(hit);
                     // Routes to re-test for this class change, per route family: the release's own route (Current),
                     // the current BAU baseline (immediate-lower, else base) and every future/higher version. Empty
                     // means ONLY the release's own route uses it → new code shipped with a new route, so skip.
@@ -632,16 +630,6 @@ public class RouteTraceService {
             report.setNewCount(Math.max(0, report.getNewCount() - newToChanged));
             report.setChangedCount(report.getChangedCount() + newToChanged);
         }
-
-        // Changed .java the release touched but which no in-scope route references → review manually.
-        List<String> unmapped = new ArrayList<>();
-        for (String f : changed) {
-            if (f.endsWith(".java") && !mapped.contains(f)) {
-                unmapped.add(f);
-            }
-        }
-        unmapped.sort(String.CASE_INSENSITIVE_ORDER);
-        report.getUnmappedChangedFiles().addAll(unmapped);
     }
 
     /** The release version of a route id ({@code R9.14_getStatus} → {@code 9.14}), or null for a BASE route. */

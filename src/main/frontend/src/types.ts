@@ -202,8 +202,6 @@ export interface VersionDiffReport {
   codeChangedCount?: number;
   /** True when appVersion was given but the source isn't a git work tree, so no code-change analysis ran. */
   codeChangeUnavailable?: boolean;
-  /** Changed .java files not wired to any in-scope route — review manually. */
-  unmappedChangedFiles?: string[];
   apis: ApiDiff[];
   warnings: string[];
   needsReview?: string[];

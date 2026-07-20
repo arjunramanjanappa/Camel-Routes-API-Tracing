@@ -105,10 +105,9 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
   );
 }
 
-/** A release-level banner summarising the app-version code scan + the review-manually file list. */
+/** A release-level banner summarising the app-version code scan. */
 function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
   if (!report.appVersion) return null;
-  const unmapped = report.unmappedChangedFiles ?? [];
   const n = report.codeChangedCount ?? 0;
   return (
     <div className="codebanner">
@@ -124,12 +123,6 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
           </span>
         )}
       </div>
-      {unmapped.length > 0 && (
-        <details className="codebanner-review">
-          <summary>⚠ {unmapped.length} changed Java file{unmapped.length === 1 ? '' : 's'} not wired to any route — review manually</summary>
-          <ul>{unmapped.map((f) => <li key={f}><code>{f}</code></li>)}</ul>
-        </details>
-      )}
     </div>
   );
 }

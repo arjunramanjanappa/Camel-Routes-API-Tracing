@@ -153,18 +153,19 @@ class CodeChangeImpactTest {
     }
 
     @Test
-    void changedJavaNotWiredToAnyRouteIsListedForReview(@TempDir Path dir) throws Exception {
+    void aChangedNonBeanJavaFileFlagsNothing(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         writeBaseline(dir);
         initRepo(dir);
         commit(dir, "[JIRA-1][SG][19.14.0] baseline");
 
+        // A changed .java that isn't a bean wired to any traced route → nothing to flag (we trace by flow).
         Files.writeString(dir.resolve("Notes.java"), "class Notes {}\n");
         commit(dir, "[JIRA-2][SG][19.18.0] add notes");
 
         VersionDiffReport report = run918(dir);
         assertThat(report.getApis()).allMatch(a -> !a.codeChanged());
-        assertThat(report.getUnmappedChangedFiles()).anyMatch(f -> f.endsWith("Notes.java"));
+        assertThat(report.getCodeChangedCount()).isZero();
     }
 
     // A shared bean (commonProcessor) used across many versions/families, plus a NEW getSummary API that also

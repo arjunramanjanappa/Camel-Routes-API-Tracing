@@ -460,7 +460,7 @@ public class RouteTraceService {
         }
         if (wantCode) {
             // release version = the concrete target — changes on R<target>_ routes are this release's own new code.
-            applyCodeChanges(report, roots, registry, locations, prepared.index().beans(),
+            applyCodeChanges(report, roots, registry, prepared.index().beans(),
                     flowByApi, request.appVersion(), target);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
@@ -507,7 +507,7 @@ public class RouteTraceService {
         if (wantCode) {
             Roots roots = resolveRoots(request);
             // N/A snapshot: no "own" release version — every route is pre-existing, so all changes count.
-            applyCodeChanges(report, roots, registry, routeLocationsCached(roots),
+            applyCodeChanges(report, roots, registry,
                     prepared.index().beans(), flowByApi, request.appVersion(), null);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
@@ -517,25 +517,28 @@ public class RouteTraceService {
     // --- Release code-change detection (Release Impact tab) ---
 
     /**
-     * Annotate the report with the Java/route code changes an app-version release made. For each API,
-     * walks its captured flow and marks routes whose XML the release changed and {@code @Component} beans
-     * (referenced as {@code bean:name}) whose class the release changed.
+     * Annotate the report with the release's Java code changes. "Code change" means a changed
+     * {@code @Component} Java class (a {@code bean:name} referenced by a route) — and ONLY that. Route XML
+     * and payload changes are already surfaced by the version diff and the payload diff, so they are not
+     * repeated here.
      *
-     * <p>Only changes on <em>pre-existing</em> routes are highlighted — i.e. routes whose version is NOT the
-     * release version being analysed (older versioned routes, base routes, or, in the N/A snapshot, every
-     * route). A change on the release's <em>own</em> new/changed route (a new bean added together with the
-     * new {@code R<release>_} route) is just this release's new code, already surfaced by the New/Changed
-     * status, so it is not flagged again. This matches the intent: highlight when a bean an <b>older</b>
-     * route already uses is modified by the release (shared-code impact), not when new code ships with a new
-     * route. Such an older route is also recorded as a cross-version "also re-test" alert. Changed Java files
-     * wired to no in-scope route are listed for manual review; files wired only to the release's own route
-     * count as mapped (accounted for by the New/Changed API), so they are not in that list.
+     * <p>Only <em>pre-existing (BAU)</em> beans are flagged: a bean some route at a version other than the
+     * release (older or base) also uses. A bean used only by the release's own {@code R<release>_} route is
+     * new code shipping with a new route — already the New/Changed signal — so it is skipped. Every other
+     * (BAU/older) route using the changed bean is recorded as a "also re-test" alert.
+     *
+     * <p>Per-tab handling: an <b>Unchanged</b> API never shows a code change (it's BAU with no flow change —
+     * noise; the change is surfaced on the API that introduced it). A <b>New</b> API that changes shared BAU
+     * code is promoted into the <b>Changed</b> group (its count moves New→Changed) so it is regression-tested,
+     * because BAU APIs using that class need testing. A <b>Changed</b> API shows its code change as-is.
+     *
+     * <p>Changed Java files wired to no in-scope route are listed for manual review.
      *
      * @param releaseVersion the concrete client release version being analysed (e.g. {@code 9.18}), or null
      *                       for the N/A snapshot — routes at this exact version are the release's own routes
      */
     private void applyCodeChanges(VersionDiffReport report, Roots roots, RouteRegistry registry,
-                                  Map<String, RouteXmlDiff.RouteLocation> locations, Map<String, String> beans,
+                                  Map<String, String> beans,
                                   Map<String, List<String>> flowByApi, String appVersion, String releaseVersion) {
         String wanted = nz(appVersion);
         report.setAppVersion(wanted);
@@ -568,73 +571,72 @@ public class RouteTraceService {
             }
         }
 
-        Set<String> mapped = new LinkedHashSet<>();   // changed files we attributed to a route/bean in scope
+        Set<String> mapped = new LinkedHashSet<>();   // changed files we attributed to a bean in scope
         int codeChangedCount = 0;
+        int newToChanged = 0;   // NEW APIs promoted to the Changed group because they change shared code
         List<ApiDiff> apis = report.getApis();
         for (int i = 0; i < apis.size(); i++) {
             ApiDiff d = apis.get(i);
             List<String> flow = flowByApi.getOrDefault(d.api(), List.of());
-            LinkedHashSet<String> changedRoutes = new LinkedHashSet<>();
             LinkedHashSet<String> changedClasses = new LinkedHashSet<>();
             LinkedHashSet<String> crossVersion = new LinkedHashSet<>();
             for (String routeId : flow) {
-                String routeVer = routeVersionOf(routeId);
-                // The release's OWN new/changed route: a change here is new code, already shown as New/Changed.
-                boolean ownRoute = release != null && routeVer != null && routeVer.equals(release);
-                // Route XML changed?
-                RouteXmlDiff.RouteLocation loc = locations.get(routeId);
-                if (loc != null) {
-                    String hit = matchChanged(loc.file().toString(), changed);
-                    if (hit != null) {
-                        mapped.add(hit);
-                        if (!ownRoute) {
-                            changedRoutes.add(baseName(routeId));
-                            if (isCrossVersion(routeVer, release)) {
-                                crossVersion.add(routeId);
-                            }
-                        }
-                    }
-                }
-                // @Component beans this route references (bean:name) whose class changed?
+                // Code change = a changed @Component Java class only. Route XML / payload changes are already
+                // surfaced by the version diff and the payload diff, so they are deliberately not repeated here.
                 RouteModel rm = registry.lookup(routeId);
-                if (rm != null) {
-                    for (String beanName : beanRefs(rm)) {
-                        String classFile = beans.get(beanName);
-                        if (classFile == null) {
-                            continue;
-                        }
-                        String hit = matchChanged(classFile, changed);
-                        if (hit == null) {
-                            continue;
-                        }
-                        mapped.add(hit);
-                        // Pre-existing only: some route at a version other than the release (older or base)
-                        // must also use this bean — otherwise it's new code shipped with the release's own route.
-                        List<String> users = beanUsage.getOrDefault(beanName, List.of());
-                        boolean preExisting = users.stream().anyMatch(rid -> !isReleaseRoute(rid, release));
-                        if (!preExisting) {
-                            continue;   // brand-new bean on the release's own route — not a shared-code change
-                        }
-                        changedClasses.add(beanName + " (" + fileName(classFile) + ")");
-                        // Older versioned routes that also use this bean must be re-tested (the shared-code alert).
-                        for (String rid : users) {
-                            String v = routeVersionOf(rid);
-                            if (v != null && release != null && !v.equals(release)) {
-                                crossVersion.add(rid);
-                            }
+                if (rm == null) {
+                    continue;
+                }
+                for (String beanName : beanRefs(rm)) {
+                    String classFile = beans.get(beanName);
+                    if (classFile == null) {
+                        continue;
+                    }
+                    String hit = matchChanged(classFile, changed);
+                    if (hit == null) {
+                        continue;
+                    }
+                    mapped.add(hit);
+                    // Pre-existing (BAU) beans only: some route at a version other than the release (older or
+                    // base) must also use this bean — otherwise it's new code shipped with the release's own
+                    // route (already the New/Changed signal), which we don't repeat.
+                    List<String> users = beanUsage.getOrDefault(beanName, List.of());
+                    boolean preExisting = users.stream().anyMatch(rid -> !isReleaseRoute(rid, release));
+                    if (!preExisting) {
+                        continue;
+                    }
+                    changedClasses.add(beanName + " (" + fileName(classFile) + ")");
+                    // Every other (BAU / older) route using this bean must be re-tested — the shared-code alert.
+                    for (String rid : users) {
+                        if (!isReleaseRoute(rid, release)) {
+                            crossVersion.add(rid);
                         }
                     }
                 }
             }
-            boolean codeChanged = !changedRoutes.isEmpty() || !changedClasses.isEmpty();
-            if (codeChanged) {
-                apis.set(i, d.withCodeChange(true,
-                        new ArrayList<>(changedClasses), new ArrayList<>(changedRoutes),
-                        new ArrayList<>(crossVersion)));
-                codeChangedCount++;
+            if (changedClasses.isEmpty()) {
+                continue;
+            }
+            // Unchanged (BAU, no flow change) APIs deliberately do NOT show a code change — it would be noise;
+            // the change is surfaced on the New/Changed API that introduced it, via the re-test list. A NEW API
+            // that changes shared BAU code is promoted into the Changed group so it's tested (its route body is
+            // still rendered as "new", but it lands under Changed).
+            if (ApiDiff.UNCHANGED.equals(d.status())) {
+                continue;
+            }
+            apis.set(i, d.withCodeChange(true, new ArrayList<>(changedClasses), List.of(),
+                    new ArrayList<>(crossVersion)));
+            codeChangedCount++;
+            if (ApiDiff.NEW.equals(d.status())) {
+                newToChanged++;
             }
         }
         report.setCodeChangedCount(codeChangedCount);
+        // A NEW API that changes shared code counts under Changed (where testers look for what to regression-test).
+        if (newToChanged > 0) {
+            report.setNewCount(Math.max(0, report.getNewCount() - newToChanged));
+            report.setChangedCount(report.getChangedCount() + newToChanged);
+        }
 
         // Changed .java the release touched but which no in-scope route references → review manually.
         List<String> unmapped = new ArrayList<>();
@@ -668,14 +670,6 @@ public class RouteTraceService {
         }
         String v = routeVersionOf(routeId);
         return v != null && v.equals(releaseVersion);
-    }
-
-    /** True when a touched route's version differs from the release version (the shared-code "also re-test" alert). */
-    private static boolean isCrossVersion(String routeVer, String releaseVersion) {
-        if (routeVer == null || releaseVersion == null || BASE_GROUP.equals(releaseVersion)) {
-            return false;
-        }
-        return !routeVer.equals(releaseVersion);
     }
 
     /** Distinct {@code bean:name} references in a route's steps (walks nested choice/container branches). */

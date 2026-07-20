@@ -20,46 +20,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * The Release-Impact code-change feature: when an app/commit version (e.g. 19.18.0) is supplied, the diff
- * flags APIs whose Java {@code @Component} bean or route XML the release changed — including the shared-code
- * case where a bean used by an older release's route changes, so that older route must be re-tested too.
+ * The Release-Impact code-change feature. "Code change" = a modified pre-existing (BAU) {@code @Component}
+ * Java class (bean) a route uses — Java only; route XML / payload changes are covered by the version + payload
+ * diffs. A NEW API that changes shared BAU code is promoted into the Changed group (BAU APIs using that class
+ * need testing); an Unchanged API never shows a code change; a bean shipped only with the release's own new
+ * route is new code and is not flagged.
  */
 class CodeChangeImpactTest {
 
+    // getResidence is NEW at 9.18 (only an R9.18 route). Its flow calls the shared BAU route R7.14_getStatusRoute,
+    // which uses statusProcessor. residenceProcessor is used only by the new 9.18 route.
     private static final String ROUTES = """
             <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
               <routeContext id="c">
                 <route id="R9.18_getResidenceRoute">
                   <from uri="direct:R9.18_getResidence"/>
-                  <to uri="bean:residenceProcessor"/>
-                  <to uri="direct:R7.14_getStatus"/>
-                </route>
-                <route id="R9.14_getResidenceRoute">
-                  <from uri="direct:R9.14_getResidence"/>
-                  <to uri="bean:residenceProcessor"/>
-                  <to uri="direct:R7.14_getStatus"/>
-                </route>
-                <route id="R7.14_getStatusRoute">
-                  <from uri="direct:R7.14_getStatus"/>
-                  <to uri="bean:statusProcessor"/>
-                </route>
-              </routeContext>
-            </beans:beans>
-            """;
-
-    // As ROUTES, but the 9.18 route also references a bean (newProcessor) that only IT uses — a new bean
-    // shipped together with the new release route. Older routes never reference it.
-    private static final String ROUTES_WITH_OWN_BEAN = """
-            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
-              <routeContext id="c">
-                <route id="R9.18_getResidenceRoute">
-                  <from uri="direct:R9.18_getResidence"/>
-                  <to uri="bean:residenceProcessor"/>
-                  <to uri="bean:newProcessor"/>
-                  <to uri="direct:R7.14_getStatus"/>
-                </route>
-                <route id="R9.14_getResidenceRoute">
-                  <from uri="direct:R9.14_getResidence"/>
                   <to uri="bean:residenceProcessor"/>
                   <to uri="direct:R7.14_getStatus"/>
                 </route>
@@ -88,118 +63,106 @@ class CodeChangeImpactTest {
                 + "}\n";
     }
 
-    private ApiDiff residenceDiff(VersionDiffReport report) {
+    private static void writeBaseline(Path dir) throws Exception {
+        Files.writeString(dir.resolve("routes.xml"), ROUTES);
+        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
+        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
+        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
+    }
+
+    private static VersionDiffReport run918(Path dir) {
+        return new RouteTraceService(dir.toString()).versionDiff(
+                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+    }
+
+    private ApiDiff apiByRoute(VersionDiffReport report, String routeFragment) {
         return report.getApis().stream()
-                .filter(a -> a.targetRoute() != null && a.targetRoute().contains("getResidence"))
+                .filter(a -> a.targetRoute() != null && a.targetRoute().contains(routeFragment))
                 .findFirst().orElseThrow();
     }
 
     @Test
-    void flagsAChangedSharedBeanAndTheOlderRouteThatMustBeRetested(@TempDir Path dir) throws Exception {
+    void newApiThatChangesSharedBauCodeIsPromotedToChangedAndUnchangedApiIsNot(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
-        Files.writeString(dir.resolve("routes.xml"), ROUTES);
-        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
-        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
-        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
+        writeBaseline(dir);
         initRepo(dir);
         commit(dir, "[JIRA-1][SG][19.14.0] baseline");
 
-        // The 19.18 release changes only StatusProcessor — the bean the SHARED R7.14 route uses.
+        // The 9.18 release changes statusProcessor — a BAU class the shared R7.14 route uses.
         Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 2));
         commit(dir, "[JIRA-2][SG][19.18.0] tweak status scoring");
 
-        RouteTraceService service = new RouteTraceService(dir.toString());
-        VersionDiffReport report = service.versionDiff(
-                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
-
+        VersionDiffReport report = run918(dir);
         assertThat(report.getAppVersion()).isEqualTo("19.18.0");
         assertThat(report.getMatchedCommits()).isEqualTo(1);
 
-        ApiDiff residence = residenceDiff(report);
+        // getResidence is a NEW API but it changes shared BAU code → flagged and promoted into Changed.
+        ApiDiff residence = apiByRoute(report, "getResidence");
+        assertThat(residence.status()).isEqualTo(ApiDiff.NEW);          // still rendered as "new"
         assertThat(residence.codeChanged()).isTrue();
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("statusProcessor"));
-        // The changed bean lives on the 7.14 route (a different release than the 9.18 target) → re-test it.
         assertThat(residence.crossVersionRoutes()).anyMatch(rte -> rte.contains("R7.14_getStatus"));
-        assertThat(report.getCodeChangedCount()).isGreaterThanOrEqualTo(1);
+        assertThat(report.getChangedCount()).isEqualTo(1);             // promoted New→Changed
+        assertThat(report.getNewCount()).isZero();
+
+        // getStatus is UNCHANGED (a 9.18 client still resolves to R7.14) — no code change shown, even though it
+        // uses the changed class. The signal is carried on the getResidence card via the re-test list.
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.status()).isEqualTo(ApiDiff.UNCHANGED);
+        assertThat(status.codeChanged()).isFalse();
     }
 
     @Test
-    void unchangedClassMeansNoCodeChange(@TempDir Path dir) throws Exception {
+    void doesNotFlagANewBeanShippedOnlyWithTheReleasesOwnRoute(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
-        Files.writeString(dir.resolve("routes.xml"), ROUTES);
-        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
-        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
-        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
+        writeBaseline(dir);
         initRepo(dir);
         commit(dir, "[JIRA-1][SG][19.14.0] baseline");
 
-        // A 19.18 commit that touches an unrelated file only.
-        Files.writeString(dir.resolve("Notes.java"), "class Notes {}\n");
-        commit(dir, "[JIRA-2][SG][19.18.0] add notes");
-
-        RouteTraceService service = new RouteTraceService(dir.toString());
-        VersionDiffReport report = service.versionDiff(
-                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
-
-        ApiDiff residence = residenceDiff(report);
-        assertThat(residence.codeChanged()).isFalse();
-        // Notes.java isn't wired to any route → it should surface for manual review.
-        assertThat(report.getUnmappedChangedFiles()).anyMatch(f -> f.endsWith("Notes.java"));
-    }
-
-    @Test
-    void doesNotHighlightANewBeanShippedWithTheReleasesOwnRoute(@TempDir Path dir) throws Exception {
-        assumeTrue(gitAvailable(), "git CLI not available");
-        Files.writeString(dir.resolve("routes.xml"), ROUTES_WITH_OWN_BEAN);
-        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
-        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
-        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
-        Files.writeString(dir.resolve("NewProcessor.java"), beanClass("NewProcessor", "newProcessor", 1));
-        initRepo(dir);
-        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
-
-        // The release only changes newProcessor — a bean used ONLY by the release's own 9.18 route.
-        // That is new code for the new route (already the New/Changed signal), so it must NOT be flagged.
-        Files.writeString(dir.resolve("NewProcessor.java"), beanClass("NewProcessor", "newProcessor", 2));
-        commit(dir, "[JIRA-2][SG][19.18.0] tweak new processor");
-
-        RouteTraceService service = new RouteTraceService(dir.toString());
-        VersionDiffReport report = service.versionDiff(
-                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
-
-        ApiDiff residence = residenceDiff(report);
-        assertThat(residence.codeChanged()).isFalse();
-        assertThat(report.getCodeChangedCount()).isZero();
-        // NewProcessor is wired to the 9.18 route, so it is accounted for — not a "review manually" orphan.
-        assertThat(report.getUnmappedChangedFiles()).noneMatch(f -> f.endsWith("NewProcessor.java"));
-    }
-
-    @Test
-    void highlightsASharedBeanEvenWhenTheReleasesOwnRouteAlsoUsesIt(@TempDir Path dir) throws Exception {
-        assumeTrue(gitAvailable(), "git CLI not available");
-        Files.writeString(dir.resolve("routes.xml"), ROUTES_WITH_OWN_BEAN);
-        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
-        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
-        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
-        Files.writeString(dir.resolve("NewProcessor.java"), beanClass("NewProcessor", "newProcessor", 1));
-        initRepo(dir);
-        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
-
-        // residenceProcessor is used by BOTH the 9.18 route (own) and the older 9.14 route (shared).
-        // Modifying it means the older 9.14 route is impacted → flag it via that older route.
+        // residenceProcessor is used ONLY by the new 9.18 route — new code for the new route, not shared BAU.
         Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 2));
         commit(dir, "[JIRA-2][SG][19.18.0] tweak residence scoring");
 
-        RouteTraceService service = new RouteTraceService(dir.toString());
-        VersionDiffReport report = service.versionDiff(
-                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+        VersionDiffReport report = run918(dir);
+        ApiDiff residence = apiByRoute(report, "getResidence");
+        assertThat(residence.codeChanged()).isFalse();
+        assertThat(residence.status()).isEqualTo(ApiDiff.NEW);
+        assertThat(report.getNewCount()).isEqualTo(1);   // stays New, not promoted
+        assertThat(report.getCodeChangedCount()).isZero();
+    }
 
-        ApiDiff residence = residenceDiff(report);
-        assertThat(residence.codeChanged()).isTrue();
-        assertThat(residence.changedClasses()).anyMatch(c -> c.contains("residenceProcessor"));
-        assertThat(residence.crossVersionRoutes()).anyMatch(rte -> rte.contains("R9.14_getResidence"));
-        // ...and NOT via the release's own 9.18 route.
-        assertThat(residence.crossVersionRoutes()).noneMatch(rte -> rte.contains("R9.18_getResidence"));
+    @Test
+    void routeXmlOnlyChangeIsNotACodeChange(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // Change only route XML (add a log step to the shared route) — no Java class touched. Code-change is
+        // Java-only, so nothing is flagged as a code change (route changes are the version diff's job).
+        Files.writeString(dir.resolve("routes.xml"), ROUTES.replace(
+                "<to uri=\"bean:statusProcessor\"/>",
+                "<to uri=\"bean:statusProcessor\"/>\n      <log message=\"done\"/>"));
+        commit(dir, "[JIRA-2][SG][19.18.0] add a log step");
+
+        VersionDiffReport report = run918(dir);
+        assertThat(report.getApis()).allMatch(a -> !a.codeChanged());
+        assertThat(report.getCodeChangedCount()).isZero();
+    }
+
+    @Test
+    void changedJavaNotWiredToAnyRouteIsListedForReview(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        Files.writeString(dir.resolve("Notes.java"), "class Notes {}\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] add notes");
+
+        VersionDiffReport report = run918(dir);
+        assertThat(report.getApis()).allMatch(a -> !a.codeChanged());
+        assertThat(report.getUnmappedChangedFiles()).anyMatch(f -> f.endsWith("Notes.java"));
     }
 
     // --- git test helpers ---

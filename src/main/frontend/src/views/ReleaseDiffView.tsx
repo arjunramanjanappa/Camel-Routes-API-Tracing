@@ -29,6 +29,16 @@ function statusLabel(s: DiffStatus): string {
   return s === 'NEW' ? 'New' : s === 'CHANGED' ? 'Changed' : 'No change';
 }
 
+/**
+ * The tab a diff belongs to. A NEW API that changed shared BAU code is grouped under Changed — that Java
+ * change means BAU APIs using the class need regression-testing, so it belongs where testers look for changes.
+ * (The card still shows it was newly added.) Mirrors the backend's New→Changed count promotion.
+ */
+function effectiveStatus(a: ApiDiff): DiffStatus {
+  if (a.status === 'NEW' && a.codeChanged) return 'CHANGED';
+  return a.status as DiffStatus;
+}
+
 /** Everything an API diff matches against in the search box. */
 function searchHaystack(a: ApiDiff): string {
   return [a.api, a.operation, a.targetRoute, a.lowerRoute,
@@ -53,27 +63,24 @@ function apiDiffText(a: ApiDiff): string {
     rd.added.forEach((l) => lines.push(`        + ${l}`));
   });
   if (a.codeChanged) {
-    lines.push('    ⚙ code changed by app version:');
+    lines.push('    ⚙ code changed by app version (shared @Component classes):');
     (a.changedClasses || []).forEach((c) => lines.push(`        ~ class ${c}`));
-    (a.changedRoutes || []).forEach((r) => lines.push(`        ~ route ${r} (xml)`));
-    (a.crossVersionRoutes || []).forEach((r) => lines.push(`        ! also re-test shared route ${r}`));
+    (a.crossVersionRoutes || []).forEach((r) => lines.push(`        ! also re-test route ${r}`));
   }
   return lines.join('\n');
 }
 
-/** The code-change section: which Java classes / route XML the app-version release touched for this API. */
+/** The code-change section: which Java @Component classes the app-version release modified for this API. */
 function CodeChangeBlock({ d }: { d: ApiDiff }) {
   if (!d.codeChanged) return null;
   const classes = d.changedClasses || [];
-  const routes = d.changedRoutes || [];
   const cross = d.crossVersionRoutes || [];
   return (
-    <div className="diff-code" title="Java bean classes / route XML wired into this API's flow that the app-version release changed">
+    <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
       <span className="diff-code-label">⚙ Code changed</span>
       {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class">{c}</span>)}
-      {routes.map((r) => <span key={'r' + r} className="chg code" title="route XML changed">{r} (xml)</span>)}
       {cross.length > 0 && (
-        <div className="diff-code-cross" title="A shared class/route used by a different release version also changed — those routes must be re-tested too">
+        <div className="diff-code-cross" title="Other (BAU / older) routes use this same class — they must be re-tested too">
           ⚠ Shared code — also re-test: {cross.join(', ')}
         </div>
       )}
@@ -96,7 +103,7 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
         ) : (
           <span className="muted">
             {' · '}{report.matchedCommits ?? 0} commit{(report.matchedCommits ?? 0) === 1 ? '' : 's'} tagged
-            {' · '}{n} API{n === 1 ? '' : 's'} with a Java/route code change
+            {' · '}{n} API{n === 1 ? '' : 's'} with a shared Java class change
           </span>
         )}
       </div>
@@ -329,7 +336,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     if (!report) return [];
     const q = query.trim().toLowerCase();
     return report.apis
-      .filter((a) => a.status === activeGroup)
+      .filter((a) => effectiveStatus(a) === activeGroup)
       .filter((a) => !q || searchHaystack(a).includes(q));
   }, [report, activeGroup, query]);
 

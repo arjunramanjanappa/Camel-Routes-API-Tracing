@@ -51,7 +51,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   r.statBand(band);
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
     + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged`
-    + `${appVersion ? `. App version ${appVersion} changed Java/route code for ${tot.code} API(s)` : ''}. Impact by module:`);
+    + `${appVersion ? `. App version ${appVersion} changed shared Java classes affecting ${tot.code} API(s)` : ''}. Impact by module:`);
   r.dataTable(
     appVersion
       ? ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Code', 'Unchanged']
@@ -71,7 +71,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
     'Only changed, new and code-changed APIs are listed — the ones to regression-test this release. Unchanged APIs are counted in the summary above but not listed.',
     'Changed = the resolved Camel flow differs (routes, backends or service versions). New = first appears in this release.',
-    ...(appVersion ? ['Code changed = a Java @Component class or route XML in the API\'s flow was changed by app version ' + appVersion + ' (whitespace-only changes ignored). "Shared code — also re-test" flags an older release\'s route that the same change touches.'] : []),
+    ...(appVersion ? ['Code changed = a pre-existing (BAU) @Component Java class an API uses was modified by app version ' + appVersion + ' (whitespace-only changes ignored; new classes shipped with a new route are not counted). A NEW API that changes shared code is listed under Changed. "Shared code — also re-test" lists the other (BAU / older) routes using that class.'] : []),
     'Under "What changed", lines marked - were removed and + were added vs the previous version.',
   ]);
 
@@ -88,7 +88,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
       if (rep.appVersion) {
         r.para(rep.codeChangeUnavailable
           ? `App version ${rep.appVersion}: source is not a git work tree — Java code-change detection skipped.`
-          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a Java/route code change.`,
+          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a shared Java class change.`,
           M, CONTENT_W, 'normal', 9, PAL.body, 12);
       }
       rep.apis.forEach((a, idx) => { if (idx > 0) r.separator(); snapshotRow(r, a); });
@@ -98,12 +98,17 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
         unmapped.forEach((f) => r.para(f, M + 4, CONTENT_W - 4, 'normal', 8, PAL.body, 11));
       }
     } else {
-      const grouped: Record<DiffStatus, ApiDiff[]> = { CHANGED: [], NEW: [], UNCHANGED: [] };
-      rep.apis.forEach((a) => { if (a.status !== 'SNAPSHOT') grouped[a.status as DiffStatus].push(a); });
-      // Code-only changes: an UNCHANGED API (no flow diff) whose Java/route code the app version still changed.
-      // These would otherwise be hidden, so list them in their own group — they still need testing.
-      const codeOnly = grouped.UNCHANGED.filter((a) => a.codeChanged);
-      const listedCount = rep.changedCount + rep.newCount + codeOnly.length;
+      // Group by EFFECTIVE status: a NEW API that changed shared BAU code is listed under Changed (mirrors the
+      // backend's New->Changed promotion), because that Java change means BAU APIs using the class need testing.
+      const grouped: Record<'CHANGED' | 'NEW', ApiDiff[]> = { CHANGED: [], NEW: [] };
+      rep.apis.forEach((a) => {
+        if (a.status === 'SNAPSHOT') return;
+        const eff = a.status === 'NEW' && a.codeChanged ? 'CHANGED' : a.status;
+        if (eff === 'CHANGED') grouped.CHANGED.push(a);
+        else if (eff === 'NEW') grouped.NEW.push(a);
+        // UNCHANGED is not listed (BAU, no flow change — deliberately no code-change noise).
+      });
+      const listedCount = rep.changedCount + rep.newCount;   // backend counts already reflect the promotion
       const blurb = rep.unchangedCount > 0
         ? `${rep.unchangedCount} unchanged API(s) not listed — this report focuses on what to test.`
         : '';
@@ -111,7 +116,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
       if (rep.appVersion) {
         r.para(rep.codeChangeUnavailable
           ? `App version ${rep.appVersion}: source is not a git work tree — Java code-change detection skipped.`
-          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a Java/route code change.`,
+          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a shared Java class change.`,
           M, CONTENT_W, 'normal', 9, PAL.body, 12);
       }
       if (listedCount === 0) {
@@ -123,11 +128,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           if (!list.length) continue;
           const meta = sectionMeta(status);
           r.groupHead(meta.title, list.length, meta.ramp);
-          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status); });
-        }
-        if (codeOnly.length) {
-          r.groupHead('Code-changed APIs (no flow diff)', codeOnly.length, PAL.purple);
-          codeOnly.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, 'UNCHANGED'); });
+          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus); });
         }
       }
       // Changed Java files not wired to any in-scope route — a human should review these.
@@ -164,8 +165,7 @@ function snapshotRow(r: ReportDoc, a: ApiDiff) {
 function codeChangeLines(r: ReportDoc, a: ApiDiff,
                          summarize: (label: string, names: string[], col: typeof PAL.amber.text) => void) {
   if (!a.codeChanged) return;
-  summarize('Code changed - classes', a.changedClasses || [], PAL.purple.text);
-  summarize('Code changed - route XML', a.changedRoutes || [], PAL.purple.text);
+  summarize('Code changed - shared classes', a.changedClasses || [], PAL.purple.text);
   if (a.crossVersionRoutes && a.crossVersionRoutes.length) {
     r.para('Shared code - also re-test: ' + a.crossVersionRoutes.join(', '),
       M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);

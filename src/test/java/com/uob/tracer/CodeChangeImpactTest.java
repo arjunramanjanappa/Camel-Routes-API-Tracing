@@ -47,6 +47,30 @@ class CodeChangeImpactTest {
             </beans:beans>
             """;
 
+    // As ROUTES, but the 9.18 route also references a bean (newProcessor) that only IT uses — a new bean
+    // shipped together with the new release route. Older routes never reference it.
+    private static final String ROUTES_WITH_OWN_BEAN = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="c">
+                <route id="R9.18_getResidenceRoute">
+                  <from uri="direct:R9.18_getResidence"/>
+                  <to uri="bean:residenceProcessor"/>
+                  <to uri="bean:newProcessor"/>
+                  <to uri="direct:R7.14_getStatus"/>
+                </route>
+                <route id="R9.14_getResidenceRoute">
+                  <from uri="direct:R9.14_getResidence"/>
+                  <to uri="bean:residenceProcessor"/>
+                  <to uri="direct:R7.14_getStatus"/>
+                </route>
+                <route id="R7.14_getStatusRoute">
+                  <from uri="direct:R7.14_getStatus"/>
+                  <to uri="bean:statusProcessor"/>
+                </route>
+              </routeContext>
+            </beans:beans>
+            """;
+
     private static final String CONTROLLER = """
             import org.springframework.web.bind.annotation.*;
             @RestController
@@ -121,6 +145,61 @@ class CodeChangeImpactTest {
         assertThat(residence.codeChanged()).isFalse();
         // Notes.java isn't wired to any route → it should surface for manual review.
         assertThat(report.getUnmappedChangedFiles()).anyMatch(f -> f.endsWith("Notes.java"));
+    }
+
+    @Test
+    void doesNotHighlightANewBeanShippedWithTheReleasesOwnRoute(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        Files.writeString(dir.resolve("routes.xml"), ROUTES_WITH_OWN_BEAN);
+        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
+        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
+        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
+        Files.writeString(dir.resolve("NewProcessor.java"), beanClass("NewProcessor", "newProcessor", 1));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The release only changes newProcessor — a bean used ONLY by the release's own 9.18 route.
+        // That is new code for the new route (already the New/Changed signal), so it must NOT be flagged.
+        Files.writeString(dir.resolve("NewProcessor.java"), beanClass("NewProcessor", "newProcessor", 2));
+        commit(dir, "[JIRA-2][SG][19.18.0] tweak new processor");
+
+        RouteTraceService service = new RouteTraceService(dir.toString());
+        VersionDiffReport report = service.versionDiff(
+                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+
+        ApiDiff residence = residenceDiff(report);
+        assertThat(residence.codeChanged()).isFalse();
+        assertThat(report.getCodeChangedCount()).isZero();
+        // NewProcessor is wired to the 9.18 route, so it is accounted for — not a "review manually" orphan.
+        assertThat(report.getUnmappedChangedFiles()).noneMatch(f -> f.endsWith("NewProcessor.java"));
+    }
+
+    @Test
+    void highlightsASharedBeanEvenWhenTheReleasesOwnRouteAlsoUsesIt(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        Files.writeString(dir.resolve("routes.xml"), ROUTES_WITH_OWN_BEAN);
+        Files.writeString(dir.resolve("Endpoints.java"), CONTROLLER);
+        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 1));
+        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
+        Files.writeString(dir.resolve("NewProcessor.java"), beanClass("NewProcessor", "newProcessor", 1));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // residenceProcessor is used by BOTH the 9.18 route (own) and the older 9.14 route (shared).
+        // Modifying it means the older 9.14 route is impacted → flag it via that older route.
+        Files.writeString(dir.resolve("ResidenceProcessor.java"), beanClass("ResidenceProcessor", "residenceProcessor", 2));
+        commit(dir, "[JIRA-2][SG][19.18.0] tweak residence scoring");
+
+        RouteTraceService service = new RouteTraceService(dir.toString());
+        VersionDiffReport report = service.versionDiff(
+                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+
+        ApiDiff residence = residenceDiff(report);
+        assertThat(residence.codeChanged()).isTrue();
+        assertThat(residence.changedClasses()).anyMatch(c -> c.contains("residenceProcessor"));
+        assertThat(residence.crossVersionRoutes()).anyMatch(rte -> rte.contains("R9.14_getResidence"));
+        // ...and NOT via the release's own 9.18 route.
+        assertThat(residence.crossVersionRoutes()).noneMatch(rte -> rte.contains("R9.18_getResidence"));
     }
 
     // --- git test helpers ---

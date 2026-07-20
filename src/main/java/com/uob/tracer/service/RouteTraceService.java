@@ -459,8 +459,9 @@ public class RouteTraceService {
                     + " in this scope — nothing was introduced or changed by this release here.");
         }
         if (wantCode) {
+            // release version = the concrete target — changes on R<target>_ routes are this release's own new code.
             applyCodeChanges(report, roots, registry, locations, prepared.index().beans(),
-                    flowByApi, request.appVersion());
+                    flowByApi, request.appVersion(), target);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         // Changed first, then new, then version-bumped-no-change; alphabetical within each.
@@ -505,8 +506,9 @@ public class RouteTraceService {
         }
         if (wantCode) {
             Roots roots = resolveRoots(request);
+            // N/A snapshot: no "own" release version — every route is pre-existing, so all changes count.
             applyCodeChanges(report, roots, registry, routeLocationsCached(roots),
-                    prepared.index().beans(), flowByApi, request.appVersion());
+                    prepared.index().beans(), flowByApi, request.appVersion(), null);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         return report;
@@ -517,14 +519,24 @@ public class RouteTraceService {
     /**
      * Annotate the report with the Java/route code changes an app-version release made. For each API,
      * walks its captured flow and marks routes whose XML the release changed and {@code @Component} beans
-     * (referenced as {@code bean:name}) whose class the release changed. A route/bean touched at a version
-     * other than the API's target is also recorded as a cross-version alert — the shared-code case where an
-     * older release's route must be re-tested. Java files the release changed but that aren't wired to any
-     * in-scope route are listed for manual review.
+     * (referenced as {@code bean:name}) whose class the release changed.
+     *
+     * <p>Only changes on <em>pre-existing</em> routes are highlighted — i.e. routes whose version is NOT the
+     * release version being analysed (older versioned routes, base routes, or, in the N/A snapshot, every
+     * route). A change on the release's <em>own</em> new/changed route (a new bean added together with the
+     * new {@code R<release>_} route) is just this release's new code, already surfaced by the New/Changed
+     * status, so it is not flagged again. This matches the intent: highlight when a bean an <b>older</b>
+     * route already uses is modified by the release (shared-code impact), not when new code ships with a new
+     * route. Such an older route is also recorded as a cross-version "also re-test" alert. Changed Java files
+     * wired to no in-scope route are listed for manual review; files wired only to the release's own route
+     * count as mapped (accounted for by the New/Changed API), so they are not in that list.
+     *
+     * @param releaseVersion the concrete client release version being analysed (e.g. {@code 9.18}), or null
+     *                       for the N/A snapshot — routes at this exact version are the release's own routes
      */
     private void applyCodeChanges(VersionDiffReport report, Roots roots, RouteRegistry registry,
                                   Map<String, RouteXmlDiff.RouteLocation> locations, Map<String, String> beans,
-                                  Map<String, List<String>> flowByApi, String appVersion) {
+                                  Map<String, List<String>> flowByApi, String appVersion, String releaseVersion) {
         String wanted = nz(appVersion);
         report.setAppVersion(wanted);
         GitChangeService.ReleaseChanges rc = gitChange.changedFor(roots.primary(), wanted);
@@ -543,6 +555,19 @@ public class RouteTraceService {
             return;
         }
 
+        // null for the N/A snapshot: no "own" version — every route is then pre-existing/shared.
+        final String release = nz(releaseVersion).isEmpty() ? null : nz(releaseVersion);
+        // Registry-wide bean usage: which routes reference each bean. Needed to tell a NEW bean (used only by
+        // the release's own R<release>_ route) from a PRE-EXISTING one an older route already uses — only the
+        // latter is a shared-code change worth flagging. An older route referencing it may not even be in this
+        // API's flow (it's a different version of the API), so this must span the whole registry, not the flow.
+        Map<String, List<String>> beanUsage = new LinkedHashMap<>();
+        for (RouteModel rm : registry.all()) {
+            for (String bn : beanRefs(rm)) {
+                beanUsage.computeIfAbsent(bn, k -> new ArrayList<>()).add(rm.routeId());
+            }
+        }
+
         Set<String> mapped = new LinkedHashSet<>();   // changed files we attributed to a route/bean in scope
         int codeChangedCount = 0;
         List<ApiDiff> apis = report.getApis();
@@ -552,18 +577,21 @@ public class RouteTraceService {
             LinkedHashSet<String> changedRoutes = new LinkedHashSet<>();
             LinkedHashSet<String> changedClasses = new LinkedHashSet<>();
             LinkedHashSet<String> crossVersion = new LinkedHashSet<>();
-            String targetVer = d.targetVersion();
             for (String routeId : flow) {
                 String routeVer = routeVersionOf(routeId);
+                // The release's OWN new/changed route: a change here is new code, already shown as New/Changed.
+                boolean ownRoute = release != null && routeVer != null && routeVer.equals(release);
                 // Route XML changed?
                 RouteXmlDiff.RouteLocation loc = locations.get(routeId);
                 if (loc != null) {
                     String hit = matchChanged(loc.file().toString(), changed);
                     if (hit != null) {
-                        changedRoutes.add(baseName(routeId));
                         mapped.add(hit);
-                        if (isCrossVersion(routeVer, targetVer)) {
-                            crossVersion.add(routeId);
+                        if (!ownRoute) {
+                            changedRoutes.add(baseName(routeId));
+                            if (isCrossVersion(routeVer, release)) {
+                                crossVersion.add(routeId);
+                            }
                         }
                     }
                 }
@@ -576,11 +604,23 @@ public class RouteTraceService {
                             continue;
                         }
                         String hit = matchChanged(classFile, changed);
-                        if (hit != null) {
-                            changedClasses.add(beanName + " (" + fileName(classFile) + ")");
-                            mapped.add(hit);
-                            if (isCrossVersion(routeVer, targetVer)) {
-                                crossVersion.add(routeId);
+                        if (hit == null) {
+                            continue;
+                        }
+                        mapped.add(hit);
+                        // Pre-existing only: some route at a version other than the release (older or base)
+                        // must also use this bean — otherwise it's new code shipped with the release's own route.
+                        List<String> users = beanUsage.getOrDefault(beanName, List.of());
+                        boolean preExisting = users.stream().anyMatch(rid -> !isReleaseRoute(rid, release));
+                        if (!preExisting) {
+                            continue;   // brand-new bean on the release's own route — not a shared-code change
+                        }
+                        changedClasses.add(beanName + " (" + fileName(classFile) + ")");
+                        // Older versioned routes that also use this bean must be re-tested (the shared-code alert).
+                        for (String rid : users) {
+                            String v = routeVersionOf(rid);
+                            if (v != null && release != null && !v.equals(release)) {
+                                crossVersion.add(rid);
                             }
                         }
                     }
@@ -621,12 +661,21 @@ public class RouteTraceService {
         return m.matches() ? m.group(1) : null;
     }
 
-    /** True when a touched route's version differs from the API's target version (the shared-code alert). */
-    private static boolean isCrossVersion(String routeVer, String targetVer) {
-        if (routeVer == null || targetVer == null || BASE_GROUP.equals(targetVer)) {
+    /** True when a route is the release's own versioned route ({@code R<release>_…}) — i.e. this release's new code. */
+    private static boolean isReleaseRoute(String routeId, String releaseVersion) {
+        if (releaseVersion == null) {
+            return false;   // N/A snapshot: no release version, so every route counts as pre-existing
+        }
+        String v = routeVersionOf(routeId);
+        return v != null && v.equals(releaseVersion);
+    }
+
+    /** True when a touched route's version differs from the release version (the shared-code "also re-test" alert). */
+    private static boolean isCrossVersion(String routeVer, String releaseVersion) {
+        if (routeVer == null || releaseVersion == null || BASE_GROUP.equals(releaseVersion)) {
             return false;
         }
-        return !routeVer.equals(targetVer);
+        return !routeVer.equals(releaseVersion);
     }
 
     /** Distinct {@code bean:name} references in a route's steps (walks nested choice/container branches). */

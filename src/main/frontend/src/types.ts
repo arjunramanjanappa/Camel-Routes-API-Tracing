@@ -161,14 +161,18 @@ export interface ApiDiff {
   payloadChange?: PayloadChange | null;
   note?: string | null;
   authors?: string[];
-  /** True when a Java bean class or route XML wired into this API's flow was changed by the app-version release. */
+  /** True when a pre-existing (BAU) @Component Java class wired into this API's flow was modified by the release. */
   codeChanged?: boolean;
-  /** Changed bean classes in the flow, e.g. `statusProcessor (StatusProcessor.java)`. */
+  /** Changed bean classes (with commit authors), e.g. `statusProcessor (StatusProcessor.java) — Alice, Bob`. */
   changedClasses?: string[];
-  /** Base names of routes in the flow whose XML the release changed. */
-  changedRoutes?: string[];
-  /** Routes in the flow at a different release version the code change also touches (shared-code alert). */
-  crossVersionRoutes?: string[];
+  /** Routes to re-test for that class change, each tagged Current / BAU / Future. */
+  impactedRoutes?: ImpactedRoute[];
+}
+
+/** A route to re-test for a shared-class change, tagged by its relation to the release. */
+export interface ImpactedRoute {
+  route: string;
+  category: 'Current' | 'BAU' | 'Future';
 }
 
 export interface PayloadChange {

@@ -102,7 +102,8 @@ class CodeChangeImpactTest {
         assertThat(residence.codeChanged()).isTrue();
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("statusProcessor"));
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("Test"));   // commit author shown
-        assertThat(residence.crossVersionRoutes()).anyMatch(rte -> rte.contains("R7.14_getStatus"));
+        assertThat(residence.impactedRoutes())
+                .anyMatch(r -> r.route().contains("R7.14_getStatus") && r.category().equals("BAU"));
         assertThat(report.getChangedCount()).isEqualTo(1);             // promoted New→Changed
         assertThat(report.getNewCount()).isZero();
 
@@ -205,16 +206,16 @@ class CodeChangeImpactTest {
 
         ApiDiff summary = apiByRoute(report, "getSummary");
         assertThat(summary.codeChanged()).isTrue();
-        List<String> reTest = summary.crossVersionRoutes();
-        // getStatus: immediate-lower below 9.10 is 9.8 (not 9.4), plus the future 9.18; 9.10 itself excluded.
-        assertThat(reTest).anyMatch(r -> r.contains("R9.8_getStatus"));
-        assertThat(reTest).anyMatch(r -> r.contains("R9.18_getStatus"));
-        // getAppType: only 9.8 exists.
-        assertThat(reTest).anyMatch(r -> r.contains("R9.8_getAppType"));
-        // Excluded: the superseded 9.4, the release version 9.10, and the API's own new route.
-        assertThat(reTest).noneMatch(r -> r.contains("R9.4_getStatus"));
-        assertThat(reTest).noneMatch(r -> r.contains("R9.10_getStatus"));
-        assertThat(reTest).noneMatch(r -> r.contains("getSummary"));
+        var reTest = summary.impactedRoutes();
+        // getStatus family: immediate-lower below 9.10 is 9.8 (BAU, not the superseded 9.4), the future 9.18,
+        // and the release version 9.10 itself (Current — the change is part of this release too).
+        assertThat(reTest).anyMatch(r -> r.route().contains("R9.8_getStatus") && r.category().equals("BAU"));
+        assertThat(reTest).anyMatch(r -> r.route().contains("R9.18_getStatus") && r.category().equals("Future"));
+        assertThat(reTest).anyMatch(r -> r.route().contains("R9.10_getStatus") && r.category().equals("Current"));
+        // getAppType: only 9.8 exists → BAU.
+        assertThat(reTest).anyMatch(r -> r.route().contains("R9.8_getAppType") && r.category().equals("BAU"));
+        // The superseded 9.4 (below the immediate-lower) is dropped.
+        assertThat(reTest).noneMatch(r -> r.route().contains("R9.4_getStatus"));
     }
 
     // --- git test helpers ---

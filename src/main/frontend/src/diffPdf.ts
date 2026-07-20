@@ -166,10 +166,13 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff,
                          summarize: (label: string, names: string[], col: typeof PAL.amber.text) => void) {
   if (!a.codeChanged) return;
   summarize('Code changed - shared classes', a.changedClasses || [], PAL.purple.text);
-  if (a.crossVersionRoutes && a.crossVersionRoutes.length) {
-    r.para('Shared code - also re-test: ' + a.crossVersionRoutes.join(', '),
-      M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
-  }
+  const impacted = a.impactedRoutes || [];
+  (['Current', 'BAU', 'Future'] as const).forEach((cat) => {
+    const routes = impacted.filter((r) => r.category === cat).map((r) => r.route);
+    if (routes.length) {
+      r.para(`Also re-test (${cat}): ${routes.join(', ')}`, M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
+    }
+  });
 }
 
 function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {

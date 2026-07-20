@@ -6,6 +6,7 @@ import com.uob.tracer.api.BackendVersionChange;
 import com.uob.tracer.api.CatalogResponse;
 import com.uob.tracer.api.GraphEdge;
 import com.uob.tracer.api.GraphNode;
+import com.uob.tracer.api.ImpactedRoute;
 import com.uob.tracer.api.ImpactIndex;
 import com.uob.tracer.api.PayloadChange;
 import com.uob.tracer.api.RouteGraph;
@@ -580,7 +581,7 @@ public class RouteTraceService {
             ApiDiff d = apis.get(i);
             List<String> flow = flowByApi.getOrDefault(d.api(), List.of());
             LinkedHashSet<String> changedClasses = new LinkedHashSet<>();
-            LinkedHashSet<String> crossVersion = new LinkedHashSet<>();
+            LinkedHashSet<ImpactedRoute> impacted = new LinkedHashSet<>();
             for (String routeId : flow) {
                 // Code change = a changed @Component Java class only. Route XML / payload changes are already
                 // surfaced by the version diff and the payload diff, so they are deliberately not repeated here.
@@ -598,15 +599,15 @@ public class RouteTraceService {
                         continue;
                     }
                     mapped.add(hit);
-                    // Which routes must be re-tested for this class change: per route family, the immediate-lower
-                    // (BAU, else the base route) plus every higher/future version — excluding the release version
-                    // itself (its own card). Empty means only the release's own route uses it → new code, skip.
-                    List<String> impacted = collapseImpactedRoutes(beanUsage.getOrDefault(beanName, List.of()), release);
-                    if (impacted.isEmpty()) {
+                    // Routes to re-test for this class change, per route family: the release's own route (Current),
+                    // the current BAU baseline (immediate-lower, else base) and every future/higher version. Empty
+                    // means ONLY the release's own route uses it → new code shipped with a new route, so skip.
+                    List<ImpactedRoute> hits = collapseImpactedRoutes(beanUsage.getOrDefault(beanName, List.of()), release);
+                    if (hits.isEmpty()) {
                         continue;
                     }
                     changedClasses.add(classLabel(beanName, classFile, rc.fileAuthors().get(hit)));
-                    crossVersion.addAll(impacted);
+                    impacted.addAll(hits);
                 }
             }
             if (changedClasses.isEmpty()) {
@@ -619,8 +620,7 @@ public class RouteTraceService {
             if (ApiDiff.UNCHANGED.equals(d.status())) {
                 continue;
             }
-            apis.set(i, d.withCodeChange(true, new ArrayList<>(changedClasses), List.of(),
-                    new ArrayList<>(crossVersion)));
+            apis.set(i, d.withCodeChange(true, new ArrayList<>(changedClasses), new ArrayList<>(impacted)));
             codeChangedCount++;
             if (ApiDiff.NEW.equals(d.status())) {
                 newToChanged++;
@@ -659,20 +659,25 @@ public class RouteTraceService {
     }
 
     /**
-     * The routes that must be re-tested for a shared-class change, given every route that uses the class.
-     * Per route family (version-stripped base name) and relative to the release: keep the <b>immediate-lower</b>
-     * version (the BAU baseline — else the family's base route if it has no lower version), plus <b>every
-     * higher/future</b> version (each a distinct release that would otherwise miss this change when searched
-     * under its own version). The release version's own route is excluded — it's the API's own card. For the
-     * N/A snapshot (release null) there is no "own" version, so each family collapses to its latest route.
+     * The routes to re-test for a shared-class change, given every route that uses the class, tagged by their
+     * relation to the release. Per route family (version-stripped base name): the release version's own route
+     * ({@code Current}); the <b>immediate-lower</b> version — else the family's base route ({@code BAU}); and
+     * <b>every higher/future</b> version ({@code Future}), each a distinct release that would otherwise miss
+     * this change when searched under its own version. Ordered Current → BAU → Future within each family.
+     *
+     * <p>Returns empty when the class is used ONLY by the release's own route(s) — i.e. no BAU/Future exists —
+     * so a brand-new bean shipped with a new route is not flagged. For the N/A snapshot (release null) there is
+     * no "own" version, so each family collapses to its latest route (as BAU).
      */
-    private List<String> collapseImpactedRoutes(Collection<String> routeIds, String release) {
+    private List<ImpactedRoute> collapseImpactedRoutes(Collection<String> routeIds, String release) {
         Map<String, List<String>> byFamily = new LinkedHashMap<>();
         for (String rid : routeIds) {
             byFamily.computeIfAbsent(baseName(rid), k -> new ArrayList<>()).add(rid);
         }
-        List<String> out = new ArrayList<>();
+        List<ImpactedRoute> out = new ArrayList<>();
+        boolean anyNonRelease = false;   // a BAU or Future route exists → this is a real shared-code change
         for (List<String> family : byFamily.values()) {
+            String currentRoute = null;
             String baseRoute = null;
             String lowerRoute = null;
             String lowerVer = null;
@@ -686,9 +691,8 @@ public class RouteTraceService {
                 // release null (snapshot) → treat every version as a lower candidate so we keep the latest.
                 int cmp = release == null ? -1 : compareVersions(v, release);
                 if (cmp == 0) {
-                    continue;   // the release's own route — that's the API itself
-                }
-                if (cmp < 0) {
+                    currentRoute = rid;   // the release's own route — included, marked Current
+                } else if (cmp < 0) {
                     if (lowerVer == null || compareVersions(v, lowerVer) > 0) {
                         lowerRoute = rid;
                         lowerVer = v;
@@ -697,14 +701,21 @@ public class RouteTraceService {
                     higher.add(rid);
                 }
             }
-            String lowerRep = lowerRoute != null ? lowerRoute : baseRoute;
-            if (lowerRep != null) {
-                out.add(lowerRep);
+            String bau = lowerRoute != null ? lowerRoute : baseRoute;
+            if (currentRoute != null) {
+                out.add(new ImpactedRoute(currentRoute, ImpactedRoute.CURRENT));
+            }
+            if (bau != null) {
+                out.add(new ImpactedRoute(bau, ImpactedRoute.BAU));
+                anyNonRelease = true;
             }
             higher.sort((a, b) -> compareVersions(routeVersionOf(a), routeVersionOf(b)));
-            out.addAll(higher);
+            for (String h : higher) {
+                out.add(new ImpactedRoute(h, ImpactedRoute.FUTURE));
+                anyNonRelease = true;
+            }
         }
-        return out;
+        return anyNonRelease ? out : List.of();
     }
 
     /** {@code beanName (Class.java)}, plus the release commit authors who changed it when known. */

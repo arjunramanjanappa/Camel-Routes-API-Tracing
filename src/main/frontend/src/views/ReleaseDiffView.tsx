@@ -45,7 +45,7 @@ function searchHaystack(a: ApiDiff): string {
     ...(a.addedRoutes || []), ...(a.removedRoutes || []),
     ...(a.routeDiffs || []).map((r) => r.routeBase),
     ...(a.backendVersionChanges || []).map((s) => s.backend),
-    ...(a.changedClasses || []), ...(a.changedRoutes || [])]
+    ...(a.changedClasses || []), ...(a.impactedRoutes || []).map((r) => r.route)]
     .filter(Boolean).join(' ').toLowerCase();
 }
 
@@ -65,23 +65,40 @@ function apiDiffText(a: ApiDiff): string {
   if (a.codeChanged) {
     lines.push('    ⚙ code changed by app version (shared @Component classes):');
     (a.changedClasses || []).forEach((c) => lines.push(`        ~ class ${c}`));
-    (a.crossVersionRoutes || []).forEach((r) => lines.push(`        ! also re-test route ${r}`));
+    (a.impactedRoutes || []).forEach((r) => lines.push(`        ! also re-test (${r.category}) ${r.route}`));
   }
   return lines.join('\n');
 }
 
-/** The code-change section: which Java @Component classes the app-version release modified for this API. */
+const IMPACT_ORDER: Array<'Current' | 'BAU' | 'Future'> = ['Current', 'BAU', 'Future'];
+const IMPACT_TITLE: Record<'Current' | 'BAU' | 'Future', string> = {
+  Current: "the release's own route — the change is part of this release",
+  BAU: 'the current production baseline (immediate-lower version, else the base route)',
+  Future: "a higher/future version — test it now, this change won't surface under its own version later",
+};
+
+/** The code-change section: which Java @Component classes the release modified, and the routes to re-test. */
 function CodeChangeBlock({ d }: { d: ApiDiff }) {
   if (!d.codeChanged) return null;
   const classes = d.changedClasses || [];
-  const cross = d.crossVersionRoutes || [];
+  const impacted = d.impactedRoutes || [];
+  // Group the re-test routes by category (Current / BAU / Future) for a cleaner read.
+  const byCat = IMPACT_ORDER
+    .map((cat) => ({ cat, routes: impacted.filter((r) => r.category === cat).map((r) => r.route) }))
+    .filter((g) => g.routes.length > 0);
   return (
     <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
       <span className="diff-code-label">⚙ Code changed</span>
       {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class (with the commit authors)">{c}</span>)}
-      {cross.length > 0 && (
-        <div className="diff-code-cross" title="Per route family: the current BAU (immediate-lower, else base) route and every future/higher version — each must be re-tested, since this change won't surface under their own version later">
-          ⚠ Shared code — also re-test: {cross.join(', ')}
+      {byCat.length > 0 && (
+        <div className="diff-code-cross">
+          <div className="diff-code-cross-head">⚠ Shared code — also re-test:</div>
+          {byCat.map((g) => (
+            <div key={g.cat} className="diff-code-grp">
+              <span className={'impact-tag ' + g.cat.toLowerCase()} title={IMPACT_TITLE[g.cat]}>{g.cat}</span>
+              <span className="impact-routes">{g.routes.join(', ')}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

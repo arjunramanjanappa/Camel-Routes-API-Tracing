@@ -28,12 +28,12 @@ import java.util.List;
  * @param backendVersionChanges backends whose resolved service version changed (e.g. 2.2 → 2.3), even when the route XML is otherwise unchanged
  * @param note                  optional explanation, e.g. when the API has no route at the target version and still resolves to a lower one
  * @param authors               for a NEW API, the git-blame authors who added its routes (empty otherwise / when not a git work tree)
- * @param codeChanged           true when a Java class (a {@code @Component} bean) or route XML wired into this API's
- *                              flow was changed by the app-version release — independent of the version-to-version diff
- * @param changedClasses        display labels of changed bean classes in the flow, e.g. {@code statusProcessor (StatusProcessor.java)}
- * @param changedRoutes         base names of routes in the flow whose XML the release changed (whitespace-insensitive)
- * @param crossVersionRoutes    routes in the flow at a DIFFERENT release version than this API's target that the code
- *                              change also touches — the shared-code alert (e.g. releasing 9.18 but 9.14's route must be re-tested)
+ * @param codeChanged           true when a pre-existing (BAU) {@code @Component} Java class wired into this API's
+ *                              flow was modified by the app-version release — independent of the version-to-version diff
+ * @param changedClasses        display labels of changed bean classes (with commit authors), e.g.
+ *                              {@code statusProcessor (StatusProcessor.java) — Alice, Bob}
+ * @param impactedRoutes        the routes to re-test for that class change, each tagged Current / BAU / Future —
+ *                              per route family: the release's own route, the current BAU baseline, and every future version
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -47,8 +47,7 @@ public record ApiDiff(String api, String operation,
                       List<String> authors,
                       boolean codeChanged,
                       List<String> changedClasses,
-                      List<String> changedRoutes,
-                      List<String> crossVersionRoutes) {
+                      List<ImpactedRoute> impactedRoutes) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
@@ -69,14 +68,14 @@ public record ApiDiff(String api, String operation,
                    List<String> authors) {
         this(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                false, List.of(), List.of(), List.of());
+                false, List.of(), List.of());
     }
 
-    /** A copy of this diff annotated with the release's Java/route code changes for the flow. */
+    /** A copy of this diff annotated with the release's shared-class code changes for the flow. */
     public ApiDiff withCodeChange(boolean codeChanged, List<String> changedClasses,
-                                  List<String> changedRoutes, List<String> crossVersionRoutes) {
+                                  List<ImpactedRoute> impactedRoutes) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, changedRoutes, crossVersionRoutes);
+                codeChanged, changedClasses, impactedRoutes);
     }
 }

@@ -36,6 +36,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
@@ -597,21 +598,15 @@ public class RouteTraceService {
                         continue;
                     }
                     mapped.add(hit);
-                    // Pre-existing (BAU) beans only: some route at a version other than the release (older or
-                    // base) must also use this bean — otherwise it's new code shipped with the release's own
-                    // route (already the New/Changed signal), which we don't repeat.
-                    List<String> users = beanUsage.getOrDefault(beanName, List.of());
-                    boolean preExisting = users.stream().anyMatch(rid -> !isReleaseRoute(rid, release));
-                    if (!preExisting) {
+                    // Which routes must be re-tested for this class change: per route family, the immediate-lower
+                    // (BAU, else the base route) plus every higher/future version — excluding the release version
+                    // itself (its own card). Empty means only the release's own route uses it → new code, skip.
+                    List<String> impacted = collapseImpactedRoutes(beanUsage.getOrDefault(beanName, List.of()), release);
+                    if (impacted.isEmpty()) {
                         continue;
                     }
-                    changedClasses.add(beanName + " (" + fileName(classFile) + ")");
-                    // Every other (BAU / older) route using this bean must be re-tested — the shared-code alert.
-                    for (String rid : users) {
-                        if (!isReleaseRoute(rid, release)) {
-                            crossVersion.add(rid);
-                        }
-                    }
+                    changedClasses.add(classLabel(beanName, classFile, rc.fileAuthors().get(hit)));
+                    crossVersion.addAll(impacted);
                 }
             }
             if (changedClasses.isEmpty()) {
@@ -663,13 +658,59 @@ public class RouteTraceService {
         return m.matches() ? m.group(1) : null;
     }
 
-    /** True when a route is the release's own versioned route ({@code R<release>_…}) — i.e. this release's new code. */
-    private static boolean isReleaseRoute(String routeId, String releaseVersion) {
-        if (releaseVersion == null) {
-            return false;   // N/A snapshot: no release version, so every route counts as pre-existing
+    /**
+     * The routes that must be re-tested for a shared-class change, given every route that uses the class.
+     * Per route family (version-stripped base name) and relative to the release: keep the <b>immediate-lower</b>
+     * version (the BAU baseline — else the family's base route if it has no lower version), plus <b>every
+     * higher/future</b> version (each a distinct release that would otherwise miss this change when searched
+     * under its own version). The release version's own route is excluded — it's the API's own card. For the
+     * N/A snapshot (release null) there is no "own" version, so each family collapses to its latest route.
+     */
+    private List<String> collapseImpactedRoutes(Collection<String> routeIds, String release) {
+        Map<String, List<String>> byFamily = new LinkedHashMap<>();
+        for (String rid : routeIds) {
+            byFamily.computeIfAbsent(baseName(rid), k -> new ArrayList<>()).add(rid);
         }
-        String v = routeVersionOf(routeId);
-        return v != null && v.equals(releaseVersion);
+        List<String> out = new ArrayList<>();
+        for (List<String> family : byFamily.values()) {
+            String baseRoute = null;
+            String lowerRoute = null;
+            String lowerVer = null;
+            List<String> higher = new ArrayList<>();
+            for (String rid : family) {
+                String v = routeVersionOf(rid);
+                if (v == null) {
+                    baseRoute = rid;   // the un-versioned (BAU) route of this family
+                    continue;
+                }
+                // release null (snapshot) → treat every version as a lower candidate so we keep the latest.
+                int cmp = release == null ? -1 : compareVersions(v, release);
+                if (cmp == 0) {
+                    continue;   // the release's own route — that's the API itself
+                }
+                if (cmp < 0) {
+                    if (lowerVer == null || compareVersions(v, lowerVer) > 0) {
+                        lowerRoute = rid;
+                        lowerVer = v;
+                    }
+                } else {
+                    higher.add(rid);
+                }
+            }
+            String lowerRep = lowerRoute != null ? lowerRoute : baseRoute;
+            if (lowerRep != null) {
+                out.add(lowerRep);
+            }
+            higher.sort((a, b) -> compareVersions(routeVersionOf(a), routeVersionOf(b)));
+            out.addAll(higher);
+        }
+        return out;
+    }
+
+    /** {@code beanName (Class.java)}, plus the release commit authors who changed it when known. */
+    private static String classLabel(String beanName, String classFile, List<String> authors) {
+        String base = beanName + " (" + fileName(classFile) + ")";
+        return (authors != null && !authors.isEmpty()) ? base + " — " + String.join(", ", authors) : base;
     }
 
     /** Distinct {@code bean:name} references in a route's steps (walks nested choice/container branches). */

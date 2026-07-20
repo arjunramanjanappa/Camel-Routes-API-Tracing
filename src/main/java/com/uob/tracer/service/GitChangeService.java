@@ -5,8 +5,10 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -23,10 +25,14 @@ import java.util.regex.Pattern;
  */
 public class GitChangeService {
 
-    /** Files (repo-relative, forward-slashed) the release changed, and how many commits matched its version. */
-    public record ReleaseChanges(Set<String> changedFiles, int matchedCommits, boolean gitAvailable) {
+    /**
+     * Files (repo-relative, forward-slashed) the release changed, how many commits matched its version, and
+     * the distinct commit authors who changed each file (from the matched commits) — for "who to ask".
+     */
+    public record ReleaseChanges(Set<String> changedFiles, int matchedCommits, boolean gitAvailable,
+                                 Map<String, List<String>> fileAuthors) {
         public static ReleaseChanges none() {
-            return new ReleaseChanges(Set.of(), 0, false);
+            return new ReleaseChanges(Set.of(), 0, false, Map.of());
         }
     }
 
@@ -75,23 +81,36 @@ public class GitChangeService {
             }
         }
         if (matched.isEmpty()) {
-            return new ReleaseChanges(Set.of(), 0, true);
+            return new ReleaseChanges(Set.of(), 0, true, Map.of());   // no commit matched the version
         }
 
-        // 2. Candidate files: non-whitespace changes across the matched commits (one git show, all hashes).
+        // 2. Candidate files + their authors: non-whitespace changes across the matched commits (one git show).
+        //    The "@@@<hash>|<author>" format line precedes each commit's numstat block, so files are attributed
+        //    to the author of the matched commit that changed them.
         Set<String> candidates = new LinkedHashSet<>();
-        List<String> showArgs = new ArrayList<>(List.of("show", "--format=", "-w", "-M", "--numstat"));
+        Map<String, LinkedHashSet<String>> authors = new LinkedHashMap<>();
+        List<String> showArgs = new ArrayList<>(List.of("show", "--format=@@@%H|%an", "-w", "-M", "--numstat"));
         showArgs.addAll(matched);
         List<String> stat = run(repoDir, 30, showArgs.toArray(new String[0]));
         if (stat != null) {
+            String curAuthor = null;
             for (String line : stat) {
+                if (line.startsWith("@@@")) {
+                    int bar = line.indexOf('|');
+                    curAuthor = bar >= 0 ? line.substring(bar + 1).trim() : null;
+                    continue;
+                }
                 String[] c = line.split("\t");
                 if (c.length < 3) {
                     continue;
                 }
                 boolean real = !"0".equals(c[0].trim()) || !"0".equals(c[1].trim());   // "-"/"-" = binary → changed
                 if (real) {
-                    candidates.add(renamedTarget(c[2]));
+                    String file = renamedTarget(c[2]);
+                    candidates.add(file);
+                    if (curAuthor != null && !curAuthor.isEmpty()) {
+                        authors.computeIfAbsent(file, k -> new LinkedHashSet<>()).add(curAuthor);
+                    }
                 }
             }
         }
@@ -109,7 +128,14 @@ public class GitChangeService {
                 candidates.retainAll(netSet);
             }
         }
-        return new ReleaseChanges(candidates, matched.size(), true);
+        Map<String, List<String>> fileAuthors = new LinkedHashMap<>();
+        for (String f : candidates) {
+            LinkedHashSet<String> a = authors.get(f);
+            if (a != null && !a.isEmpty()) {
+                fileAuthors.put(f, new ArrayList<>(a));
+            }
+        }
+        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors);
     }
 
     private static boolean messageMatches(String body, String wanted) {

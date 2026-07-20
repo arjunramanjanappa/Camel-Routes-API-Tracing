@@ -78,9 +78,9 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
   return (
     <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
       <span className="diff-code-label">⚙ Code changed</span>
-      {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class">{c}</span>)}
+      {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class (with the commit authors)">{c}</span>)}
       {cross.length > 0 && (
-        <div className="diff-code-cross" title="Other (BAU / older) routes use this same class — they must be re-tested too">
+        <div className="diff-code-cross" title="Per route family: the current BAU (immediate-lower, else base) route and every future/higher version — each must be re-tested, since this change won't surface under their own version later">
           ⚠ Shared code — also re-test: {cross.join(', ')}
         </div>
       )}

@@ -29,6 +29,22 @@ function statusLabel(s: DiffStatus): string {
   return s === 'NEW' ? 'New' : s === 'CHANGED' ? 'Changed' : 'No change';
 }
 
+type Risk = 'High' | 'Medium' | 'Low';
+const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
+const RISK_CLASS: Record<Risk, string> = { High: 'high', Medium: 'med', Low: 'low' };
+function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
+/** Why this API needs testing — compact reasons for the checklist/tooltip. */
+function riskReasons(a: ApiDiff): string[] {
+  const why: string[] = [];
+  if (a.codeChanged) why.push('shared Java class changed');
+  if (a.payloadChange?.removedKeys?.length) why.push('payload field removed (backward-incompatible)');
+  if (a.payloadChange?.addedKeys?.length) why.push('payload field added');
+  if (a.backendVersionChanges?.length) why.push('backend service version bumped');
+  if (a.status === 'NEW') why.push('new API');
+  else if (a.status === 'CHANGED' && !why.length) why.push('flow changed');
+  return why;
+}
+
 /**
  * The tab a diff belongs to. A NEW API that changed shared BAU code is grouped under Changed — that Java
  * change means BAU APIs using the class need regression-testing, so it belongs where testers look for changes.
@@ -130,6 +146,23 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
   );
 }
 
+/** Release readiness at a glance: how much to test and how much of it is high-priority. */
+function ReadinessStrip({ report }: { report: VersionDiffReport }) {
+  const toTest = report.changedCount + report.newCount;
+  const high = report.highRiskCount ?? 0;
+  const bc = report.backwardCompatCount ?? 0;
+  const code = report.codeChangedCount ?? 0;
+  if (toTest === 0 && high === 0 && bc === 0) return null;
+  return (
+    <div className="readiness" role="group" aria-label="Release readiness">
+      <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
+      <span className="rd-chip high" title="High test-priority: shared-class change, removed payload field, or backend version bump"><b>{high}</b> high risk</span>
+      {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
+      <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
+    </div>
+  );
+}
+
 /** A release-level banner summarising the app-version code scan. */
 function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
   if (!report.appVersion) return null;
@@ -209,6 +242,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
           {d.codeChanged && (
             <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
           )}
+          <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
           <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
       </div>
@@ -381,7 +415,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     const q = query.trim().toLowerCase();
     return report.apis
       .filter((a) => effectiveStatus(a) === activeGroup)
-      .filter((a) => !q || searchHaystack(a).includes(q));
+      .filter((a) => !q || searchHaystack(a).includes(q))
+      // Highest test-priority first, so the list reads as a prioritised checklist; stable within a risk band.
+      .slice().sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
   }, [report, activeGroup, query]);
 
   // N/A snapshot: every API resolved to its latest/base route — a flat list, not the diff nav.
@@ -576,6 +612,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
               ) : null;
             })()}
 
+            <ReadinessStrip report={report} />
             <CodeChangeSummary report={report} />
 
             <div className="diff-main-head row between">

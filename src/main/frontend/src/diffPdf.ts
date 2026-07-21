@@ -28,10 +28,11 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     return { name: m.name, error: m.error, snapshot: !!rep?.snapshot,
       changed: rep?.changedCount ?? 0, added: rep?.newCount ?? 0, unchanged: rep?.unchangedCount ?? 0,
       code: rep?.codeChangedCount ?? 0,
+      high: rep?.highRiskCount ?? 0, bc: rep?.backwardCompatCount ?? 0,
       snap: rep?.snapshotCount ?? (rep?.snapshot ? rep.apis.length : 0) };
   });
-  const tot = { changed: 0, added: 0, unchanged: 0, code: 0 };
-  rows.forEach((x) => { tot.changed += x.changed; tot.added += x.added; tot.unchanged += x.unchanged; tot.code += x.code; });
+  const tot = { changed: 0, added: 0, unchanged: 0, code: 0, high: 0, bc: 0 };
+  rows.forEach((x) => { tot.changed += x.changed; tot.added += x.added; tot.unchanged += x.unchanged; tot.code += x.code; tot.high += x.high; tot.bc += x.bc; });
   // The app/commit version whose Java code changes were analysed (same across modules); null if not requested.
   const appVersion = mods.find((m) => m.report?.appVersion)?.report?.appVersion || null;
 
@@ -52,6 +53,12 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
     + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged`
     + `${appVersion ? `. App version ${appVersion} changed shared Java classes affecting ${tot.code} API(s)` : ''}. Impact by module:`);
+  if (tot.high || tot.bc) {
+    r.para(`Test priority: ${tot.high} high-risk API(s) to focus on first`
+      + `${tot.bc ? `, ${tot.bc} require backward compatibility (a payload field was removed/renamed)` : ''}.`,
+      M, CONTENT_W, 'bold', 9.5, tot.high ? PAL.red.text : PAL.amber.text, 13);
+    r.y += 4;
+  }
   r.dataTable(
     appVersion
       ? ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Code', 'Unchanged']
@@ -183,10 +190,15 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   r.ensure(40);
   const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
   r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
+  // Right-aligned test-priority pill (leftmost signal on the row), with the version pill to its left.
+  const riskRamp = a.risk === 'High' ? PAL.red : a.risk === 'Medium' ? PAL.amber : PAL.gray;
+  const riskLabel = `${a.risk || 'Low'} risk`;
+  const riskW = r.width(riskLabel, 'bold', 8) + 12;
+  r.pill(riskLabel, PAGE.w - M - riskW, riskRamp.fill, riskRamp.text, 8);
   if (a.lowerVersion && (status === 'CHANGED' || (status === 'UNCHANGED' && !a.note))) {
     const vt = `${a.lowerVersion} -> ${a.targetVersion}`;
     const vw = r.width(vt, 'bold', 8) + 12;
-    r.pill(vt, PAGE.w - M - vw, PAL.gray.fill, PAL.gray.text, 8);
+    r.pill(vt, PAGE.w - M - riskW - 8 - vw, PAL.gray.fill, PAL.gray.text, 8);
   }
   r.y += 16;
 

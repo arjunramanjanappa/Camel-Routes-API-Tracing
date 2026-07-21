@@ -462,7 +462,7 @@ public class RouteTraceService {
         }
         if (wantCode) {
             // release version = the concrete target — changes on R<target>_ routes are this release's own new code.
-            applyCodeChanges(report, roots, registry, prepared.index().beans(),
+            applyCodeChanges(report, roots, registry, prepared.index().beans(), apiByRouteId(prepared, registry),
                     flowByApi, request.appVersion(), target);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
@@ -509,8 +509,8 @@ public class RouteTraceService {
         if (wantCode) {
             Roots roots = resolveRoots(request);
             // N/A snapshot: no "own" release version — every route is pre-existing, so all changes count.
-            applyCodeChanges(report, roots, registry,
-                    prepared.index().beans(), flowByApi, request.appVersion(), null);
+            applyCodeChanges(report, roots, registry, prepared.index().beans(), apiByRouteId(prepared, registry),
+                    flowByApi, request.appVersion(), null);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         return report;
@@ -540,7 +540,7 @@ public class RouteTraceService {
      *                       for the N/A snapshot — routes at this exact version are the release's own routes
      */
     private void applyCodeChanges(VersionDiffReport report, Roots roots, RouteRegistry registry,
-                                  Map<String, String> beans,
+                                  Map<String, String> beans, Map<String, String> apiByRouteId,
                                   Map<String, List<String>> flowByApi, String appVersion, String releaseVersion) {
         String wanted = nz(appVersion);
         report.setAppVersion(wanted);
@@ -600,7 +600,8 @@ public class RouteTraceService {
                     // Routes to re-test for this class change, per route family: the release's own route (Current),
                     // the current BAU baseline (immediate-lower, else base) and every future/higher version. Empty
                     // means ONLY the release's own route uses it → new code shipped with a new route, so skip.
-                    List<ImpactedRoute> hits = collapseImpactedRoutes(beanUsage.getOrDefault(beanName, List.of()), release);
+                    List<ImpactedRoute> hits = collapseImpactedRoutes(
+                            beanUsage.getOrDefault(beanName, List.of()), release, apiByRouteId);
                     if (hits.isEmpty()) {
                         continue;
                     }
@@ -657,7 +658,8 @@ public class RouteTraceService {
      * so a brand-new bean shipped with a new route is not flagged. For the N/A snapshot (release null) there is
      * no "own" version, so each family collapses to its latest route (as BAU).
      */
-    private List<ImpactedRoute> collapseImpactedRoutes(Collection<String> routeIds, String release) {
+    private List<ImpactedRoute> collapseImpactedRoutes(Collection<String> routeIds, String release,
+                                                       Map<String, String> apiByRouteId) {
         Map<String, List<String>> byFamily = new LinkedHashMap<>();
         for (String rid : routeIds) {
             byFamily.computeIfAbsent(baseName(rid), k -> new ArrayList<>()).add(rid);
@@ -691,19 +693,42 @@ public class RouteTraceService {
             }
             String bau = lowerRoute != null ? lowerRoute : baseRoute;
             if (currentRoute != null) {
-                out.add(new ImpactedRoute(currentRoute, ImpactedRoute.CURRENT));
+                out.add(new ImpactedRoute(apiByRouteId.get(currentRoute), currentRoute, ImpactedRoute.CURRENT));
             }
             if (bau != null) {
-                out.add(new ImpactedRoute(bau, ImpactedRoute.BAU));
+                out.add(new ImpactedRoute(apiByRouteId.get(bau), bau, ImpactedRoute.BAU));
                 anyNonRelease = true;
             }
             higher.sort((a, b) -> compareVersions(routeVersionOf(a), routeVersionOf(b)));
             for (String h : higher) {
-                out.add(new ImpactedRoute(h, ImpactedRoute.FUTURE));
+                out.add(new ImpactedRoute(apiByRouteId.get(h), h, ImpactedRoute.FUTURE));
                 anyNonRelease = true;
             }
         }
         return anyNonRelease ? out : List.of();
+    }
+
+    /**
+     * Map each route id to the REST API path that owns it, so the code-change re-test list can show
+     * "API — route" without a manual back-trace. A route is owned by the operation whose entry name equals
+     * the route's version-stripped from-name (else its version-stripped id); that operation carries the path.
+     */
+    private Map<String, String> apiByRouteId(Prepared prepared, RouteRegistry registry) {
+        boolean cmd = prepared.commandDispatch();
+        Map<String, String> apiByOp = new LinkedHashMap<>();
+        for (OperationInfo op : operationsInScope(prepared)) {
+            apiByOp.putIfAbsent(entryOperation(op, registry, cmd), op.path());
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (RouteModel rm : registry.all()) {
+            String from = rm.fromName();
+            String base = baseName(from != null ? registry.resolveName(from) : rm.routeId());
+            String api = apiByOp.get(base);
+            if (api != null) {
+                out.putIfAbsent(rm.routeId(), api);
+            }
+        }
+        return out;
     }
 
     /** {@code beanName (Class.java)}, plus the release commit authors who changed it when known. */

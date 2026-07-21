@@ -102,8 +102,10 @@ class CodeChangeImpactTest {
         assertThat(residence.codeChanged()).isTrue();
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("statusProcessor"));
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("Test"));   // commit author shown
+        // The re-test route carries the owning API path (no manual back-trace needed).
         assertThat(residence.impactedRoutes())
-                .anyMatch(r -> r.route().contains("R7.14_getStatus") && r.category().equals("BAU"));
+                .anyMatch(r -> r.route().contains("R7.14_getStatus") && r.category().equals("BAU")
+                        && "/getStatus".equals(r.api()));
         assertThat(report.getChangedCount()).isEqualTo(1);             // promoted New→Changed
         assertThat(report.getNewCount()).isZero();
 
@@ -217,6 +219,8 @@ class CodeChangeImpactTest {
         assertThat(reTest).anyMatch(r -> r.route().contains("R9.8_getAppType") && r.category().equals("BAU"));
         // The superseded 9.4 (below the immediate-lower) is dropped.
         assertThat(reTest).noneMatch(r -> r.route().contains("R9.4_getStatus"));
+        // getSummary is a declared controller endpoint, so its own (Current) route carries the API path.
+        assertThat(reTest).anyMatch(r -> r.route().contains("R9.10_getSummary") && "/getSummary".equals(r.api()));
     }
 
     // --- git test helpers ---

@@ -171,6 +171,8 @@ export interface ApiDiff {
 
 /** A route to re-test for a shared-class change, tagged by its relation to the release. */
 export interface ImpactedRoute {
+  /** The REST API path that owns this route (e.g. `/getStatus`), or null when it couldn't be resolved. */
+  api?: string | null;
   route: string;
   category: 'Current' | 'BAU' | 'Future';
 }

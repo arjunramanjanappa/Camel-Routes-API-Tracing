@@ -156,12 +156,14 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff,
   if (!a.codeChanged) return;
   summarize('Code changed - shared classes', a.changedClasses || [], PAL.purple.text);
   const impacted = a.impactedRoutes || [];
-  (['Current', 'BAU', 'Future'] as const).forEach((cat) => {
-    const routes = impacted.filter((r) => r.category === cat).map((r) => r.route);
-    if (routes.length) {
-      r.para(`Also re-test (${cat}): ${routes.join(', ')}`, M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
-    }
-  });
+  if (impacted.length) {
+    r.para('Shared code - also re-test (API - route):', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
+    (['Current', 'BAU', 'Future'] as const).forEach((cat) => {
+      impacted.filter((rt) => rt.category === cat).forEach((rt) => {
+        r.para(`[${cat}]  ${rt.api || '(api unknown)'}  -  ${rt.route}`, M + 12, CONTENT_W - 12, 'normal', 9, PAL.body, 11);
+      });
+    });
+  }
 }
 
 function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {

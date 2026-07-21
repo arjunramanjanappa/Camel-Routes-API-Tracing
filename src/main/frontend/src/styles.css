@@ -754,6 +754,18 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .diff-payload-label { color: #93c5fd; }
 [data-theme="dark"] .diff-payload .pk.add { background: #052e16; color: #86efac; }
 [data-theme="dark"] .diff-payload .pk.del { background: #2a1416; color: #fca5a5; }
+/* Tester's manual remark on a card (persisted locally). */
+.remark-note { margin-top: 10px; font-size: 12px; color: #1e3a8a; background: #eef4ff; border: 1px dashed #bfdbfe; border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+.remark-note:hover { background: #e3edff; }
+.remark-lbl { font-weight: 800; font-size: 10.5px; letter-spacing: .02em; margin-right: 5px; }
+.remark-edit-hint { color: #94a3b8; font-size: 11px; }
+.remark-edit { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.remark-input { flex: 1 1 260px; min-width: 180px; font: inherit; font-size: 12px; padding: 5px 9px; border: 1px solid #cbd5e1; border-radius: 6px; background: var(--panel, #fff); color: inherit; }
+.remark-input:focus { outline: 2px solid #93c5fd; outline-offset: -1px; border-color: #60a5fa; }
+[data-theme="dark"] .remark-note { color: #bfdbfe; background: #12233f; border-color: #1e3a6b; }
+[data-theme="dark"] .remark-note:hover { background: #17293f; }
+[data-theme="dark"] .remark-input { background: #0f1722; border-color: #33415a; }
+
 .bc-flag { flex-basis: 100%; margin-top: 4px; font-size: 11px; font-weight: 700; }
 .bc-flag.warn { color: #b91c1c; }
 .bc-flag.ok { color: #166534; }

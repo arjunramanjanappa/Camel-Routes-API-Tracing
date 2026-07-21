@@ -13,8 +13,8 @@ function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string 
     blurb: 'A version bump with no behavioural change, or APIs this release did not touch.' };
 }
 
-/** One module's version-diff for the report (or an error), optionally enriched with a per-version test log. */
-export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; logByVer?: Record<string, Record<string, ApiLogResult>>; }
+/** One module's version-diff for the report (or an error), optionally enriched with a per-version test log + remarks. */
+export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; logByVer?: Record<string, Record<string, ApiLogResult>>; remarks?: Record<string, string>; }
 
 const ROUTE_VER_PDF = /^R(\d+(?:\.\d+)*)_/;
 function normVerPdf(v?: string | null): string { return v && v !== 'N/A' && v !== 'BASE' ? v : 'BASE'; }
@@ -191,7 +191,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           if (!list.length) continue;
           const meta = sectionMeta(status);
           r.groupHead(meta.title, list.length, meta.ramp);
-          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus, m.logByVer); });
+          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
         }
       }
     }
@@ -286,7 +286,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
     rows);
 }
 
-function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Record<string, Record<string, ApiLogResult>>) {
+function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Record<string, Record<string, ApiLogResult>>, remark?: string) {
   const log = logAt(logByVer, a.targetVersion, a.api);
   r.ensure(40);
   const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
@@ -349,6 +349,10 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
       ? `Backward compatibility required - ${removed} field(s) removed`
       : 'Backward compatible - fields added only',
       M + 4, CONTENT_W - 4, 'normal', 9, removed > 0 ? PAL.delText : PAL.addText, 12);
+  }
+  // Tester's manual remark (e.g. why an impacted API wasn't/can't be retested).
+  if (remark) {
+    r.para(`Remark: ${remark}`, M + 4, CONTENT_W - 4, 'bold', 9, PAL.accent, 12);
   }
   r.y += 6;
 }

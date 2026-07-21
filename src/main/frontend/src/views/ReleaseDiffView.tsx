@@ -269,13 +269,16 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   );
 }
 
-function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi, routeLog }: {
+function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi, routeLog, remark, onRemark }: {
   d: ApiDiff; open: boolean; onToggle: () => void;
   onViewFlow: () => void; onCopy: () => void; copied: boolean; log?: ApiLogResult;
   onOpenApi?: (api: string) => void; routeLog?: (r: ImpactedRoute) => ApiLogResult | undefined;
+  remark?: string; onRemark?: (text: string) => void;
 }) {
   const svc = d.backendVersionChanges || [];
   const tested = testedMeta(log);
+  const [editingRemark, setEditingRemark] = useState(false);
+  const [remarkDraft, setRemarkDraft] = useState(remark ?? '');
   // An UNCHANGED card with a note is a fallback API (no route at the target version).
   const fallback = d.status === 'UNCHANGED' && !!d.note;
   const showPill = !!d.lowerVersion && (d.status === 'CHANGED' || (d.status === 'UNCHANGED' && !fallback));
@@ -373,7 +376,29 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
 
       <CodeChangeBlock d={d} onOpenApi={onOpenApi} routeLog={routeLog} />
 
+      {editingRemark ? (
+        <div className="remark-edit">
+          <span className="remark-lbl">📝 Remark</span>
+          <input className="remark-input" value={remarkDraft} autoFocus
+                 placeholder="e.g. Not tested — data issue · log-line changed, no retest needed · waived"
+                 onChange={(e) => setRemarkDraft(e.target.value)}
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter') { onRemark?.(remarkDraft.trim()); setEditingRemark(false); }
+                   if (e.key === 'Escape') { setRemarkDraft(remark ?? ''); setEditingRemark(false); }
+                 }} />
+          <button className="linkbtn" onClick={() => { onRemark?.(remarkDraft.trim()); setEditingRemark(false); }}>Save</button>
+          {remark && <button className="linkbtn" onClick={() => { onRemark?.(''); setRemarkDraft(''); setEditingRemark(false); }}>Remove</button>}
+        </div>
+      ) : remark ? (
+        <div className="remark-note" onClick={() => { setRemarkDraft(remark); setEditingRemark(true); }} title="Click to edit this remark">
+          <span className="remark-lbl">📝 Remark</span> {remark} <span className="remark-edit-hint">✎</span>
+        </div>
+      ) : null}
+
       <div className="diff-actions">
+        {onRemark && !editingRemark && !remark && (
+          <button className="linkbtn" onClick={() => { setRemarkDraft(''); setEditingRemark(true); }}>＋ Remark</button>
+        )}
         <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
         <button className="linkbtn" onClick={onCopy}>{copied ? 'Copied ✓' : 'Copy'}</button>
       </div>
@@ -419,6 +444,17 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   // Quick filters for the checklist (AND-combined).
   const [filters, setFilters] = useState<Set<string>>(new Set());
   const toggleFilter = (k: string) => setFilters((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  // Manual per-API remarks (e.g. "Not tested — data issue / log-line change / no retest needed"), persisted locally.
+  const [remarks, setRemarks] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(appKey(app, 'diffRemarks')) || '{}'); } catch { return {}; }
+  });
+  const remarkKey = (d: ApiDiff) => `${activeId ?? ''}|${d.api}|${d.operation}`;
+  const setRemark = (key: string, text: string) => setRemarks((prev) => {
+    const next = { ...prev };
+    if (text) next[key] = text; else delete next[key];
+    try { localStorage.setItem(appKey(app, 'diffRemarks'), JSON.stringify(next)); } catch { /* storage full/blocked — keep in memory */ }
+    return next;
+  });
 
   const show = (rep: VersionDiffReport | null) => {
     setReport(rep); setExpanded(new Set()); setQuery('');
@@ -555,7 +591,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const toggleAll = () => setExpanded(allOpen ? new Set() : new Set(expandableKeys));
 
   const copyOne = (d: ApiDiff) => {
-    const text = apiDiffText(d);
+    const rmk = remarks[remarkKey(d)];
+    const text = apiDiffText(d) + (rmk ? `\n    * remark: ${rmk}` : '');
     const done = () => {
       setCopiedKey(cardKey(d));
       window.setTimeout(() => setCopiedKey((k) => (k === cardKey(d) ? null : k)), 1400);
@@ -583,7 +620,13 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       // Reshape the per-version log into this module's (version -> api -> result) for the PDF.
       const byVer: Record<string, Record<string, ApiLogResult>> = {};
       for (const [v, byMod] of Object.entries(logByVer)) { const mm = byMod[r.module.id]; if (mm) byVer[v] = mm; }
-      return { name: r.name, report: r.result, error: r.error, logByVer: Object.keys(byVer).length ? byVer : undefined };
+      // This module's remarks, keyed by `api|operation` (strip the module-id prefix from the stored key).
+      const rem: Record<string, string> = {};
+      const pfx = r.module.id + '|';
+      for (const [k, v] of Object.entries(remarks)) { if (k.startsWith(pfx)) rem[k.slice(pfx.length)] = v; }
+      return { name: r.name, report: r.result, error: r.error,
+        logByVer: Object.keys(byVer).length ? byVer : undefined,
+        remarks: Object.keys(rem).length ? rem : undefined };
     }).filter((m) => m.report || m.error);
     if (mods.length) exportDiffPdf(mods, app).catch(() => {});
   };
@@ -788,6 +831,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                 {visible.map((d) => (
                   <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
                                routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
+                               remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)}
                                open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
                                onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
                                onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}

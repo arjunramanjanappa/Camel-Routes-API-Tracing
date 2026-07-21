@@ -97,19 +97,26 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   const footer = `TraceGuard - Release impact ${ver}${app ? ' - ' + app : ''}`;
 
   // ===== Backward compatibility (executive callout) =====
+  // BC is required when a payload field was removed OR a shared class changed — both force a re-test of the
+  // older app version against this release.
   const bcItems = mods.flatMap((m) => (m.report?.apis ?? [])
-    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0)
-    .map((a) => ({ module: m.name, api: a.api, removed: a.payloadChange!.removedKeys })));
+    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0 || a.codeChanged)
+    .map((a) => {
+      const reasons: string[] = [];
+      if (a.payloadChange?.removedKeys?.length) reasons.push('removed field(s): ' + a.payloadChange.removedKeys.join(', '));
+      if (a.codeChanged) reasons.push('shared class changed - regression-test the older (BAU) version');
+      return { module: m.name, api: a.api, reason: reasons.join('; ') };
+    }));
   if (bcItems.length) {
     r.bookmark('Backward compatibility');
     r.section('Backward compatibility required', bcItems.length, PAL.red,
-      'These APIs removed or renamed a request field. Older clients may still send the old field, so the backend must accept both until every client has migrated.');
+      'These APIs need the previous version re-verified against this release: a request field was removed/renamed (the backend must still accept old clients), and/or a shared class they use was changed (the older version\'s flow must be regression-tested).');
     r.wrapTable(
-      [{ header: 'API', w: 0.34, mono: true }, { header: 'Module', w: 0.26 }, { header: 'Removed fields', w: 0.40, mono: true }],
+      [{ header: 'API', w: 0.32, mono: true }, { header: 'Module', w: 0.22 }, { header: 'Why', w: 0.46 }],
       bcItems.map((it) => [
         { text: it.api, mono: true, color: PAL.ink },
         it.module,
-        { text: it.removed.join(', '), mono: true, color: PAL.delText },
+        { text: it.reason, color: PAL.delText },
       ]));
   }
 

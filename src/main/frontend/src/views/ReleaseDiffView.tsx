@@ -33,6 +33,14 @@ type Risk = 'High' | 'Medium' | 'Low';
 const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 const RISK_CLASS: Record<Risk, string> = { High: 'high', Medium: 'med', Low: 'low' };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
+/** Backward compatibility must be verified when a payload field was removed OR a shared class changed. */
+function needsBC(a: ApiDiff): boolean { return !!a.payloadChange?.removedKeys?.length || !!a.codeChanged; }
+function bcReason(a: ApiDiff): string {
+  const parts: string[] = [];
+  if (a.payloadChange?.removedKeys?.length) parts.push(`${a.payloadChange.removedKeys.length} payload field(s) removed — backend must accept old clients`);
+  if (a.codeChanged) parts.push('shared class changed — regression-test the older (BAU) version against the new code');
+  return parts.join('; ');
+}
 /** A tested badge from an uploaded log's per-API result, or null when no log covers this API. */
 function testedMeta(l?: ApiLogResult): { cls: string; label: string; title: string } | null {
   if (!l) return null;
@@ -274,6 +282,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
             <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
           )}
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
+          {needsBC(d) && <span className="bc-badge" title={'Backward compatibility required — ' + bcReason(d)}>BC</span>}
           {tested && <span className={'tested-badge ' + tested.cls} title={tested.title}>{tested.label}</span>}
           <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
@@ -485,7 +494,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       .filter((a) => {
         if (filters.has('high') && riskOf(a) !== 'High') return false;
         if (filters.has('code') && !a.codeChanged) return false;
-        if (filters.has('bc') && !a.payloadChange?.removedKeys?.length) return false;
+        if (filters.has('bc') && !needsBC(a)) return false;
         if (filters.has('failed')) { const l = activeLog?.[a.api]; if (!(l?.tested && l.status !== 'SUCCESS')) return false; }
         return true;
       })

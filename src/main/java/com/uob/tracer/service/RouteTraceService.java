@@ -533,7 +533,7 @@ public class RouteTraceService {
             if (ApiDiff.RISK_HIGH.equals(risk)) {
                 high++;
             }
-            if (removesPayloadField(a)) {
+            if (needsBackwardCompat(a)) {
                 bc++;
             }
         }
@@ -545,6 +545,16 @@ public class RouteTraceService {
     private static boolean removesPayloadField(ApiDiff a) {
         PayloadChange pc = a.payloadChange();
         return pc != null && pc.removedKeys() != null && !pc.removedKeys().isEmpty();
+    }
+
+    /**
+     * True when the release forces a backward-compatibility check of the older app version: either a request
+     * field was removed/renamed (the backend must still accept old clients), or a shared {@code @Component}
+     * class an older-version route uses was changed (that older route must be regression-tested against the
+     * new code). Both mean "the previous version's flow has to be re-verified against this release".
+     */
+    private static boolean needsBackwardCompat(ApiDiff a) {
+        return removesPayloadField(a) || a.codeChanged();
     }
 
     /**

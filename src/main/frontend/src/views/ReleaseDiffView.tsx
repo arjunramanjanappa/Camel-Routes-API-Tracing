@@ -120,7 +120,7 @@ function impactGroup(r: ImpactedRoute): ImpactGroup {
 }
 
 /** The code-change section: which Java @Component classes the release modified, and the API/routes to re-test. */
-function CodeChangeBlock({ d }: { d: ApiDiff }) {
+function CodeChangeBlock({ d, onOpenApi }: { d: ApiDiff; onOpenApi?: (api: string) => void }) {
   if (!d.codeChanged) return null;
   const classes = d.changedClasses || [];
   const impacted = d.impactedRoutes || [];
@@ -146,7 +146,14 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
                 </div>
                 {g.rows.map((r) => (
                   <div key={r.routePath.join('>')} className="impact-row">
-                    {r.api && (<><code className="impact-api">{r.api}</code><span className="impact-dash">—</span></>)}
+                    {r.api && (
+                      <>
+                        {onOpenApi
+                          ? <button type="button" className="impact-api linkish" title="Open the flow graph for this API" onClick={() => onOpenApi(r.api!)}>{r.api}</button>
+                          : <code className="impact-api">{r.api}</code>}
+                        <span className="impact-dash">—</span>
+                      </>
+                    )}
                     <span className="impact-chain">
                       {r.routePath.map((rt, i) => (
                         <span key={rt}>
@@ -241,9 +248,10 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   );
 }
 
-function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log }: {
+function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi }: {
   d: ApiDiff; open: boolean; onToggle: () => void;
   onViewFlow: () => void; onCopy: () => void; copied: boolean; log?: ApiLogResult;
+  onOpenApi?: (api: string) => void;
 }) {
   const svc = d.backendVersionChanges || [];
   const tested = testedMeta(log);
@@ -341,7 +349,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log }: {
         </div>
       )}
 
-      <CodeChangeBlock d={d} />
+      <CodeChangeBlock d={d} onOpenApi={onOpenApi} />
 
       <div className="diff-actions">
         <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
@@ -381,6 +389,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [logInfo, setLogInfo] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const activeLog = logByModule[activeId ?? ''];
+  // Quick filters for the checklist (AND-combined).
+  const [filters, setFilters] = useState<Set<string>>(new Set());
+  const toggleFilter = (k: string) => setFilters((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   const show = (rep: VersionDiffReport | null) => {
     setReport(rep); setExpanded(new Set()); setQuery('');
@@ -471,9 +482,16 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     return report.apis
       .filter((a) => effectiveStatus(a) === activeGroup)
       .filter((a) => !q || searchHaystack(a).includes(q))
+      .filter((a) => {
+        if (filters.has('high') && riskOf(a) !== 'High') return false;
+        if (filters.has('code') && !a.codeChanged) return false;
+        if (filters.has('bc') && !a.payloadChange?.removedKeys?.length) return false;
+        if (filters.has('failed')) { const l = activeLog?.[a.api]; if (!(l?.tested && l.status !== 'SUCCESS')) return false; }
+        return true;
+      })
       // Highest test-priority first, so the list reads as a prioritised checklist; stable within a risk band.
       .slice().sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
-  }, [report, activeGroup, query]);
+  }, [report, activeGroup, query, filters, activeLog]);
 
   // N/A snapshot: every API resolved to its latest/base route — a flat list, not the diff nav.
   const snapshotVisible = useMemo(() => {
@@ -692,6 +710,13 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                 )}
               </span>
             </div>
+            <div className="filter-chips">
+              <button className={'fchip' + (filters.has('high') ? ' on' : '')} onClick={() => toggleFilter('high')}>High risk</button>
+              {report.appVersion && <button className={'fchip' + (filters.has('code') ? ' on' : '')} onClick={() => toggleFilter('code')}>Code-changed</button>}
+              <button className={'fchip' + (filters.has('bc') ? ' on' : '')} onClick={() => toggleFilter('bc')}>Backward-compat</button>
+              {activeLog && <button className={'fchip' + (filters.has('failed') ? ' on' : '')} onClick={() => toggleFilter('failed')}>Test failed</button>}
+              {filters.size > 0 && <button className="linkbtn" onClick={() => setFilters(new Set())}>Clear filters</button>}
+            </div>
 
             {visible.length === 0 ? (
               <div className="impact-empty">
@@ -714,6 +739,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                   <ApiDiffCard key={cardKey(d)} d={d} log={activeLog?.[d.api]}
                                open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
                                onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
+                               onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}
                                onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
                 ))}
               </div>

@@ -778,8 +778,19 @@ tr.lsub code { background: transparent; }
 .impact-cat-count { font-size: 10px; font-weight: 700; background: rgba(0,0,0,.06); border-radius: 999px; padding: 0 6px; }
 .impact-cat-desc { color: #64748b; font-style: italic; }
 .impact-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 1px 0 1px 14px; }
-.impact-api { font-weight: 700; color: #1d4ed8; word-break: break-all; }
+.impact-api { font-weight: 700; color: #1d4ed8; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+button.impact-api.linkish { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+button.impact-api.linkish:hover { color: #1e40af; }
+[data-theme="dark"] button.impact-api.linkish:hover { color: #bfdbfe; }
 .impact-dash { color: #94a3b8; }
+
+/* Quick-filter chips for the checklist. */
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0 12px; }
+.fchip { font-size: 11.5px; font-weight: 600; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px; padding: 3px 11px; cursor: pointer; }
+.fchip:hover { border-color: #cbd5e1; }
+.fchip.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+[data-theme="dark"] .fchip { background: #17202e; border-color: #253044; color: #94a3b8; }
+[data-theme="dark"] .fchip.on { background: #2563eb; border-color: #2563eb; color: #fff; }
 .impact-chain { word-break: break-all; }
 .impact-arrow { color: #94a3b8; }
 .impact-route { color: #475569; word-break: break-all; }

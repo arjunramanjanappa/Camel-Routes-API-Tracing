@@ -41,6 +41,15 @@ function bcReason(a: ApiDiff): string {
   if (a.codeChanged) parts.push('shared class changed — regression-test the older (BAU) version against the new code');
   return parts.join('; ');
 }
+
+// Version keys for the per-version test-log correlation (BASE for un-versioned / N/A).
+const ROUTE_VER = /^R(\d+(?:\.\d+)*)_/;
+function normVer(v?: string | null): string { return v && v !== 'N/A' && v !== 'BASE' ? v : 'BASE'; }
+/** The release version an impacted route belongs to (from its route id), for looking up its own log result. */
+function routeVersion(ir: ImpactedRoute): string {
+  for (const rid of ir.routePath) { const m = ROUTE_VER.exec(rid); if (m) return m[1]; }
+  return 'BASE';
+}
 /** A tested badge from an uploaded log's per-API result, or null when no log covers this API. */
 function testedMeta(l?: ApiLogResult): { cls: string; label: string; title: string } | null {
   if (!l) return null;
@@ -128,7 +137,7 @@ function impactGroup(r: ImpactedRoute): ImpactGroup {
 }
 
 /** The code-change section: which Java @Component classes the release modified, and the API/routes to re-test. */
-function CodeChangeBlock({ d, onOpenApi }: { d: ApiDiff; onOpenApi?: (api: string) => void }) {
+function CodeChangeBlock({ d, onOpenApi, routeLog }: { d: ApiDiff; onOpenApi?: (api: string) => void; routeLog?: (r: ImpactedRoute) => ApiLogResult | undefined }) {
   if (!d.codeChanged) return null;
   const classes = d.changedClasses || [];
   const impacted = d.impactedRoutes || [];
@@ -152,7 +161,9 @@ function CodeChangeBlock({ d, onOpenApi }: { d: ApiDiff; onOpenApi?: (api: strin
                   <span className="impact-cat-count">{g.rows.length}</span>
                   <span className="impact-cat-desc">{IMPACT_META[g.cat].desc}</span>
                 </div>
-                {g.rows.map((r) => (
+                {g.rows.map((r) => {
+                  const rl = testedMeta(routeLog?.(r));
+                  return (
                   <div key={r.routePath.join('>')} className="impact-row">
                     {r.api && (
                       <>
@@ -170,8 +181,10 @@ function CodeChangeBlock({ d, onOpenApi }: { d: ApiDiff; onOpenApi?: (api: strin
                         </span>
                       ))}
                     </span>
+                    {rl && <span className={'tested-badge sm ' + rl.cls} title={rl.title}>{rl.label}</span>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
           </div>
@@ -256,10 +269,10 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   );
 }
 
-function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi }: {
+function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi, routeLog }: {
   d: ApiDiff; open: boolean; onToggle: () => void;
   onViewFlow: () => void; onCopy: () => void; copied: boolean; log?: ApiLogResult;
-  onOpenApi?: (api: string) => void;
+  onOpenApi?: (api: string) => void; routeLog?: (r: ImpactedRoute) => ApiLogResult | undefined;
 }) {
   const svc = d.backendVersionChanges || [];
   const tested = testedMeta(log);
@@ -358,7 +371,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         </div>
       )}
 
-      <CodeChangeBlock d={d} onOpenApi={onOpenApi} />
+      <CodeChangeBlock d={d} onOpenApi={onOpenApi} routeLog={routeLog} />
 
       <div className="diff-actions">
         <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
@@ -393,11 +406,16 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [flowApi, setFlowApi] = useState<{ api: string; version?: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  // Optional test-log correlation: module id → (api path → its log result), merged into the checklist.
-  const [logByModule, setLogByModule] = useState<Record<string, Record<string, ApiLogResult>>>({});
+  // Optional test-log correlation, per version: version → module id → (api path → log result). Per-version so a
+  // shared-code re-test at an OLDER version (e.g. 9.8) is verified against a 9.8 transaction in the log.
+  const [logByVer, setLogByVer] = useState<Record<string, Record<string, Record<string, ApiLogResult>>>>({});
   const [logInfo, setLogInfo] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
-  const activeLog = logByModule[activeId ?? ''];
+  const hasLog = Object.keys(logByVer).length > 0;
+  // A row's tested result, looked up by the version it resolves to (main card = its targetVersion; re-test route = its own version).
+  const testedFor = (api?: string | null, version?: string | null): ApiLogResult | undefined =>
+    api ? logByVer[normVer(version)]?.[activeId ?? '']?.[api] : undefined;
+  const activeLog = logByVer[normVer(version)]?.[activeId ?? ''];   // compared-version map (for the readiness tally)
   // Quick filters for the checklist (AND-combined).
   const [filters, setFilters] = useState<Set<string>>(new Set());
   const toggleFilter = (k: string) => setFilters((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -421,7 +439,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         (r) => r.moduleName,
       );
       setReports(results);
-      setLogByModule({}); setLogInfo(null);   // a fresh comparison invalidates any merged test log
+      setLogByVer({}); setLogInfo(null);   // a fresh comparison invalidates any merged test log
       const first = results.find((r) => r.result) || results[0];
       setActiveId(first?.module.id ?? null);
       show(first?.result ?? null);
@@ -440,17 +458,30 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     if (!files || !files.length || !valid.length) return;
     setLogBusy(true); setLogInfo(null);
     try {
+      // Every version we need to prove: the compared version, each API's resolved version, and every
+      // impacted re-test route's version (BAU/Future). The log is correlated once per distinct version.
+      const versions = new Set<string>([normVer(version)]);
+      reports.forEach((r) => (r.result?.apis ?? []).forEach((a) => {
+        versions.add(normVer(a.targetVersion));
+        (a.impactedRoutes ?? []).forEach((ir) => versions.add(routeVersion(ir)));
+      }));
       const specs = valid.map((m) => { const sp = sourceParams(m); return { name: names[m.id] || m.id, sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch, app }; });
-      const res = await analyzeLogMulti(Array.from(files), specs, { version, country, dep: depParams(deps) });
-      const map: Record<string, Record<string, ApiLogResult>> = {};
-      valid.forEach((m, i) => {
-        const byApi: Record<string, ApiLogResult> = {};
-        (res[i]?.report?.apis ?? []).forEach((a) => { byApi[a.api] = a; });
-        map[m.id] = byApi;
-      });
-      setLogByModule(map);
-      const total = Object.values(map).reduce((n, mm) => n + Object.values(mm).filter((a) => a.tested).length, 0);
-      setLogInfo(`Merged ${total} executed API result(s) from the log`);
+      const fileArr = Array.from(files);
+      const next: Record<string, Record<string, Record<string, ApiLogResult>>> = {};
+      for (const v of versions) {
+        const res = await analyzeLogMulti(fileArr, specs, { version: v === 'BASE' ? undefined : v, country, dep: depParams(deps) });
+        const byMod: Record<string, Record<string, ApiLogResult>> = {};
+        valid.forEach((m, i) => {
+          const byApi: Record<string, ApiLogResult> = {};
+          (res[i]?.report?.apis ?? []).forEach((a) => { byApi[a.api] = a; });
+          byMod[m.id] = byApi;
+        });
+        next[v] = byMod;
+      }
+      setLogByVer(next);
+      const passed = Object.values(next).reduce((n, byMod) =>
+        n + Object.values(byMod).reduce((k, mm) => k + Object.values(mm).filter((a) => a.tested).length, 0), 0);
+      setLogInfo(`Merged test results across ${versions.size} version(s) — ${passed} executed API result(s)`);
     } catch (e) {
       setLogInfo(e instanceof Error ? e.message : String(e));
     } finally {
@@ -545,8 +576,12 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   // The PDF is one report covering every module (each module's Changed + New + snapshot),
   // independent of which module/group is on screen.
   const exportPdf = () => {
-    const mods = reports.map((r) => ({ name: r.name, report: r.result, error: r.error, logByApi: logByModule[r.module.id] }))
-      .filter((m) => m.report || m.error);
+    const mods = reports.map((r) => {
+      // Reshape the per-version log into this module's (version -> api -> result) for the PDF.
+      const byVer: Record<string, Record<string, ApiLogResult>> = {};
+      for (const [v, byMod] of Object.entries(logByVer)) { const mm = byMod[r.module.id]; if (mm) byVer[v] = mm; }
+      return { name: r.name, report: r.result, error: r.error, logByVer: Object.keys(byVer).length ? byVer : undefined };
+    }).filter((m) => m.report || m.error);
     if (mods.length) exportDiffPdf(mods, app).catch(() => {});
   };
 
@@ -703,8 +738,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                        disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
               </label>
               {logInfo && <span className="testlog-info">{logInfo}</span>}
-              {activeLog && Object.keys(activeLog).length > 0 && (
-                <button className="linkbtn" onClick={() => { setLogByModule({}); setLogInfo(null); }}>Clear</button>
+              {hasLog && (
+                <button className="linkbtn" onClick={() => { setLogByVer({}); setLogInfo(null); }}>Clear</button>
               )}
             </div>
             <CodeChangeSummary report={report} />
@@ -745,7 +780,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             ) : (
               <div className="diff-list">
                 {visible.map((d) => (
-                  <ApiDiffCard key={cardKey(d)} d={d} log={activeLog?.[d.api]}
+                  <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
+                               routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
                                open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
                                onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
                                onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}

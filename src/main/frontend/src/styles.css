@@ -672,6 +672,7 @@ tr.lsub code { background: transparent; }
 .tested-badge.fail { background: #fee2e2; color: #b91c1c; }
 .tested-badge.part { background: #fef3c7; color: #92400e; }
 .tested-badge.nt, .tested-badge.ind { background: #f1f5f9; color: #64748b; }
+.tested-badge.sm { font-size: 9.5px; font-weight: 700; padding: 1px 7px; margin-left: auto; flex-shrink: 0; }
 [data-theme="dark"] .tested-badge.pass { background: #052e16; color: #86efac; }
 [data-theme="dark"] .tested-badge.fail { background: #3a1414; color: #fca5a5; }
 [data-theme="dark"] .tested-badge.part { background: #422006; color: #fbbf24; }

@@ -13,8 +13,20 @@ function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string 
     blurb: 'A version bump with no behavioural change, or APIs this release did not touch.' };
 }
 
-/** One module's version-diff for the report (or an error), optionally enriched with a merged test log. */
-export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; logByApi?: Record<string, ApiLogResult>; }
+/** One module's version-diff for the report (or an error), optionally enriched with a per-version test log. */
+export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; logByVer?: Record<string, Record<string, ApiLogResult>>; }
+
+const ROUTE_VER_PDF = /^R(\d+(?:\.\d+)*)_/;
+function normVerPdf(v?: string | null): string { return v && v !== 'N/A' && v !== 'BASE' ? v : 'BASE'; }
+/** The version an impacted route belongs to (from its route id), for its own log lookup. */
+function routeVerPdf(routePath: string[]): string {
+  for (const rid of routePath) { const m = ROUTE_VER_PDF.exec(rid); if (m) return m[1]; }
+  return 'BASE';
+}
+/** A row's log result, looked up by version + api in a module's per-version map. */
+function logAt(logByVer: Record<string, Record<string, ApiLogResult>> | undefined, version: string | null | undefined, api?: string | null): ApiLogResult | undefined {
+  return api ? logByVer?.[normVerPdf(version)]?.[api] : undefined;
+}
 
 /** A short tested-status label for the PDF (mirrors the UI badge), or null when no log covers this API. */
 function testedTag(l?: ApiLogResult): { label: string; ramp: Ramp } | null {
@@ -160,10 +172,10 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           M, CONTENT_W, 'normal', 9, PAL.body, 12);
       }
       // Test-log coverage line (only when a log was merged for this module).
-      if (m.logByApi) {
+      if (m.logByVer) {
         const toTest = [...grouped.CHANGED, ...grouped.NEW];
         let passed = 0, covered = 0;
-        for (const a of toTest) { const l = m.logByApi[a.api]; if (l?.tested) { covered++; if (l.status === 'SUCCESS') passed++; } }
+        for (const a of toTest) { const l = logAt(m.logByVer, a.targetVersion, a.api); if (l?.tested) { covered++; if (l.status === 'SUCCESS') passed++; } }
         r.para(`Test coverage: ${passed} of ${toTest.length} to-test API(s) executed & passed`
           + `${covered - passed > 0 ? `, ${covered - passed} executed with failures/partial` : ''}`
           + `, ${toTest.length - covered} not tested.`,
@@ -179,7 +191,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           if (!list.length) continue;
           const meta = sectionMeta(status);
           r.groupHead(meta.title, list.length, meta.ramp);
-          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus, m.logByApi?.[a.api]); });
+          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus, m.logByVer); });
         }
       }
     }
@@ -233,7 +245,7 @@ function snapshotRow(r: ReportDoc, a: ApiDiff) {
 }
 
 /** Render the app-version code-change causes for one API (shared by diff + snapshot rows). */
-function codeChangeLines(r: ReportDoc, a: ApiDiff) {
+function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Record<string, ApiLogResult>>) {
   if (!a.codeChanged) return;
   // Changed shared classes, one per line (label + commit authors), so it doesn't run together.
   (a.changedClasses || []).forEach((c, i) => {
@@ -243,7 +255,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff) {
   const impacted = a.impactedRoutes || [];
   if (!impacted.length) return;
 
-  // "Also re-test" as a scannable table: Group | API | Route chain (each cell wraps in its own column).
+  // "Also re-test" as a scannable table: Group | API | Route chain [| Tested], each cell wraps in its column.
   const GROUPS = [
     { key: 'Current', ramp: PAL.purple },
     { key: 'BAU', ramp: PAL.gray },
@@ -251,20 +263,31 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff) {
     { key: 'Unknown', ramp: PAL.red },
   ] as const;
   const groupOf = (rt: { api?: string | null; category: string }) => (rt.api ? rt.category : 'Unknown');
+  const withTested = !!logByVer;
   const rows = GROUPS.flatMap((g) =>
-    impacted.filter((rt) => groupOf(rt) === g.key).map((rt) => [
-      { pill: { label: g.key, fill: g.ramp.fill, text: g.ramp.text, stripe: g.ramp.text } },
-      { text: rt.api || '-', mono: true, color: PAL.blue.text },
-      { text: rt.routePath.join('  ->  '), mono: true, color: PAL.body },
-    ]));
+    impacted.filter((rt) => groupOf(rt) === g.key).map((rt) => {
+      const row: (string | { pill: { label: string; fill: [number, number, number]; text: [number, number, number]; stripe: [number, number, number] } } | { text: string; mono?: boolean; color?: [number, number, number] })[] = [
+        { pill: { label: g.key, fill: g.ramp.fill, text: g.ramp.text, stripe: g.ramp.text } },
+        { text: rt.api || '-', mono: true, color: PAL.blue.text },
+        { text: rt.routePath.join('  ->  '), mono: true, color: PAL.body },
+      ];
+      if (withTested) {
+        const tt = testedTag(logAt(logByVer, routeVerPdf(rt.routePath), rt.api));
+        row.push({ text: tt ? tt.label : '-', color: tt ? tt.ramp.text : PAL.muted });
+      }
+      return row;
+    }));
   r.para('Shared code - also re-test (Current = this release, BAU = live, Future = upcoming, Unknown = trace manually):',
     M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
   r.wrapTable(
-    [{ header: 'Group', w: 0.17 }, { header: 'API', w: 0.30, mono: true }, { header: 'Route chain', w: 0.53, mono: true }],
+    withTested
+      ? [{ header: 'Group', w: 0.15 }, { header: 'API', w: 0.24, mono: true }, { header: 'Route chain', w: 0.40, mono: true }, { header: 'Tested', w: 0.21 }]
+      : [{ header: 'Group', w: 0.17 }, { header: 'API', w: 0.30, mono: true }, { header: 'Route chain', w: 0.53, mono: true }],
     rows);
 }
 
-function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, log?: ApiLogResult) {
+function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Record<string, Record<string, ApiLogResult>>) {
+  const log = logAt(logByVer, a.targetVersion, a.api);
   r.ensure(40);
   const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
   r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
@@ -307,7 +330,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, log?: ApiLogResu
   summarize('Removed routes', a.removedRoutes || [], PAL.delText);
   (a.backendVersionChanges || []).forEach((s) =>
     summarize('Backend service version', [`${s.backend}  ${s.fromVersion} -> ${s.toVersion}`], PAL.amber.text));
-  codeChangeLines(r, a);
+  codeChangeLines(r, a, logByVer);
 
   (a.routeDiffs || []).forEach((rd) => {
     r.ensure(18);

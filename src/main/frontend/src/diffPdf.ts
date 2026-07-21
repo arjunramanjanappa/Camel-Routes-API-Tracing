@@ -36,12 +36,14 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   // The app/commit version whose Java code changes were analysed (same across modules); null if not requested.
   const appVersion = mods.find((m) => m.report?.appVersion)?.report?.appVersion || null;
 
-  r.header('Release Impact Report',
-    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`
-      + `${appVersion ? '  -  app ' + appVersion : ''}`,
-    `Generated ${generatedStamp()}`);
+  // ===== Title page =====
+  r.titlePage('Release Impact Report',
+    `${app ? app + '  ·  ' : ''}Release ${ver}${country ? '  ·  ' + country : ''}${appVersion ? '  ·  app ' + appVersion : ''}`,
+    [`Generated ${generatedStamp()}`, `${mods.length} module(s)`,
+      `${tot.changed + tot.added} API(s) to test  ·  ${tot.high} high-risk`]);
 
   // ===== Release Impact Summary =====
+  r.bookmark('Release Impact Summary');
   r.banner('Release Impact Summary', PAL.blue);
   const band = [
     { n: tot.changed, label: 'Changed', ramp: PAL.amber },
@@ -84,9 +86,28 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
 
   const footer = `TraceGuard - Release impact ${ver}${app ? ' - ' + app : ''}`;
 
+  // ===== Backward compatibility (executive callout) =====
+  const bcItems = mods.flatMap((m) => (m.report?.apis ?? [])
+    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0)
+    .map((a) => ({ module: m.name, api: a.api, removed: a.payloadChange!.removedKeys })));
+  if (bcItems.length) {
+    r.bookmark('Backward compatibility');
+    r.section('Backward compatibility required', bcItems.length, PAL.red,
+      'These APIs removed or renamed a request field. Older clients may still send the old field, so the backend must accept both until every client has migrated.');
+    r.wrapTable(
+      [{ header: 'API', w: 0.34, mono: true }, { header: 'Module', w: 0.26 }, { header: 'Removed fields', w: 0.40, mono: true }],
+      bcItems.map((it) => [
+        { text: it.api, mono: true, color: PAL.ink },
+        it.module,
+        { text: it.removed.join(', '), mono: true, color: PAL.delText },
+      ]));
+  }
+
   // ===== Impact by module =====
+  r.bookmark('Impact by module');
   r.banner('Impact by module', PAL.blue, 'Each module’s changed + new APIs to test (changed first). N/A modules list their latest routes.');
   for (const m of mods) {
+    r.bookmark('Module — ' + m.name);
     if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
     const rep = m.report; if (!rep) continue;
     if (rep.snapshot) {
@@ -136,6 +157,35 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     }
     r.reviewSection(rep.needsReview);
   }
+
+  // ===== Who changed what (author appendix) =====
+  // Parse the commit authors off each changed-class label ("bean (File.java) — Alice, Bob") and map
+  // author -> the APIs their change affects, so verification can be assigned.
+  const byAuthor = new Map<string, Set<string>>();
+  for (const m of mods) {
+    for (const a of m.report?.apis ?? []) {
+      if (!a.codeChanged) continue;
+      for (const label of a.changedClasses ?? []) {
+        const parts = label.split(/\s[—–-]\s/);
+        if (parts.length < 2) continue;
+        for (const au of parts[parts.length - 1].split(',').map((s) => s.trim()).filter(Boolean)) {
+          if (!byAuthor.has(au)) byAuthor.set(au, new Set());
+          byAuthor.get(au)!.add(a.api);
+        }
+      }
+    }
+  }
+  if (byAuthor.size) {
+    r.bookmark('Who changed what');
+    r.section('Who changed what', byAuthor.size, PAL.gray,
+      'Commit authors of the shared Java classes this release changed, and the APIs their change affects — for assigning verification / who to ask.');
+    r.wrapTable(
+      [{ header: 'Author', w: 0.30 }, { header: 'Affects APIs', w: 0.70, mono: true }],
+      [...byAuthor.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([au, apis]) => [
+        au, { text: [...apis].sort().join(', '), mono: true, color: PAL.body },
+      ]));
+  }
+
   r.save(file(ver), footer);
 }
 

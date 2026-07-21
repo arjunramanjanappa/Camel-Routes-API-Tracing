@@ -102,6 +102,29 @@ export class ReportDoc {
 
   rule() { this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y); this.y += 18; }
 
+  /**
+   * A standalone title page: the TraceGuard brand mark (top-right), a large title lowered into the page,
+   * a subtitle and any number of muted meta lines — then a page break so the body starts fresh on page 2.
+   */
+  titlePage(title: string, subtitle: string, metaLines: string[]) {
+    const logo = 30, gap = 8, tw = this.width('TraceGuard', 'bold', 15);
+    const startX = PAGE.w - M - (logo + gap + tw);
+    try { this.doc.addImage(TG_LOGO, 'PNG', startX, M, logo, logo); } catch { /* image optional */ }
+    this.text('TraceGuard', startX + logo + gap, 'bold', 15, PAL.ink, M + 14);
+    this.text('release intelligence', startX + logo + gap, 'normal', 8, PAL.muted, M + 25);
+    this.y = Math.round(PAGE.h * 0.34);
+    this.text(title, M, 'bold', 34, PAL.ink); this.y += 46;
+    this.text(subtitle, M, 'normal', 15, PAL.accent); this.y += 26;
+    metaLines.forEach((m) => { this.text(m, M, 'normal', 10.5, PAL.muted); this.y += 17; });
+    this.doc.addPage(); this.y = M;
+  }
+
+  /** Register a PDF outline bookmark for the current page (no-op if the jsPDF build lacks outlines). */
+  bookmark(title: string) {
+    try { this.doc.outline.add(null, ascii(title), { pageNumber: this.doc.internal.getNumberOfPages() }); }
+    catch { /* outlines unsupported — skip */ }
+  }
+
   /** Cover header: the TraceGuard brand mark (top-right), title, subtitle, one meta line, then a rule. */
   header(title: string, subtitle: string, meta: string) {
     this.brandMark();   // logo + wordmark at top-right, so it's clear which app produced the report

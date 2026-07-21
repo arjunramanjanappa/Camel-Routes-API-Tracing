@@ -467,9 +467,12 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       }));
       const specs = valid.map((m) => { const sp = sourceParams(m); return { name: names[m.id] || m.id, sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch, app }; });
       const fileArr = Array.from(files);
+      // Correlate every version in parallel (overlaps the uploads) instead of one-after-another.
+      const perVer = await Promise.all([...versions].map((v) =>
+        analyzeLogMulti(fileArr, specs, { version: v === 'BASE' ? undefined : v, country, dep: depParams(deps) })
+          .then((res) => ({ v, res }))));
       const next: Record<string, Record<string, Record<string, ApiLogResult>>> = {};
-      for (const v of versions) {
-        const res = await analyzeLogMulti(fileArr, specs, { version: v === 'BASE' ? undefined : v, country, dep: depParams(deps) });
+      for (const { v, res } of perVer) {
         const byMod: Record<string, Record<string, ApiLogResult>> = {};
         valid.forEach((m, i) => {
           const byApi: Record<string, ApiLogResult> = {};
@@ -732,12 +735,15 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
 
             <ReadinessStrip report={report} log={activeLog} />
             <div className="testlog-bar">
-              <label className="testlog-btn" title="Upload a Splunk export / output log — TraceGuard correlates it and shows which of these APIs were executed and passed">
-                {logBusy ? 'Correlating…' : '⤒ Attach test log'}
+              <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log — TraceGuard correlates it and shows which of these APIs were executed and passed">
+                {logBusy
+                  ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</>
+                  : '⤒ Attach test log'}
                 <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
                        disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
               </label>
-              {logInfo && <span className="testlog-info">{logInfo}</span>}
+              {logBusy && <span className="testlog-info">matching your log against the impacted APIs across versions…</span>}
+              {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
               {hasLog && (
                 <button className="linkbtn" onClick={() => { setLogByVer({}); setLogInfo(null); }}>Clear</button>
               )}

@@ -246,6 +246,15 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
           <span className="diff-payload-label">Payload change</span>
           {d.payloadChange.addedKeys.map((k) => <span key={'+' + k} className="pk add">+ {k}</span>)}
           {d.payloadChange.removedKeys.map((k) => <span key={'-' + k} className="pk del">− {k}</span>)}
+          {d.payloadChange.removedKeys.length > 0 ? (
+            <div className="bc-flag warn" title="A request field was removed/renamed — older clients may still send it, so the backend must stay backward compatible">
+              ⚠ Backward compatibility required — {d.payloadChange.removedKeys.length} field{d.payloadChange.removedKeys.length === 1 ? '' : 's'} removed
+            </div>
+          ) : (
+            <div className="bc-flag ok" title="Only new fields were added — existing clients are unaffected">
+              ✓ Backward compatible — fields added only
+            </div>
+          )}
         </div>
       )}
 

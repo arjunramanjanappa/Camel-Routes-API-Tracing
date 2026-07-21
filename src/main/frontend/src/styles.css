@@ -701,6 +701,11 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .diff-payload-label { color: #93c5fd; }
 [data-theme="dark"] .diff-payload .pk.add { background: #052e16; color: #86efac; }
 [data-theme="dark"] .diff-payload .pk.del { background: #2a1416; color: #fca5a5; }
+.bc-flag { flex-basis: 100%; margin-top: 4px; font-size: 11px; font-weight: 700; }
+.bc-flag.warn { color: #b91c1c; }
+.bc-flag.ok { color: #166534; }
+[data-theme="dark"] .bc-flag.warn { color: #fca5a5; }
+[data-theme="dark"] .bc-flag.ok { color: #86efac; }
 
 /* --- Release code-change (app version): violet, distinct from amber "changed" and blue "payload" --- */
 .diff-badge.code { background: #ede9fe; color: #6d28d9; }

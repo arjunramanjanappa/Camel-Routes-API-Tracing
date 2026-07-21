@@ -209,6 +209,11 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   if (a.payloadChange && (a.payloadChange.addedKeys.length || a.payloadChange.removedKeys.length)) {
     const keys = [...a.payloadChange.addedKeys.map((k) => '+' + k), ...a.payloadChange.removedKeys.map((k) => '-' + k)];
     summarize('Payload change (keys)', keys, PAL.blue.text);
+    const removed = a.payloadChange.removedKeys.length;
+    r.para(removed > 0
+      ? `Backward compatibility required - ${removed} field(s) removed`
+      : 'Backward compatible - fields added only',
+      M + 4, CONTENT_W - 4, 'normal', 9, removed > 0 ? PAL.delText : PAL.addText, 12);
   }
   r.y += 6;
 }

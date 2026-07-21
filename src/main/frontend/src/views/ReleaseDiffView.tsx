@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { fetchVersionDiff } from '../api';
-import type { ApiDiff, DepSource, DiffStatus, RouteStepDiff, VersionDiffReport } from '../types';
+import type { ApiDiff, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
@@ -65,26 +65,32 @@ function apiDiffText(a: ApiDiff): string {
   if (a.codeChanged) {
     lines.push('    ⚙ code changed by app version (shared @Component classes):');
     (a.changedClasses || []).forEach((c) => lines.push(`        ~ class ${c}`));
-    (a.impactedRoutes || []).forEach((r) => lines.push(`        ! also re-test (${r.category}) ${r.api || '(api unknown)'} — ${r.routePath.join(' → ')}`));
+    (a.impactedRoutes || []).forEach((r) => lines.push(`        ! also re-test [${impactGroup(r)}] ${r.api ? r.api + ' — ' : ''}${r.routePath.join(' → ')}`));
   }
   return lines.join('\n');
 }
 
-const IMPACT_ORDER: Array<'Current' | 'BAU' | 'Future'> = ['Current', 'BAU', 'Future'];
-const IMPACT_META: Record<'Current' | 'BAU' | 'Future', { icon: string; label: string; desc: string }> = {
+type ImpactGroup = 'Current' | 'BAU' | 'Future' | 'Unknown';
+const IMPACT_ORDER: ImpactGroup[] = ['Current', 'BAU', 'Future', 'Unknown'];
+const IMPACT_META: Record<ImpactGroup, { icon: string; label: string; desc: string }> = {
   Current: { icon: '●', label: 'Current release', desc: 'this release — verify the change here' },
   BAU: { icon: '▲', label: 'BAU (in production)', desc: 'live now — regression-test' },
   Future: { icon: '◆', label: 'Future release', desc: "pre-test now; won't resurface under its own version" },
+  Unknown: { icon: '?', label: 'Unknown (untraced)', desc: 'not wired to a controller — trace & verify manually' },
 };
+/** The display group: a route with no resolved API is bucketed as Unknown (needs manual back-trace). */
+function impactGroup(r: ImpactedRoute): ImpactGroup {
+  return r.api ? (r.category as ImpactGroup) : 'Unknown';
+}
 
 /** The code-change section: which Java @Component classes the release modified, and the API/routes to re-test. */
 function CodeChangeBlock({ d }: { d: ApiDiff }) {
   if (!d.codeChanged) return null;
   const classes = d.changedClasses || [];
   const impacted = d.impactedRoutes || [];
-  // Group the re-test routes by category (Current / BAU / Future); each is its own tinted sub-block.
+  // Group the re-test routes (Current / BAU / Future / Unknown); each is its own tinted sub-block.
   const byCat = IMPACT_ORDER
-    .map((cat) => ({ cat, rows: impacted.filter((r) => r.category === cat) }))
+    .map((cat) => ({ cat, rows: impacted.filter((r) => impactGroup(r) === cat) }))
     .filter((g) => g.rows.length > 0);
   return (
     <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
@@ -104,8 +110,7 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
                 </div>
                 {g.rows.map((r) => (
                   <div key={r.routePath.join('>')} className="impact-row">
-                    {r.api ? <code className="impact-api">{r.api}</code> : <span className="muted">(api unknown)</span>}
-                    <span className="impact-dash">—</span>
+                    {r.api && (<><code className="impact-api">{r.api}</code><span className="impact-dash">—</span></>)}
                     <span className="impact-chain">
                       {r.routePath.map((rt, i) => (
                         <span key={rt}>

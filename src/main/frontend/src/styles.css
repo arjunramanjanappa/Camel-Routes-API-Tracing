@@ -723,11 +723,13 @@ tr.lsub code { background: transparent; }
 .impact-cat.current { background: #f5f3ff; border-color: #ddd6fe; border-left-color: #7c3aed; }
 .impact-cat.bau { background: #f1f5f9; border-color: #dbe2ea; border-left-color: #475569; }
 .impact-cat.future { background: #fff7ed; border-color: #fed7aa; border-left-color: #ea580c; }
+.impact-cat.unknown { background: #fef2f2; border-color: #fecaca; border-left-color: #dc2626; border-left-style: dashed; }
 .impact-cat-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
 .impact-cat-icon { font-size: 9px; }
 .impact-cat.current .impact-cat-icon, .impact-cat.current .impact-cat-label { color: #6d28d9; }
 .impact-cat.bau .impact-cat-icon, .impact-cat.bau .impact-cat-label { color: #334155; }
 .impact-cat.future .impact-cat-icon, .impact-cat.future .impact-cat-label { color: #c2410c; }
+.impact-cat.unknown .impact-cat-icon, .impact-cat.unknown .impact-cat-label { color: #b91c1c; }
 .impact-cat-label { font-weight: 700; }
 .impact-cat-count { font-size: 10px; font-weight: 700; background: rgba(0,0,0,.06); border-radius: 999px; padding: 0 6px; }
 .impact-cat-desc { color: #64748b; font-style: italic; }
@@ -743,9 +745,11 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .impact-cat.current { background: #1e1246; border-color: #4c1d95; border-left-color: #a78bfa; }
 [data-theme="dark"] .impact-cat.bau { background: #1e293b; border-color: #334155; border-left-color: #94a3b8; }
 [data-theme="dark"] .impact-cat.future { background: #2a1608; border-color: #7c2d12; border-left-color: #fb923c; }
+[data-theme="dark"] .impact-cat.unknown { background: #2a1215; border-color: #7f1d1d; border-left-color: #f87171; }
 [data-theme="dark"] .impact-cat.current .impact-cat-icon, [data-theme="dark"] .impact-cat.current .impact-cat-label { color: #c4b5fd; }
 [data-theme="dark"] .impact-cat.bau .impact-cat-icon, [data-theme="dark"] .impact-cat.bau .impact-cat-label { color: #cbd5e1; }
 [data-theme="dark"] .impact-cat.future .impact-cat-icon, [data-theme="dark"] .impact-cat.future .impact-cat-label { color: #fdba74; }
+[data-theme="dark"] .impact-cat.unknown .impact-cat-icon, [data-theme="dark"] .impact-cat.unknown .impact-cat-label { color: #fca5a5; }
 [data-theme="dark"] .impact-cat-count { background: rgba(255,255,255,.12); }
 [data-theme="dark"] .impact-cat-desc { color: #94a3b8; }
 [data-theme="dark"] .impact-api { color: #93c5fd; }

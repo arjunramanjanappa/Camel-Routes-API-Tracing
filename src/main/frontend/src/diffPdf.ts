@@ -158,18 +158,21 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff,
   const impacted = a.impactedRoutes || [];
   if (impacted.length) {
     r.para('Shared code - also re-test:', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
-    // Each category gets its own coloured header (purple / slate / orange) so BAU vs Future read apart.
+    // Each group gets its own coloured header so Current / BAU / Future / Unknown read apart.
     const META = {
       Current: { col: PAL.purple.text, desc: 'this release - verify the change here' },
       BAU: { col: PAL.gray.text, desc: 'in production - regression-test' },
       Future: { col: PAL.orange.text, desc: "upcoming - pre-test now, won't resurface under its own version" },
+      Unknown: { col: PAL.red.text, desc: 'not wired to a controller - trace & verify manually' },
     } as const;
-    (['Current', 'BAU', 'Future'] as const).forEach((cat) => {
-      const rows = impacted.filter((rt) => rt.category === cat);
+    // A route with no resolved API is bucketed as Unknown (needs manual back-trace).
+    const groupOf = (rt: { api?: string | null; category: string }) => (rt.api ? rt.category : 'Unknown');
+    (['Current', 'BAU', 'Future', 'Unknown'] as const).forEach((cat) => {
+      const rows = impacted.filter((rt) => groupOf(rt) === cat);
       if (!rows.length) return;
       r.para(`${cat} (${rows.length})  -  ${META[cat].desc}`, M + 10, CONTENT_W - 10, 'bold', 9, META[cat].col, 12);
       rows.forEach((rt) => {
-        r.para(`${rt.api || '(api unknown)'}  -  ${rt.routePath.join(' > ')}`, M + 18, CONTENT_W - 18, 'normal', 9, PAL.body, 11);
+        r.para(`${rt.api ? rt.api + '  -  ' : ''}${rt.routePath.join(' > ')}`, M + 18, CONTENT_W - 18, 'normal', 9, PAL.body, 11);
       });
       r.y += 2;
     });

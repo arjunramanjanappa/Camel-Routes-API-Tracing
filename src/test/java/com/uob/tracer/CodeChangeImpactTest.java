@@ -223,6 +223,54 @@ class CodeChangeImpactTest {
         assertThat(reTest).anyMatch(r -> r.route().contains("R9.10_getSummary") && "/getSummary".equals(r.api()));
     }
 
+    // An entry route (on a controller) that delegates to a helper route which holds the changed bean.
+    private static final String DEPENDENT_ROUTES = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="c">
+                <route id="R9.10_doStuffRoute"><from uri="direct:R9.10_doStuff"/><to uri="direct:R9.10_helper"/></route>
+                <route id="R9.10_helperRoute"><from uri="direct:R9.10_helper"/><to uri="bean:helperProcessor"/></route>
+                <route id="R9.8_getInfoRoute"><from uri="direct:R9.8_getInfo"/><to uri="direct:R9.8_helper"/></route>
+                <route id="R9.8_helperRoute"><from uri="direct:R9.8_helper"/><to uri="bean:helperProcessor"/></route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    @Test
+    void tracesAnIndirectlyCalledRouteBackToItsEntryApiWithTheFullChain(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        Files.writeString(dir.resolve("routes.xml"), DEPENDENT_ROUTES);
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @PostMapping("/doStuff") public Object doStuff(Object b){ return null; }
+                    @PostMapping("/getInfo") public Object getInfo(Object b){ return null; }
+                }
+                """);
+        Files.writeString(dir.resolve("HelperProcessor.java"), beanClass("HelperProcessor", "helperProcessor", 1));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.8.0] baseline");
+
+        // The 9.10 release changes helperProcessor — held by helper routes that are NOT on any controller.
+        Files.writeString(dir.resolve("HelperProcessor.java"), beanClass("HelperProcessor", "helperProcessor", 2));
+        commit(dir, "[JIRA-2][SG][19.10.0] tweak helper");
+
+        VersionDiffReport report = new RouteTraceService(dir.toString()).versionDiff(
+                new TraceRequest(null, "9.10", null, dir.toString(), null, null, null, List.of(), null, "19.10.0"));
+
+        ApiDiff doStuff = apiByRoute(report, "doStuff");
+        assertThat(doStuff.codeChanged()).isTrue();
+        var rt = doStuff.impactedRoutes();
+        // The helper route was reached indirectly, but traces back to /doStuff with the full entry→helper chain.
+        assertThat(rt).anyMatch(r -> "Current".equals(r.category()) && "/doStuff".equals(r.api())
+                && r.routePath().equals(List.of("R9.10_doStuffRoute", "R9.10_helperRoute")));
+        // The same class is held by getInfo's production (BAU) helper — traced back to /getInfo, not "unknown".
+        assertThat(rt).anyMatch(r -> "BAU".equals(r.category()) && "/getInfo".equals(r.api())
+                && r.routePath().equals(List.of("R9.8_getInfoRoute", "R9.8_helperRoute")));
+        // No route is left unattributed.
+        assertThat(rt).allMatch(r -> r.api() != null);
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

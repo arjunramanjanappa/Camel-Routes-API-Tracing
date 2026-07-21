@@ -734,6 +734,8 @@ tr.lsub code { background: transparent; }
 .impact-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 1px 0 1px 14px; }
 .impact-api { font-weight: 700; color: #1d4ed8; word-break: break-all; }
 .impact-dash { color: #94a3b8; }
+.impact-chain { word-break: break-all; }
+.impact-arrow { color: #94a3b8; }
 .impact-route { color: #475569; word-break: break-all; }
 [data-theme="dark"] .diff-code { background: #1a0f33; border-color: #4c1d95; }
 [data-theme="dark"] .diff-code-label { color: #c4b5fd; }

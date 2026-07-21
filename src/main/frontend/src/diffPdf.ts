@@ -169,7 +169,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff,
       if (!rows.length) return;
       r.para(`${cat} (${rows.length})  -  ${META[cat].desc}`, M + 10, CONTENT_W - 10, 'bold', 9, META[cat].col, 12);
       rows.forEach((rt) => {
-        r.para(`${rt.api || '(api unknown)'}  -  ${rt.route}`, M + 18, CONTENT_W - 18, 'normal', 9, PAL.body, 11);
+        r.para(`${rt.api || '(api unknown)'}  -  ${rt.routePath.join(' > ')}`, M + 18, CONTENT_W - 18, 'normal', 9, PAL.body, 11);
       });
       r.y += 2;
     });

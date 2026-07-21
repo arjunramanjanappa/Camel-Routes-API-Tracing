@@ -462,7 +462,7 @@ public class RouteTraceService {
         }
         if (wantCode) {
             // release version = the concrete target — changes on R<target>_ routes are this release's own new code.
-            applyCodeChanges(report, roots, registry, prepared.index().beans(), apiByRouteId(prepared, registry),
+            applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry),
                     flowByApi, request.appVersion(), target);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
@@ -509,7 +509,7 @@ public class RouteTraceService {
         if (wantCode) {
             Roots roots = resolveRoots(request);
             // N/A snapshot: no "own" release version — every route is pre-existing, so all changes count.
-            applyCodeChanges(report, roots, registry, prepared.index().beans(), apiByRouteId(prepared, registry),
+            applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry),
                     flowByApi, request.appVersion(), null);
         }
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
@@ -540,7 +540,7 @@ public class RouteTraceService {
      *                       for the N/A snapshot — routes at this exact version are the release's own routes
      */
     private void applyCodeChanges(VersionDiffReport report, Roots roots, RouteRegistry registry,
-                                  Map<String, String> beans, Map<String, String> apiByRouteId,
+                                  Map<String, String> beans, Map<String, RouteOwner> ownership,
                                   Map<String, List<String>> flowByApi, String appVersion, String releaseVersion) {
         String wanted = nz(appVersion);
         report.setAppVersion(wanted);
@@ -601,7 +601,7 @@ public class RouteTraceService {
                     // the current BAU baseline (immediate-lower, else base) and every future/higher version. Empty
                     // means ONLY the release's own route uses it → new code shipped with a new route, so skip.
                     List<ImpactedRoute> hits = collapseImpactedRoutes(
-                            beanUsage.getOrDefault(beanName, List.of()), release, apiByRouteId);
+                            beanUsage.getOrDefault(beanName, List.of()), release, ownership);
                     if (hits.isEmpty()) {
                         continue;
                     }
@@ -659,7 +659,7 @@ public class RouteTraceService {
      * no "own" version, so each family collapses to its latest route (as BAU).
      */
     private List<ImpactedRoute> collapseImpactedRoutes(Collection<String> routeIds, String release,
-                                                       Map<String, String> apiByRouteId) {
+                                                       Map<String, RouteOwner> ownership) {
         Map<String, List<String>> byFamily = new LinkedHashMap<>();
         for (String rid : routeIds) {
             byFamily.computeIfAbsent(baseName(rid), k -> new ArrayList<>()).add(rid);
@@ -693,42 +693,135 @@ public class RouteTraceService {
             }
             String bau = lowerRoute != null ? lowerRoute : baseRoute;
             if (currentRoute != null) {
-                out.add(new ImpactedRoute(apiByRouteId.get(currentRoute), currentRoute, ImpactedRoute.CURRENT));
+                out.add(impacted(currentRoute, ImpactedRoute.CURRENT, ownership));
             }
             if (bau != null) {
-                out.add(new ImpactedRoute(apiByRouteId.get(bau), bau, ImpactedRoute.BAU));
+                out.add(impacted(bau, ImpactedRoute.BAU, ownership));
                 anyNonRelease = true;
             }
             higher.sort((a, b) -> compareVersions(routeVersionOf(a), routeVersionOf(b)));
             for (String h : higher) {
-                out.add(new ImpactedRoute(apiByRouteId.get(h), h, ImpactedRoute.FUTURE));
+                out.add(impacted(h, ImpactedRoute.FUTURE, ownership));
                 anyNonRelease = true;
             }
         }
         return anyNonRelease ? out : List.of();
     }
 
+    /** Build an ImpactedRoute for a changed route, resolving its owning API + entry→…→route chain. */
+    private static ImpactedRoute impacted(String routeId, String category, Map<String, RouteOwner> ownership) {
+        RouteOwner o = ownership.get(routeId);
+        return o != null
+                ? new ImpactedRoute(o.api(), o.path(), category)
+                : new ImpactedRoute(null, List.of(routeId), category);
+    }
+
+    /** A route's owning API path and the entry-route → … → route chain that reaches it. */
+    private record RouteOwner(String api, List<String> path) {}
+
     /**
-     * Map each route id to the REST API path that owns it, so the code-change re-test list can show
-     * "API — route" without a manual back-trace. A route is owned by the operation whose entry name equals
-     * the route's version-stripped from-name (else its version-stripped id); that operation carries the path.
+     * For every route, the API that owns it and the entry-route → … → route chain, so the code-change re-test
+     * list can show "API — RouteA, RouteB" without manual back-tracing. Controller-configured entry routes own
+     * themselves (path = the route alone); any route reached from an entry via {@code <to uri="direct:…"/>} is
+     * attributed to that entry's API with the full call chain. Routes reachable from no entry get no owner.
      */
-    private Map<String, String> apiByRouteId(Prepared prepared, RouteRegistry registry) {
+    private Map<String, RouteOwner> routeOwnership(Prepared prepared, RouteRegistry registry) {
+        // 1. Entry routes: route id -> API path (the operation whose entry name matches the route's from-name).
         boolean cmd = prepared.commandDispatch();
         Map<String, String> apiByOp = new LinkedHashMap<>();
         for (OperationInfo op : operationsInScope(prepared)) {
             apiByOp.putIfAbsent(entryOperation(op, registry, cmd), op.path());
         }
-        Map<String, String> out = new LinkedHashMap<>();
+        Map<String, String> apiByEntry = new LinkedHashMap<>();
+        Map<String, List<String>> calls = new LinkedHashMap<>();   // route id -> direct: routes it calls
         for (RouteModel rm : registry.all()) {
             String from = rm.fromName();
             String base = baseName(from != null ? registry.resolveName(from) : rm.routeId());
             String api = apiByOp.get(base);
             if (api != null) {
-                out.putIfAbsent(rm.routeId(), api);
+                apiByEntry.putIfAbsent(rm.routeId(), api);
+            }
+            List<String> called = new ArrayList<>();
+            collectRouteCalls(rm.elements(), registry, called);
+            calls.put(rm.routeId(), called);
+        }
+
+        // 2. Seed entries as owning themselves, then BFS forward through the call graph to attribute sub-routes.
+        Map<String, RouteOwner> owner = new LinkedHashMap<>();
+        for (var e : apiByEntry.entrySet()) {
+            owner.put(e.getKey(), new RouteOwner(e.getValue(), List.of(e.getKey())));
+        }
+        for (var e : apiByEntry.entrySet()) {
+            String entry = e.getKey();
+            String api = e.getValue();
+            Deque<String> queue = new ArrayDeque<>();
+            Map<String, String> parent = new HashMap<>();
+            Set<String> seen = new HashSet<>();
+            seen.add(entry);
+            queue.add(entry);
+            while (!queue.isEmpty()) {
+                String cur = queue.poll();
+                for (String next : calls.getOrDefault(cur, List.of())) {
+                    if (!seen.add(next)) {
+                        continue;
+                    }
+                    parent.put(next, cur);
+                    owner.putIfAbsent(next, new RouteOwner(api, pathTo(entry, next, parent)));
+                    queue.add(next);
+                }
             }
         }
-        return out;
+        return owner;
+    }
+
+    /** Reconstruct the entry → … → target chain from a BFS parent map. */
+    private static List<String> pathTo(String entry, String target, Map<String, String> parent) {
+        List<String> path = new ArrayList<>();
+        for (String n = target; n != null; n = n.equals(entry) ? null : parent.get(n)) {
+            path.add(n);
+        }
+        java.util.Collections.reverse(path);
+        return path;
+    }
+
+    /** Route ids a route calls via {@code <to uri="direct:name"/>} (walks nested choice/container branches). */
+    private static void collectRouteCalls(List<RouteElement> elements, RouteRegistry registry, List<String> out) {
+        for (RouteElement el : elements) {
+            if (el instanceof ToElement to) {
+                addRouteCall(to.uri(), registry, out);
+            } else if (el instanceof ChoiceElement choice) {
+                for (WhenElement when : choice.whens()) {
+                    collectRouteCalls(when.children(), registry, out);
+                }
+                collectRouteCalls(choice.otherwise(), registry, out);
+            } else if (el instanceof ContainerElement container) {
+                collectRouteCalls(container.children(), registry, out);
+            }
+        }
+    }
+
+    /** Resolve a {@code direct:name} uri to the target route id (ignores bean:/http/dynamic endpoints). */
+    private static void addRouteCall(String uri, RouteRegistry registry, List<String> out) {
+        if (uri == null) {
+            return;
+        }
+        String u = uri.trim();
+        if (!u.startsWith("direct:") && !u.startsWith("seda:") && !u.startsWith("direct-vm:")) {
+            return;
+        }
+        String name = u.substring(u.indexOf(':') + 1);
+        int q = name.indexOf('?');
+        if (q >= 0) {
+            name = name.substring(0, q);
+        }
+        name = name.trim();
+        if (name.isEmpty() || name.contains("{") || name.contains("$")) {
+            return;   // dynamic target — can't resolve statically
+        }
+        RouteModel target = registry.lookup(name);
+        if (target != null) {
+            out.add(target.routeId());
+        }
     }
 
     /** {@code beanName (Class.java)}, plus the release commit authors who changed it when known. */

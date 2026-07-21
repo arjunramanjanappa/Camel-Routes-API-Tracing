@@ -45,7 +45,7 @@ function searchHaystack(a: ApiDiff): string {
     ...(a.addedRoutes || []), ...(a.removedRoutes || []),
     ...(a.routeDiffs || []).map((r) => r.routeBase),
     ...(a.backendVersionChanges || []).map((s) => s.backend),
-    ...(a.changedClasses || []), ...(a.impactedRoutes || []).flatMap((r) => [r.route, r.api || ''])]
+    ...(a.changedClasses || []), ...(a.impactedRoutes || []).flatMap((r) => [...r.routePath, r.api || ''])]
     .filter(Boolean).join(' ').toLowerCase();
 }
 
@@ -65,7 +65,7 @@ function apiDiffText(a: ApiDiff): string {
   if (a.codeChanged) {
     lines.push('    ⚙ code changed by app version (shared @Component classes):');
     (a.changedClasses || []).forEach((c) => lines.push(`        ~ class ${c}`));
-    (a.impactedRoutes || []).forEach((r) => lines.push(`        ! also re-test (${r.category}) ${r.api || '(api unknown)'} — ${r.route}`));
+    (a.impactedRoutes || []).forEach((r) => lines.push(`        ! also re-test (${r.category}) ${r.api || '(api unknown)'} — ${r.routePath.join(' → ')}`));
   }
   return lines.join('\n');
 }
@@ -103,10 +103,17 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
                   <span className="impact-cat-desc">{IMPACT_META[g.cat].desc}</span>
                 </div>
                 {g.rows.map((r) => (
-                  <div key={r.route} className="impact-row">
+                  <div key={r.routePath.join('>')} className="impact-row">
                     {r.api ? <code className="impact-api">{r.api}</code> : <span className="muted">(api unknown)</span>}
                     <span className="impact-dash">—</span>
-                    <code className="impact-route">{r.route}</code>
+                    <span className="impact-chain">
+                      {r.routePath.map((rt, i) => (
+                        <span key={rt}>
+                          {i > 0 && <span className="impact-arrow"> → </span>}
+                          <code className="impact-route">{rt}</code>
+                        </span>
+                      ))}
+                    </span>
                   </div>
                 ))}
               </div>

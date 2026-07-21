@@ -41,7 +41,7 @@ export default function ControlPanel({ modules, onModulesChange, names, country,
           <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
         </div>
         <div style={{ width: 200 }}>
-          <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+          <label>API Version <span style={{ color: '#dc2626' }}>*</span></label>
           <input list="versionList" value={version} placeholder="9.18 or N/A (latest / base)"
                  onChange={(e) => onField({ version: e.target.value })} />
           <datalist id="versionList">

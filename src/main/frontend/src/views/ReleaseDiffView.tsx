@@ -554,7 +554,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
           </div>
           <div style={{ width: 200 }}>
-            <label>Client release version <span style={{ color: '#dc2626' }}>*</span></label>
+            <label>API Version <span style={{ color: '#dc2626' }}>*</span></label>
             <input list="diffVersionList" value={version} placeholder="9.18 or N/A (latest / base)" onChange={(e) => setVersion(e.target.value)}
                    onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
             <datalist id="diffVersionList">

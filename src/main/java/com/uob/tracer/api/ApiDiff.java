@@ -34,6 +34,8 @@ import java.util.List;
  *                              {@code statusProcessor (StatusProcessor.java) — Alice, Bob}
  * @param impactedRoutes        the routes to re-test for that class change, each tagged Current / BAU / Future —
  *                              per route family: the release's own route, the current BAU baseline, and every future version
+ * @param risk                  test-priority for this API — {@link #RISK_HIGH} / {@link #RISK_MEDIUM} /
+ *                              {@link #RISK_LOW}, derived from the combined change signals (set in a final pass)
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -47,7 +49,8 @@ public record ApiDiff(String api, String operation,
                       List<String> authors,
                       boolean codeChanged,
                       List<String> changedClasses,
-                      List<ImpactedRoute> impactedRoutes) {
+                      List<ImpactedRoute> impactedRoutes,
+                      String risk) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
@@ -55,7 +58,12 @@ public record ApiDiff(String api, String operation,
     /** Not a diff: an N/A snapshot row — the latest (else base) route this API resolves to in scope. */
     public static final String SNAPSHOT = "SNAPSHOT";
 
-    /** Backward-compatible constructor for the version-diff callers: no code-change info yet. */
+    /** Test-priority buckets, highest first. */
+    public static final String RISK_HIGH = "High";
+    public static final String RISK_MEDIUM = "Medium";
+    public static final String RISK_LOW = "Low";
+
+    /** Backward-compatible constructor for the version-diff callers: no code-change / risk info yet. */
     public ApiDiff(String api, String operation,
                    String targetRoute, String targetVersion,
                    String lowerRoute, String lowerVersion,
@@ -68,7 +76,7 @@ public record ApiDiff(String api, String operation,
                    List<String> authors) {
         this(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                false, List.of(), List.of());
+                false, List.of(), List.of(), RISK_LOW);
     }
 
     /** A copy of this diff annotated with the release's shared-class code changes for the flow. */
@@ -76,6 +84,13 @@ public record ApiDiff(String api, String operation,
                                   List<ImpactedRoute> impactedRoutes) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes);
+                codeChanged, changedClasses, impactedRoutes, risk);
+    }
+
+    /** A copy of this diff with its computed test-priority. */
+    public ApiDiff withRisk(String risk) {
+        return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
+                routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
+                codeChanged, changedClasses, impactedRoutes, risk);
     }
 }

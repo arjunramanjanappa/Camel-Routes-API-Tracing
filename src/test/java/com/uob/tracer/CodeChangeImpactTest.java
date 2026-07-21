@@ -108,6 +108,9 @@ class CodeChangeImpactTest {
                         && "/getStatus".equals(r.api()));
         assertThat(report.getChangedCount()).isEqualTo(1);             // promoted New→Changed
         assertThat(report.getNewCount()).isZero();
+        // A shared-class code change is High test-priority.
+        assertThat(residence.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
 
         // getStatus is UNCHANGED (a 9.18 client still resolves to R7.14) — no code change shown, even though it
         // uses the changed class. The signal is carried on the getResidence card via the re-test list.

@@ -32,6 +32,10 @@ public class VersionDiffReport {
     private int codeChangedCount;
     /** True when {@link #appVersion} was given but the source isn't a git work tree, so no code-change analysis ran. */
     private boolean codeChangeUnavailable;
+    /** APIs flagged High test-priority (code change, a removed payload field, or a backend version bump). */
+    private int highRiskCount;
+    /** APIs whose payload removed/renamed a field — the backend must stay backward compatible. */
+    private int backwardCompatCount;
     private final List<ApiDiff> apis = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
     /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
@@ -75,6 +79,12 @@ public class VersionDiffReport {
 
     public boolean isCodeChangeUnavailable() { return codeChangeUnavailable; }
     public void setCodeChangeUnavailable(boolean codeChangeUnavailable) { this.codeChangeUnavailable = codeChangeUnavailable; }
+
+    public int getHighRiskCount() { return highRiskCount; }
+    public void setHighRiskCount(int highRiskCount) { this.highRiskCount = highRiskCount; }
+
+    public int getBackwardCompatCount() { return backwardCompatCount; }
+    public void setBackwardCompatCount(int backwardCompatCount) { this.backwardCompatCount = backwardCompatCount; }
 
     public List<ApiDiff> getApis() { return apis; }
     public List<String> getWarnings() { return warnings; }

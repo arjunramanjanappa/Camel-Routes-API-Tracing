@@ -465,6 +465,7 @@ public class RouteTraceService {
             applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry),
                     flowByApi, request.appVersion(), target);
         }
+        finalizeRisk(report);
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         // Changed first, then new, then version-bumped-no-change; alphabetical within each.
         report.getApis().sort(Comparator
@@ -512,8 +513,57 @@ public class RouteTraceService {
             applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry),
                     flowByApi, request.appVersion(), null);
         }
+        finalizeRisk(report);
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         return report;
+    }
+
+    /**
+     * Assign each API a test-priority and tally the report-level High-risk and backward-compatibility counts,
+     * so the UI and PDF can lead with "what to test first". Runs last, once every other signal is set.
+     */
+    private void finalizeRisk(VersionDiffReport report) {
+        int high = 0;
+        int bc = 0;
+        List<ApiDiff> apis = report.getApis();
+        for (int i = 0; i < apis.size(); i++) {
+            ApiDiff a = apis.get(i);
+            String risk = riskOf(a);
+            apis.set(i, a.withRisk(risk));
+            if (ApiDiff.RISK_HIGH.equals(risk)) {
+                high++;
+            }
+            if (removesPayloadField(a)) {
+                bc++;
+            }
+        }
+        report.setHighRiskCount(high);
+        report.setBackwardCompatCount(bc);
+    }
+
+    /** True when this API's payload diff dropped/renamed a request field — a backward-incompatible change. */
+    private static boolean removesPayloadField(ApiDiff a) {
+        PayloadChange pc = a.payloadChange();
+        return pc != null && pc.removedKeys() != null && !pc.removedKeys().isEmpty();
+    }
+
+    /**
+     * Test-priority from the combined change signals. HIGH when the change can break existing behaviour or
+     * ripple beyond this API — a shared-class code change, a removed payload field (backward-incompatible),
+     * or a backend service-version bump. MEDIUM for a New/Changed flow or added payload fields. LOW otherwise
+     * (a version bump with no behavioural change, or an N/A snapshot with nothing touched).
+     */
+    private static String riskOf(ApiDiff a) {
+        if (a.codeChanged() || removesPayloadField(a)
+                || (a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty())) {
+            return ApiDiff.RISK_HIGH;
+        }
+        PayloadChange pc = a.payloadChange();
+        boolean addedKeys = pc != null && pc.addedKeys() != null && !pc.addedKeys().isEmpty();
+        if (ApiDiff.CHANGED.equals(a.status()) || ApiDiff.NEW.equals(a.status()) || addedKeys) {
+            return ApiDiff.RISK_MEDIUM;
+        }
+        return ApiDiff.RISK_LOW;
     }
 
     // --- Release code-change detection (Release Impact tab) ---

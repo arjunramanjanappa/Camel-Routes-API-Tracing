@@ -70,6 +70,7 @@ class VersionDiffTest {
         assertThat(limit.status()).isEqualTo(ApiDiff.NEW);
         assertThat(limit.lowerRoute()).isNull();
         assertThat(limit.lowerVersion()).isNull();
+        assertThat(limit.risk()).isEqualTo(ApiDiff.RISK_MEDIUM);   // new, but no High signal on its own
         assertThat(report.getNewCount()).isGreaterThanOrEqualTo(3);
     }
 
@@ -109,6 +110,8 @@ class VersionDiffTest {
         assertThat(bump.backendVersionChanges().get(0).backend()).contains("/svc/bump");
         assertThat(bump.backendVersionChanges().get(0).fromVersion()).isEqualTo("2.2");
         assertThat(bump.backendVersionChanges().get(0).toVersion()).isEqualTo("2.3");
+        assertThat(bump.risk()).isEqualTo(ApiDiff.RISK_HIGH);   // a backend service-version bump is High-risk
+        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
     }
 
     @Test

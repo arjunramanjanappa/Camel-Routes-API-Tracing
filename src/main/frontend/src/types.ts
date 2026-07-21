@@ -167,6 +167,8 @@ export interface ApiDiff {
   changedClasses?: string[];
   /** Routes to re-test for that class change, each tagged Current / BAU / Future. */
   impactedRoutes?: ImpactedRoute[];
+  /** Test-priority derived from the combined change signals. */
+  risk?: 'High' | 'Medium' | 'Low';
 }
 
 /** A route to re-test for a shared-class change, tagged by its relation to the release. */
@@ -205,6 +207,10 @@ export interface VersionDiffReport {
   codeChangedCount?: number;
   /** True when appVersion was given but the source isn't a git work tree, so no code-change analysis ran. */
   codeChangeUnavailable?: boolean;
+  /** APIs flagged High test-priority (code change, removed payload field, or backend version bump). */
+  highRiskCount?: number;
+  /** APIs whose payload removed/renamed a field — the backend must stay backward compatible. */
+  backwardCompatCount?: number;
   apis: ApiDiff[];
   warnings: string[];
   needsReview?: string[];

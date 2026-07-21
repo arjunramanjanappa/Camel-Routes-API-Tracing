@@ -71,10 +71,10 @@ function apiDiffText(a: ApiDiff): string {
 }
 
 const IMPACT_ORDER: Array<'Current' | 'BAU' | 'Future'> = ['Current', 'BAU', 'Future'];
-const IMPACT_TITLE: Record<'Current' | 'BAU' | 'Future', string> = {
-  Current: "the release's own route — the change is part of this release",
-  BAU: 'the current production baseline (immediate-lower version, else the base route)',
-  Future: "a higher/future version — test it now, this change won't surface under its own version later",
+const IMPACT_META: Record<'Current' | 'BAU' | 'Future', { icon: string; label: string; desc: string }> = {
+  Current: { icon: '●', label: 'Current release', desc: 'this release — verify the change here' },
+  BAU: { icon: '▲', label: 'BAU (in production)', desc: 'live now — regression-test' },
+  Future: { icon: '◆', label: 'Future release', desc: "pre-test now; won't resurface under its own version" },
 };
 
 /** The code-change section: which Java @Component classes the release modified, and the API/routes to re-test. */
@@ -82,7 +82,7 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
   if (!d.codeChanged) return null;
   const classes = d.changedClasses || [];
   const impacted = d.impactedRoutes || [];
-  // Group the re-test routes by category (Current / BAU / Future); one API — route per line within a group.
+  // Group the re-test routes by category (Current / BAU / Future); each is its own tinted sub-block.
   const byCat = IMPACT_ORDER
     .map((cat) => ({ cat, rows: impacted.filter((r) => r.category === cat) }))
     .filter((g) => g.rows.length > 0);
@@ -92,11 +92,16 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
       {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class (with the commit authors)">{c}</span>)}
       {byCat.length > 0 && (
         <div className="diff-code-cross">
-          <div className="diff-code-cross-head">⚠ Shared code — also re-test (API — route):</div>
-          {byCat.map((g) => (
-            <div key={g.cat} className="impact-grp">
-              <span className={'impact-tag ' + g.cat.toLowerCase()} title={IMPACT_TITLE[g.cat]}>{g.cat}</span>
-              <div className="impact-rows">
+          <div className="diff-code-cross-head">⚠ Shared code — also re-test:</div>
+          <div className="impact-cats">
+            {byCat.map((g) => (
+              <div key={g.cat} className={'impact-cat ' + g.cat.toLowerCase()}>
+                <div className="impact-cat-head">
+                  <span className="impact-cat-icon">{IMPACT_META[g.cat].icon}</span>
+                  <span className="impact-cat-label">{IMPACT_META[g.cat].label}</span>
+                  <span className="impact-cat-count">{g.rows.length}</span>
+                  <span className="impact-cat-desc">{IMPACT_META[g.cat].desc}</span>
+                </div>
                 {g.rows.map((r) => (
                   <div key={r.route} className="impact-row">
                     {r.api ? <code className="impact-api">{r.api}</code> : <span className="muted">(api unknown)</span>}
@@ -105,8 +110,8 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
                   </div>
                 ))}
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -157,11 +157,21 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff,
   summarize('Code changed - shared classes', a.changedClasses || [], PAL.purple.text);
   const impacted = a.impactedRoutes || [];
   if (impacted.length) {
-    r.para('Shared code - also re-test (API - route):', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
+    r.para('Shared code - also re-test:', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
+    // Each category gets its own coloured header (purple / slate / orange) so BAU vs Future read apart.
+    const META = {
+      Current: { col: PAL.purple.text, desc: 'this release - verify the change here' },
+      BAU: { col: PAL.gray.text, desc: 'in production - regression-test' },
+      Future: { col: PAL.orange.text, desc: "upcoming - pre-test now, won't resurface under its own version" },
+    } as const;
     (['Current', 'BAU', 'Future'] as const).forEach((cat) => {
-      impacted.filter((rt) => rt.category === cat).forEach((rt) => {
-        r.para(`[${cat}]  ${rt.api || '(api unknown)'}  -  ${rt.route}`, M + 12, CONTENT_W - 12, 'normal', 9, PAL.body, 11);
+      const rows = impacted.filter((rt) => rt.category === cat);
+      if (!rows.length) return;
+      r.para(`${cat} (${rows.length})  -  ${META[cat].desc}`, M + 10, CONTENT_W - 10, 'bold', 9, META[cat].col, 12);
+      rows.forEach((rt) => {
+        r.para(`${rt.api || '(api unknown)'}  -  ${rt.route}`, M + 18, CONTENT_W - 18, 'normal', 9, PAL.body, 11);
       });
+      r.y += 2;
     });
   }
 }

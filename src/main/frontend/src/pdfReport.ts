@@ -176,6 +176,63 @@ export class ReportDoc {
     this.y += 10;
   }
 
+  /**
+   * A left-aligned multi-column table with per-cell wrapping — for tabular content whose cells are text
+   * (not right-aligned numbers), e.g. the code-change "also re-test" list (Group | API | Route chain).
+   * Column widths are fractions of CONTENT_W. A cell is a plain string, or a `{pill}` (a coloured label +
+   * a left severity stripe on the row), or `{text, mono, color}`. Rows wrap within their column and the row
+   * grows to fit; a hairline separates rows. Advances this.y.
+   */
+  wrapTable(
+    columns: { header: string; w: number; mono?: boolean }[],
+    rows: (string | { pill: { label: string; fill: RGB; text: RGB; stripe: RGB } } | { text: string; mono?: boolean; color?: RGB })[][],
+  ) {
+    const pad = 8, lh = 11;
+    const xs: number[] = []; let acc = M;
+    for (const c of columns) { xs.push(acc); acc += c.w * CONTENT_W; }
+    const colW = columns.map((c) => c.w * CONTENT_W);
+    // header band
+    this.ensure(24);
+    this.fl(PAL.gray.fill); this.doc.rect(M, this.y, CONTENT_W, 18, 'F');
+    columns.forEach((c, i) => this.text(c.header.toUpperCase(), xs[i] + pad, 'bold', 7, PAL.muted, this.y + 12));
+    this.y += 18;
+    this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y);
+    // rows
+    for (const row of rows) {
+      let maxLines = 1;
+      const wrapped: (string[] | null)[] = row.map((cell, i) => {
+        if (cell && typeof cell === 'object' && 'pill' in cell) return null;   // pill = single line
+        const txt = typeof cell === 'string' ? cell : (cell as { text: string }).text;
+        const mono = columns[i].mono || (typeof cell === 'object' && (cell as { mono?: boolean }).mono);
+        this.doc.setFont(mono ? 'courier' : 'helvetica', 'normal'); this.doc.setFontSize(mono ? 8 : 9);
+        const lines = this.doc.splitTextToSize(ascii(txt), colW[i] - pad * 2) as string[];
+        maxLines = Math.max(maxLines, lines.length);
+        return lines;
+      });
+      const rowH = maxLines * lh + 8;
+      this.ensure(rowH + 2);
+      const top = this.y;
+      const first = row[0];
+      if (first && typeof first === 'object' && 'pill' in first) {
+        this.fl(first.pill.stripe); this.doc.rect(M, top, 3, rowH, 'F');
+      }
+      row.forEach((cell, i) => {
+        const cx = xs[i] + pad;
+        if (cell && typeof cell === 'object' && 'pill' in cell) {
+          this.pill(cell.pill.label, cx, cell.pill.fill, cell.pill.text, 8, top + 13);
+        } else {
+          const mono = columns[i].mono || (typeof cell === 'object' && (cell as { mono?: boolean }).mono);
+          const color = (typeof cell === 'object' && (cell as { color?: RGB }).color) || PAL.body;
+          this.doc.setFont(mono ? 'courier' : 'helvetica', 'normal'); this.doc.setFontSize(mono ? 8 : 9); this.st(color);
+          (wrapped[i] as string[]).forEach((ln, k) => this.doc.text(ln, cx, top + 10 + k * lh));
+        }
+      });
+      this.y = top + rowH;
+      this.dr(PAL.rule); this.doc.line(M, this.y, PAGE.w - M, this.y);
+    }
+    this.y += 10;
+  }
+
   /** Right-align text so it ends at xRight (at y ?? this.y); returns its width. */
   rtext(s: string, xRight: number, font: Font, size: number, col: RGB, y = this.y): number {
     const w = this.width(s, font, size);

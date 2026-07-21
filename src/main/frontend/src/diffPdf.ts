@@ -143,40 +143,40 @@ function snapshotRow(r: ReportDoc, a: ApiDiff) {
   r.pill(label, PAGE.w - M - vw, base ? PAL.amber.fill : PAL.blue.fill, base ? PAL.amber.text : PAL.blue.text, 8);
   r.y += 16;
   r.para(`Route: ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
-  const summarize = (label: string, names: string[], col: typeof PAL.amber.text) => {
-    if (names.length) r.para(`${label}: ${names.join(', ')}`, M + 4, CONTENT_W - 4, 'normal', 9, col, 12);
-  };
-  codeChangeLines(r, a, summarize);
+  codeChangeLines(r, a);
   r.y += 6;
 }
 
 /** Render the app-version code-change causes for one API (shared by diff + snapshot rows). */
-function codeChangeLines(r: ReportDoc, a: ApiDiff,
-                         summarize: (label: string, names: string[], col: typeof PAL.amber.text) => void) {
+function codeChangeLines(r: ReportDoc, a: ApiDiff) {
   if (!a.codeChanged) return;
-  summarize('Code changed - shared classes', a.changedClasses || [], PAL.purple.text);
+  // Changed shared classes, one per line (label + commit authors), so it doesn't run together.
+  (a.changedClasses || []).forEach((c, i) => {
+    r.para((i === 0 ? 'Code changed - shared classes:   ' : '') + c,
+      M + 4, CONTENT_W - 4, i === 0 ? 'bold' : 'normal', 9, PAL.purple.text, 12);
+  });
   const impacted = a.impactedRoutes || [];
-  if (impacted.length) {
-    r.para('Shared code - also re-test:', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
-    // Each group gets its own coloured header so Current / BAU / Future / Unknown read apart.
-    const META = {
-      Current: { col: PAL.purple.text, desc: 'this release - verify the change here' },
-      BAU: { col: PAL.gray.text, desc: 'in production - regression-test' },
-      Future: { col: PAL.orange.text, desc: "upcoming - pre-test now, won't resurface under its own version" },
-      Unknown: { col: PAL.red.text, desc: 'not wired to a controller - trace & verify manually' },
-    } as const;
-    // A route with no resolved API is bucketed as Unknown (needs manual back-trace).
-    const groupOf = (rt: { api?: string | null; category: string }) => (rt.api ? rt.category : 'Unknown');
-    (['Current', 'BAU', 'Future', 'Unknown'] as const).forEach((cat) => {
-      const rows = impacted.filter((rt) => groupOf(rt) === cat);
-      if (!rows.length) return;
-      r.para(`${cat} (${rows.length})  -  ${META[cat].desc}`, M + 10, CONTENT_W - 10, 'bold', 9, META[cat].col, 12);
-      rows.forEach((rt) => {
-        r.para(`${rt.api ? rt.api + '  -  ' : ''}${rt.routePath.join(' > ')}`, M + 18, CONTENT_W - 18, 'normal', 9, PAL.body, 11);
-      });
-      r.y += 2;
-    });
-  }
+  if (!impacted.length) return;
+
+  // "Also re-test" as a scannable table: Group | API | Route chain (each cell wraps in its own column).
+  const GROUPS = [
+    { key: 'Current', ramp: PAL.purple },
+    { key: 'BAU', ramp: PAL.gray },
+    { key: 'Future', ramp: PAL.orange },
+    { key: 'Unknown', ramp: PAL.red },
+  ] as const;
+  const groupOf = (rt: { api?: string | null; category: string }) => (rt.api ? rt.category : 'Unknown');
+  const rows = GROUPS.flatMap((g) =>
+    impacted.filter((rt) => groupOf(rt) === g.key).map((rt) => [
+      { pill: { label: g.key, fill: g.ramp.fill, text: g.ramp.text, stripe: g.ramp.text } },
+      { text: rt.api || '-', mono: true, color: PAL.blue.text },
+      { text: rt.routePath.join('  ->  '), mono: true, color: PAL.body },
+    ]));
+  r.para('Shared code - also re-test (Current = this release, BAU = live, Future = upcoming, Unknown = trace manually):',
+    M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
+  r.wrapTable(
+    [{ header: 'Group', w: 0.17 }, { header: 'API', w: 0.30, mono: true }, { header: 'Route chain', w: 0.53, mono: true }],
+    rows);
 }
 
 function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
@@ -210,7 +210,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
   summarize('Removed routes', a.removedRoutes || [], PAL.delText);
   (a.backendVersionChanges || []).forEach((s) =>
     summarize('Backend service version', [`${s.backend}  ${s.fromVersion} -> ${s.toVersion}`], PAL.amber.text));
-  codeChangeLines(r, a, summarize);
+  codeChangeLines(r, a);
 
   (a.routeDiffs || []).forEach((rd) => {
     r.ensure(18);

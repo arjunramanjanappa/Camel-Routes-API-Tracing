@@ -1,4 +1,4 @@
-import type { ApiDiff, DiffStatus, VersionDiffReport } from './types';
+import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
@@ -13,8 +13,18 @@ function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string 
     blurb: 'A version bump with no behavioural change, or APIs this release did not touch.' };
 }
 
-/** One module's version-diff for the report (or an error). */
-export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; }
+/** One module's version-diff for the report (or an error), optionally enriched with a merged test log. */
+export interface ModuleDiff { name: string; report: VersionDiffReport | null; error?: string; logByApi?: Record<string, ApiLogResult>; }
+
+/** A short tested-status label for the PDF (mirrors the UI badge), or null when no log covers this API. */
+function testedTag(l?: ApiLogResult): { label: string; ramp: Ramp } | null {
+  if (!l) return null;
+  if (!l.tested) return { label: 'Not tested', ramp: PAL.gray };
+  if (l.status === 'SUCCESS') return { label: 'Tested - passed', ramp: PAL.green };
+  if (l.status === 'FAILED' || l.status === 'TIMEOUT') return { label: 'Tested - FAILED', ramp: PAL.red };
+  if (l.status === 'PARTIAL') return { label: 'Tested - partial', ramp: PAL.amber };
+  return { label: 'Ran (unclear)', ramp: PAL.gray };
+}
 
 /** Render the multi-module release-diff to one PDF: a per-module impact summary, then each module's changes. */
 export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
@@ -142,6 +152,17 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a shared Java class change.`,
           M, CONTENT_W, 'normal', 9, PAL.body, 12);
       }
+      // Test-log coverage line (only when a log was merged for this module).
+      if (m.logByApi) {
+        const toTest = [...grouped.CHANGED, ...grouped.NEW];
+        let passed = 0, covered = 0;
+        for (const a of toTest) { const l = m.logByApi[a.api]; if (l?.tested) { covered++; if (l.status === 'SUCCESS') passed++; } }
+        r.para(`Test coverage: ${passed} of ${toTest.length} to-test API(s) executed & passed`
+          + `${covered - passed > 0 ? `, ${covered - passed} executed with failures/partial` : ''}`
+          + `, ${toTest.length - covered} not tested.`,
+          M, CONTENT_W, 'bold', 9.5, passed === toTest.length && toTest.length > 0 ? PAL.green.text : PAL.amber.text, 13);
+        r.y += 3;
+      }
       if (listedCount === 0) {
         r.emptyNote(`Nothing to test in this module — no changed or new APIs`
           + (rep.unchangedCount > 0 ? ` (${rep.unchangedCount} unchanged).` : '.'));
@@ -151,7 +172,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           if (!list.length) continue;
           const meta = sectionMeta(status);
           r.groupHead(meta.title, list.length, meta.ramp);
-          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus); });
+          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus, m.logByApi?.[a.api]); });
         }
       }
     }
@@ -236,7 +257,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff) {
     rows);
 }
 
-function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
+function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, log?: ApiLogResult) {
   r.ensure(40);
   const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
   r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
@@ -262,6 +283,13 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus) {
     r.para(a.note, M, CONTENT_W, 'normal', 9, PAL.body, 12);
   } else {
     r.para(`Resolves to ${a.targetRoute}, compared against ${a.lowerRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  }
+
+  // Merged test-log evidence for this API (executed / passed / failed), when a log was uploaded.
+  const tt = testedTag(log);
+  if (tt && log) {
+    r.para(`Test log: ${tt.label}${log.tested ? ` — executed ${log.attempts}x, ${log.successCount} passed, ${log.failureCount} failed` : ''}.`,
+      M, CONTENT_W, 'bold', 9, tt.ramp.text, 12);
   }
 
   const summarize = (label: string, names: string[], col: typeof PAL.amber.text) => {

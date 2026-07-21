@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { fetchVersionDiff } from '../api';
-import type { ApiDiff, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
+import { fetchVersionDiff, analyzeLogMulti } from '../api';
+import type { ApiDiff, ApiLogResult, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
@@ -33,6 +33,26 @@ type Risk = 'High' | 'Medium' | 'Low';
 const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 const RISK_CLASS: Record<Risk, string> = { High: 'high', Medium: 'med', Low: 'low' };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
+/** A tested badge from an uploaded log's per-API result, or null when no log covers this API. */
+function testedMeta(l?: ApiLogResult): { cls: string; label: string; title: string } | null {
+  if (!l) return null;
+  if (!l.tested) return { cls: 'nt', label: 'Not tested', title: 'No matching transaction in the uploaded log' };
+  if (l.status === 'SUCCESS') return { cls: 'pass', label: 'Tested ✓', title: `Executed ${l.attempts}×, all passed` };
+  if (l.status === 'FAILED' || l.status === 'TIMEOUT') return { cls: 'fail', label: 'Failed', title: `${l.failureCount}/${l.attempts} failed (${l.responseCode || l.status})` };
+  if (l.status === 'PARTIAL') return { cls: 'part', label: 'Partial', title: `${l.successCount}/${l.attempts} passed` };
+  return { cls: 'ind', label: 'Ran (unclear)', title: 'Executed but pass/fail could not be determined' };
+}
+/** Counts to-test APIs (Changed/New) covered by a log and how many passed. */
+function testedTally(report: VersionDiffReport, log?: Record<string, ApiLogResult>): { covered: number; passed: number; toTest: number } {
+  const toTestApis = report.apis.filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT');
+  let covered = 0, passed = 0;
+  if (log) for (const a of toTestApis) {
+    const l = log[a.api];
+    if (l?.tested) { covered++; if (l.status === 'SUCCESS') passed++; }
+  }
+  return { covered, passed, toTest: toTestApis.length };
+}
+
 /** Why this API needs testing — compact reasons for the checklist/tooltip. */
 function riskReasons(a: ApiDiff): string[] {
   const why: string[] = [];
@@ -146,19 +166,21 @@ function CodeChangeBlock({ d }: { d: ApiDiff }) {
   );
 }
 
-/** Release readiness at a glance: how much to test and how much of it is high-priority. */
-function ReadinessStrip({ report }: { report: VersionDiffReport }) {
+/** Release readiness at a glance: how much to test, how risky, and (if a log is merged) how much is tested. */
+function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Record<string, ApiLogResult> }) {
   const toTest = report.changedCount + report.newCount;
   const high = report.highRiskCount ?? 0;
   const bc = report.backwardCompatCount ?? 0;
   const code = report.codeChangedCount ?? 0;
   if (toTest === 0 && high === 0 && bc === 0) return null;
+  const t = testedTally(report, log);
   return (
     <div className="readiness" role="group" aria-label="Release readiness">
       <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
       <span className="rd-chip high" title="High test-priority: shared-class change, removed payload field, or backend version bump"><b>{high}</b> high risk</span>
       {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
       <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
+      {log && <span className="rd-chip tested" title="Of the changed/new APIs, how many the uploaded log shows executed & passed"><b>{t.passed}</b>/{t.toTest} tested &amp; passed</span>}
     </div>
   );
 }
@@ -219,11 +241,12 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
   );
 }
 
-function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
+function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log }: {
   d: ApiDiff; open: boolean; onToggle: () => void;
-  onViewFlow: () => void; onCopy: () => void; copied: boolean;
+  onViewFlow: () => void; onCopy: () => void; copied: boolean; log?: ApiLogResult;
 }) {
   const svc = d.backendVersionChanges || [];
+  const tested = testedMeta(log);
   // An UNCHANGED card with a note is a fallback API (no route at the target version).
   const fallback = d.status === 'UNCHANGED' && !!d.note;
   const showPill = !!d.lowerVersion && (d.status === 'CHANGED' || (d.status === 'UNCHANGED' && !fallback));
@@ -243,6 +266,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied }: {
             <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
           )}
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
+          {tested && <span className={'tested-badge ' + tested.cls} title={tested.title}>{tested.label}</span>}
           <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
       </div>
@@ -352,6 +376,11 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [flowApi, setFlowApi] = useState<{ api: string; version?: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  // Optional test-log correlation: module id → (api path → its log result), merged into the checklist.
+  const [logByModule, setLogByModule] = useState<Record<string, Record<string, ApiLogResult>>>({});
+  const [logInfo, setLogInfo] = useState<string | null>(null);
+  const [logBusy, setLogBusy] = useState(false);
+  const activeLog = logByModule[activeId ?? ''];
 
   const show = (rep: VersionDiffReport | null) => {
     setReport(rep); setExpanded(new Set()); setQuery('');
@@ -372,6 +401,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         (r) => r.moduleName,
       );
       setReports(results);
+      setLogByModule({}); setLogInfo(null);   // a fresh comparison invalidates any merged test log
       const first = results.find((r) => r.result) || results[0];
       setActiveId(first?.module.id ?? null);
       show(first?.result ?? null);
@@ -380,6 +410,31 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Correlate an uploaded test/Splunk log against the compared modules (reuses the log-analysis endpoint),
+  // then merge each API's executed/passed status into the checklist by API path.
+  const onLogUpload = async (files: FileList | null) => {
+    const valid = modules.filter(moduleValid);
+    if (!files || !files.length || !valid.length) return;
+    setLogBusy(true); setLogInfo(null);
+    try {
+      const specs = valid.map((m) => { const sp = sourceParams(m); return { name: names[m.id] || m.id, sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch, app }; });
+      const res = await analyzeLogMulti(Array.from(files), specs, { version, country, dep: depParams(deps) });
+      const map: Record<string, Record<string, ApiLogResult>> = {};
+      valid.forEach((m, i) => {
+        const byApi: Record<string, ApiLogResult> = {};
+        (res[i]?.report?.apis ?? []).forEach((a) => { byApi[a.api] = a; });
+        map[m.id] = byApi;
+      });
+      setLogByModule(map);
+      const total = Object.values(map).reduce((n, mm) => n + Object.values(mm).filter((a) => a.tested).length, 0);
+      setLogInfo(`Merged ${total} executed API result(s) from the log`);
+    } catch (e) {
+      setLogInfo(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLogBusy(false);
     }
   };
 
@@ -463,7 +518,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
   // The PDF is one report covering every module (each module's Changed + New + snapshot),
   // independent of which module/group is on screen.
   const exportPdf = () => {
-    const mods = reports.map((r) => ({ name: r.name, report: r.result, error: r.error })).filter((m) => m.report || m.error);
+    const mods = reports.map((r) => ({ name: r.name, report: r.result, error: r.error, logByApi: logByModule[r.module.id] }))
+      .filter((m) => m.report || m.error);
     if (mods.length) exportDiffPdf(mods, app).catch(() => {});
   };
 
@@ -612,7 +668,18 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
               ) : null;
             })()}
 
-            <ReadinessStrip report={report} />
+            <ReadinessStrip report={report} log={activeLog} />
+            <div className="testlog-bar">
+              <label className="testlog-btn" title="Upload a Splunk export / output log — TraceGuard correlates it and shows which of these APIs were executed and passed">
+                {logBusy ? 'Correlating…' : '⤒ Attach test log'}
+                <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
+                       disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
+              </label>
+              {logInfo && <span className="testlog-info">{logInfo}</span>}
+              {activeLog && Object.keys(activeLog).length > 0 && (
+                <button className="linkbtn" onClick={() => { setLogByModule({}); setLogInfo(null); }}>Clear</button>
+              )}
+            </div>
             <CodeChangeSummary report={report} />
 
             <div className="diff-main-head row between">
@@ -644,7 +711,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             ) : (
               <div className="diff-list">
                 {visible.map((d) => (
-                  <ApiDiffCard key={cardKey(d)} d={d}
+                  <ApiDiffCard key={cardKey(d)} d={d} log={activeLog?.[d.api]}
                                open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
                                onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
                                onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />

@@ -562,7 +562,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             </datalist>
           </div>
           <div style={{ width: 200 }}>
-            <label title="The version token in your commit messages, e.g. 19.18.0. Detects Java/route code changes for this release.">App version <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+            <label title="The version token in your commit messages, e.g. 19.18.0. Detects Java/route code changes for this release.">Commit/App version <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
             <input value={appVersion} placeholder="19.18.0 — detect code changes" onChange={(e) => setAppVersion(e.target.value)}
                    onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
           </div>

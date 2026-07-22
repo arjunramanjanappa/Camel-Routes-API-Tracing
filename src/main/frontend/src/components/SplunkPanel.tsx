@@ -34,16 +34,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const beMarker = secure ? 'SPLHostMessage' : application + 'HostMessage';        // backend log lines
   const [mode, setMode] = useState<'scoped' | 'all'>(pref('splMode', 'scoped') === 'all' ? 'all' : 'scoped');
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
-  // Blank = search the raw event (the default, since the path is plain text in the log).
-  // Set a field name only if your Splunk has extracted fields (e.g. uri).
-  const [feField, setFeField] = useState(pref('splFeField', ''));
-  const [beField, setBeField] = useState(pref('splBeField', ''));
-  const [svcField, setSvcField] = useState(pref('splSvcField', 'serviceVersionNumber'));
   const [earliest, setEarliest] = useState(pref('splEarliest', '-24h'));
-  const [wildcard, setWildcard] = useState(pref('splWildcard', '1') === '1');
-  // The FE/BE/svc field names are advanced overrides — blank (search raw) is right for the standard
-  // raw-log export, so they start collapsed. Auto-open if a previous session set one.
-  const [advanced, setAdvanced] = useState(pref('splAdvanced', '0') === '1' || !!feField.trim() || !!beField.trim());
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
 
@@ -54,10 +45,11 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   // Map the searchable backend path → its traced service version (keyed originally by URL).
   const beVer: Record<string, string> = {};
   backendApis.forEach((url) => { const p = bePathOf(url); if (p && backendVersions[url]) beVer[p] = backendVersions[url]; });
-  const versioned = be.filter((p) => beVer[p]).length;
   const clientVersion = version && version.trim() ? version.trim() : '';
   // For secure, feMarker/beMarker are display-only — buildEventsSpl uses the fixed secure loggers.
-  const spl = buildEventsSpl(index, feField, fe, beField, be, earliest, beVer, svcField, wildcard, feMarker, beMarker, mode, clientVersion, secure);
+  // Always search the raw event (empty FE/BE field names) so the export is the _raw format the analyser
+  // reads — the user only chooses index / time / which APIs; the query resolves to the analysis format.
+  const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
   const verLabel = clientVersion && clientVersion.toUpperCase() !== 'BASE' ? clientVersion : '';
 
@@ -77,31 +69,8 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
       </div>
 
       <div className="spl-config">
-        <div><label>Index</label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
+        <div><label>Index <span className="muted">(your Splunk index)</span></label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
       </div>
-
-      {mode === 'scoped' && (
-        <div className="spl-adv">
-          <button type="button" className="linkbtn spl-adv-toggle"
-                  onClick={() => { const n = !advanced; setAdvanced(n); localStorage.setItem('tracer.splAdvanced', n ? '1' : '0'); }}>
-            {advanced ? '▾' : '▸'} Advanced — Splunk field names <span className="muted">(optional; leave blank for raw logs)</span>
-          </button>
-          {advanced && (
-            <>
-              <div className="sub" style={{ margin: '4px 0 8px' }}>
-                Leave these blank to search the <b>raw event</b> — the default, and correct when the path is plain text in the log
-                (the export is always the <code>_raw</code> column either way). Only set a field if your Splunk has <b>extracted</b> the
-                path into an indexed field (e.g. <code>uri</code>); the service-version field then applies only to the backend field.
-              </div>
-              <div className="spl-config">
-                <div><label>Front-end field <span className="muted">(blank = raw)</span></label><input value={feField} placeholder="search _raw" onChange={(e) => set('splFeField', e.target.value, setFeField)} /></div>
-                <div><label>Backend field <span className="muted">(blank = raw)</span></label><input value={beField} placeholder="search _raw" onChange={(e) => set('splBeField', e.target.value, setBeField)} /></div>
-                {beField.trim() && <div><label>Service version field <span className="muted">(applies to backend field)</span></label><input value={svcField} placeholder="serviceVersionNumber" onChange={(e) => set('splSvcField', e.target.value, setSvcField)} /></div>}
-              </div>
-            </>
-          )}
-        </div>
-      )}
 
       <label>Time range <span className="muted">(query window — max 30 days)</span></label>
       <div className="timerange">
@@ -111,20 +80,13 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         ))}
       </div>
 
-      {mode === 'scoped' && (feField.trim() || beField.trim()) && (
-        <label className="check" style={{ marginTop: 8 }}>
-          <input type="checkbox" checked={wildcard}
-                 onChange={(e) => { setWildcard(e.target.checked); localStorage.setItem('tracer.splWildcard', e.target.checked ? '1' : '0'); }} />
-          Match path suffix (<code>field="*path"</code>) — handles a logged context prefix like <code>/mty-banking-01/</code>
-        </label>
-      )}
-
       <div className="sub" style={{ marginTop: 8 }}>
         {mode === 'all'
           ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events{verLabel ? <> on release <b>{verLabel}</b></> : null} (<code>_raw</code>) — same as a raw output log.</>
           : <>Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_raw</code>) for <b>{fe.length}</b> front-end
-            + <b>{be.length}</b> backend path(s){versioned > 0 ? <> — each backend is filtered to its traced <b>service version</b> ({versioned} of {be.length} known)</> : null}.
-            Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends (by hosturl) to <code>{beMarker}</code>.{verLabel ? <> Only release <b>{verLabel}</b> lines are fetched.</> : null}</>}
+            + <b>{be.length}</b> backend path(s). Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends
+            (by hosturl) to <code>{beMarker}</code>{verLabel ? <>, and only release <b>{verLabel}</b> lines</> : null}. Service versions are
+            validated by the analyser after upload.</>}
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

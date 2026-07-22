@@ -41,6 +41,9 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const [svcField, setSvcField] = useState(pref('splSvcField', 'serviceVersionNumber'));
   const [earliest, setEarliest] = useState(pref('splEarliest', '-24h'));
   const [wildcard, setWildcard] = useState(pref('splWildcard', '1') === '1');
+  // The FE/BE/svc field names are advanced overrides — blank (search raw) is right for the standard
+  // raw-log export, so they start collapsed. Auto-open if a previous session set one.
+  const [advanced, setAdvanced] = useState(pref('splAdvanced', '0') === '1' || !!feField.trim() || !!beField.trim());
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
 
@@ -75,12 +78,30 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="spl-config">
         <div><label>Index</label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
-        {mode === 'scoped' && <>
-          <div><label>Front-end field <span className="muted">(blank = raw)</span></label><input value={feField} placeholder="search _raw" onChange={(e) => set('splFeField', e.target.value, setFeField)} /></div>
-          <div><label>Backend field <span className="muted">(blank = raw)</span></label><input value={beField} placeholder="search _raw" onChange={(e) => set('splBeField', e.target.value, setBeField)} /></div>
-          <div><label>Service version field <span className="muted">(blank = skip)</span></label><input value={svcField} placeholder="serviceVersionNumber" onChange={(e) => set('splSvcField', e.target.value, setSvcField)} /></div>
-        </>}
       </div>
+
+      {mode === 'scoped' && (
+        <div className="spl-adv">
+          <button type="button" className="linkbtn spl-adv-toggle"
+                  onClick={() => { const n = !advanced; setAdvanced(n); localStorage.setItem('tracer.splAdvanced', n ? '1' : '0'); }}>
+            {advanced ? '▾' : '▸'} Advanced — Splunk field names <span className="muted">(optional; leave blank for raw logs)</span>
+          </button>
+          {advanced && (
+            <>
+              <div className="sub" style={{ margin: '4px 0 8px' }}>
+                Leave these blank to search the <b>raw event</b> — the default, and correct when the path is plain text in the log
+                (the export is always the <code>_raw</code> column either way). Only set a field if your Splunk has <b>extracted</b> the
+                path into an indexed field (e.g. <code>uri</code>); the service-version field then applies only to the backend field.
+              </div>
+              <div className="spl-config">
+                <div><label>Front-end field <span className="muted">(blank = raw)</span></label><input value={feField} placeholder="search _raw" onChange={(e) => set('splFeField', e.target.value, setFeField)} /></div>
+                <div><label>Backend field <span className="muted">(blank = raw)</span></label><input value={beField} placeholder="search _raw" onChange={(e) => set('splBeField', e.target.value, setBeField)} /></div>
+                {beField.trim() && <div><label>Service version field <span className="muted">(applies to backend field)</span></label><input value={svcField} placeholder="serviceVersionNumber" onChange={(e) => set('splSvcField', e.target.value, setSvcField)} /></div>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <label>Time range <span className="muted">(query window — max 30 days)</span></label>
       <div className="timerange">

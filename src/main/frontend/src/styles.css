@@ -217,6 +217,8 @@ table.grid tr:hover td { background: #f7f9fb; }
 .spl-config { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .spl-config > div { flex: 1; min-width: 130px; }
 .spl-config label { margin-top: 0; }
+.spl-adv { margin: 2px 0 8px; }
+.spl-adv-toggle { font-size: 12px; padding: 0; }
 .spl-block { margin-top: 10px; }
 .spl-block pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
 

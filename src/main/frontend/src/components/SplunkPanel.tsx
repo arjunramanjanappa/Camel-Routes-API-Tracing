@@ -140,6 +140,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
             (by hosturl) to <code>{beMarker}</code>{verLabel ? <>, and only release <b>{verLabel}</b> lines</> : null}. Service versions are
             validated by the analyser after upload.</>}
         {sources.length > 0 ? <> From <b>{sources.length}</b> environment source(s).</> : <> From <b>all</b> environments (no source filter).</>}
+        {' '}Each event&rsquo;s JSON is slimmed to only <code>responseCode</code> / <code>responseDescription</code> / <code>serviceVersionNumber</code> — <b>no request/response payloads are exported</b> (audit-safe).
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

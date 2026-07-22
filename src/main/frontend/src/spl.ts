@@ -28,11 +28,28 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
 }
 
 /**
+ * Slims each event's trailing JSON down to only the fields the analyser reads —
+ * {@code responseCode} / {@code responseDescription} / {@code serviceVersionNumber} — while keeping
+ * the line prefix (path, correlation/trace id, client version, direction, latency) intact. Request /
+ * response payloads never leave Splunk, so the export is small AND audit-safe (no customer data), and
+ * the existing {@code _raw} parser reads it unchanged. Lines with no JSON are left untouched.
+ */
+const LEAN_JSON = [
+  '| rex field=_raw max_match=1 "(?i)\\"responseCode\\"\\s*:\\s*\\"?(?<rc>[^\\",}\\s]+)"',
+  '| rex field=_raw max_match=1 "(?i)\\"responseDescription\\"\\s*:\\s*\\"?(?<rd>[^\\",}]*)"',
+  '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
+  '| rex field=_raw "^(?<pfx>[^{]*)"',
+  '| eval parts=mvappend(if(isnull(rc),"","\\"responseCode\\":\\"".rc."\\""),if(isnull(rd),"","\\"responseDescription\\":\\"".rd."\\""),if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\""))',
+  '| eval parts=mvfilter(parts!="")',
+  '| eval _raw=if(pfx==_raw,_raw,pfx."{".coalesce(mvjoin(parts,","),"")."}")',
+].join('\n');
+
+/**
  * Build a Splunk search that returns the raw events (one combined query over the
  * selected front-end paths and their backends) within the time window, projected
- * as a single {@code _raw} column (sorted by time first). Exporting this as CSV
- * yields exactly the raw log lines the analyser reads back, so the same report
- * drives the end-to-end correlation — just like uploading the raw output log.
+ * as a single {@code _raw} column (sorted by time first). The trailing JSON is slimmed to just the
+ * fields the analyser reads (see {@link LEAN_JSON}) so no payloads are exported. Exporting this as CSV
+ * yields exactly the (lean) lines the analyser reads back, so the same report drives the correlation.
  */
 export function buildEventsSpl(
   index: string,
@@ -88,7 +105,7 @@ export function buildEventsSpl(
       if (feS.length) groups.push(...feGroups(feS));
       if (beS.length) groups.push(...beGroups(beS));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${LEAN_JSON}\n| sort 0 - _time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -97,7 +114,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}${src}(${markers})${ver}\n| sort 0 _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${markers})${ver}\n${LEAN_JSON}\n| sort 0 _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -132,7 +149,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n| sort 0 _time\n| table _raw`;
+  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${LEAN_JSON}\n| sort 0 _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

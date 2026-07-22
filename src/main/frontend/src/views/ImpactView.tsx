@@ -365,6 +365,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
                 title={multi ? `Splunk query — ${names[activeModule?.id ?? ''] || 'module'}` : 'Splunk query — selected APIs'}
                 app={activeMarkerApp}
                 version={version}
+                country={country}
                 secure={!!idx.commandDispatch}
                 frontendApis={selectedApiList}
                 backendApis={splBackends}

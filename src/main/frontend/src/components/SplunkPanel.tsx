@@ -15,23 +15,34 @@ interface Props {
   app?: string;
   /** Client release version — ANDed into the query so only that release's lines are fetched. */
   version?: string;
+  /** Country scope (e.g. SG, MY) — drives the environment source globs (spl<cc>-… / spl-gw-<cc>-…). */
+  country?: string;
   /** Auto-detected SPL-Secure flavour — uses the SPLAppLog/SPLWSAppLog/SPLHostMessage query shape. */
   secure?: boolean;
 }
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
 
-/** Environments to fetch logs from — each maps to a Splunk source glob. Select one or more (OR-combined). */
-const ENVIRONMENTS: { label: string; source: string }[] = [
-  { label: 'UAT', source: '*splsg-uat*' },
-  { label: 'UAT1', source: '*splsg-uat1*' },
-  { label: 'UAT2', source: '*splsg-uat2*' },
-  { label: 'UAT3', source: '*splsg-uat3*' },
-  { label: 'UAT4', source: '*splsg-uat4*' },
-  { label: 'NFT', source: '*splsg-nft*' },
-  { label: 'GW-UAT01', source: '*spl-gw-sg-uat-01*' },
-  { label: 'GW-UAT02', source: '*spl-gw-sg-uat-02*' },
-];
+/**
+ * Environments to fetch logs from, per country. The country code is lower-cased into the source glob
+ * ({@code spl<cc>-uat*} / {@code spl-gw-<cc>-uat-01*}) — the Splunk source is case-sensitive, and the
+ * convention is lowercase (SG → splsg / spl-gw-sg, MY → splmy / spl-gw-my). Selection is stored by env
+ * label, so switching country keeps the choice and just re-points it at that country's sources.
+ */
+function environmentsFor(country: string | undefined): { label: string; source: string }[] {
+  const cc = (country || '').trim().toLowerCase();
+  if (!cc) return [];
+  return [
+    { label: 'UAT', source: `*spl${cc}-uat*` },
+    { label: 'UAT1', source: `*spl${cc}-uat1*` },
+    { label: 'UAT2', source: `*spl${cc}-uat2*` },
+    { label: 'UAT3', source: `*spl${cc}-uat3*` },
+    { label: 'UAT4', source: `*spl${cc}-uat4*` },
+    { label: 'NFT', source: `*spl${cc}-nft*` },
+    { label: 'GW-UAT01', source: `*spl-gw-${cc}-uat-01*` },
+    { label: 'GW-UAT02', source: `*spl-gw-${cc}-uat-02*` },
+  ];
+}
 
 /**
  * Builds one Splunk search for the selected APIs (front-end paths + their
@@ -39,7 +50,7 @@ const ENVIRONMENTS: { label: string; source: string }[] = [
  * log analyser reads back, so the exported report drives the correlation. Each
  * backend is searched together with its traced service version.
  */
-export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version, secure = false }: Props) {
+export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version, country, secure = false }: Props) {
   const application = app && app.trim() ? app.trim() : 'Mighty';
   // SPL-Secure front-end lines use two loggers; the backend stays <app>HostMessage.
   const feMarker = secure ? 'SPLAppLog / SPLWSAppLog' : application + 'Message';   // front-end log lines
@@ -47,18 +58,23 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const [mode, setMode] = useState<'scoped' | 'all'>(pref('splMode', 'scoped') === 'all' ? 'all' : 'scoped');
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
   const [earliest, setEarliest] = useState(pref('splEarliest', '-24h'));
-  // Selected environment source globs (persisted, comma-joined), plus any custom source(s) the user types.
-  const [envs, setEnvs] = useState<Set<string>>(() => new Set(pref('splSources', '').split(',').map((s) => s.trim()).filter(Boolean)));
+  // Selected environments by label (persisted), plus any custom source glob(s) the user types. Storing the
+  // label (not the resolved source) keeps the selection valid when the country changes.
+  const [envLabels, setEnvLabels] = useState<Set<string>>(() => new Set(pref('splEnvs', '').split(',').map((s) => s.trim()).filter(Boolean)));
   const [customSrc, setCustomSrc] = useState(pref('splCustomSource', ''));
+  const environments = environmentsFor(country);
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
-  const toggleEnv = (source: string) => setEnvs((prev) => {
+  const toggleEnv = (label: string) => setEnvLabels((prev) => {
     const n = new Set(prev);
-    if (n.has(source)) n.delete(source); else n.add(source);
-    localStorage.setItem('tracer.splSources', [...n].join(','));
+    if (n.has(label)) n.delete(label); else n.add(label);
+    localStorage.setItem('tracer.splEnvs', [...n].join(','));
     return n;
   });
-  const sources = [...envs, ...customSrc.split(',').map((s) => s.trim()).filter(Boolean)];
+  const sources = [
+    ...environments.filter((e) => envLabels.has(e.label)).map((e) => e.source),
+    ...customSrc.split(',').map((s) => s.trim()).filter(Boolean),
+  ];
 
   const fe = [...new Set(frontendApis.filter(Boolean))];
   // Search the backend by its hosturl (what the host actually logs) when known, else the api path.
@@ -94,13 +110,17 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         <div><label>Index <span className="muted">(your Splunk index)</span></label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
       </div>
 
-      <label>Environment(s) <span className="muted">(source — select 1 or more; none = all)</span></label>
-      <div className="timerange">
-        {ENVIRONMENTS.map((e) => (
-          <button key={e.source} type="button" className={'tpill' + (envs.has(e.source) ? ' on' : '')}
-                  title={'source="' + e.source + '"'} onClick={() => toggleEnv(e.source)}>{e.label}</button>
-        ))}
-      </div>
+      <label>Environment(s) <span className="muted">(source{country ? ' · ' + country.trim().toUpperCase() : ''} — select 1 or more; none = all)</span></label>
+      {environments.length > 0 ? (
+        <div className="timerange">
+          {environments.map((e) => (
+            <button key={e.label} type="button" className={'tpill' + (envLabels.has(e.label) ? ' on' : '')}
+                    title={'source="' + e.source + '"'} onClick={() => toggleEnv(e.label)}>{e.label}</button>
+          ))}
+        </div>
+      ) : (
+        <div className="sub" style={{ marginTop: 2 }}>Set a <b>country</b> above to list its environments, or type source glob(s) below.</div>
+      )}
       <input className="env-custom" value={customSrc} placeholder='other source(s), comma-separated e.g. *spl-gw-sg-uat-03*'
              onChange={(e) => set('splCustomSource', e.target.value, setCustomSrc)} />
 

@@ -21,6 +21,18 @@ interface Props {
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
 
+/** Environments to fetch logs from — each maps to a Splunk source glob. Select one or more (OR-combined). */
+const ENVIRONMENTS: { label: string; source: string }[] = [
+  { label: 'UAT', source: '*splsg-uat*' },
+  { label: 'UAT1', source: '*splsg-uat1*' },
+  { label: 'UAT2', source: '*splsg-uat2*' },
+  { label: 'UAT3', source: '*splsg-uat3*' },
+  { label: 'UAT4', source: '*splsg-uat4*' },
+  { label: 'NFT', source: '*splsg-nft*' },
+  { label: 'GW-UAT01', source: '*spl-gw-sg-uat-01*' },
+  { label: 'GW-UAT02', source: '*spl-gw-sg-uat-02*' },
+];
+
 /**
  * Builds one Splunk search for the selected APIs (front-end paths + their
  * backends) that returns raw events as a single _raw column — the exact shape the
@@ -35,8 +47,18 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const [mode, setMode] = useState<'scoped' | 'all'>(pref('splMode', 'scoped') === 'all' ? 'all' : 'scoped');
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));
   const [earliest, setEarliest] = useState(pref('splEarliest', '-24h'));
+  // Selected environment source globs (persisted, comma-joined), plus any custom source(s) the user types.
+  const [envs, setEnvs] = useState<Set<string>>(() => new Set(pref('splSources', '').split(',').map((s) => s.trim()).filter(Boolean)));
+  const [customSrc, setCustomSrc] = useState(pref('splCustomSource', ''));
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
+  const toggleEnv = (source: string) => setEnvs((prev) => {
+    const n = new Set(prev);
+    if (n.has(source)) n.delete(source); else n.add(source);
+    localStorage.setItem('tracer.splSources', [...n].join(','));
+    return n;
+  });
+  const sources = [...envs, ...customSrc.split(',').map((s) => s.trim()).filter(Boolean)];
 
   const fe = [...new Set(frontendApis.filter(Boolean))];
   // Search the backend by its hosturl (what the host actually logs) when known, else the api path.
@@ -49,7 +71,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   // For secure, feMarker/beMarker are display-only — buildEventsSpl uses the fixed secure loggers.
   // Always search the raw event (empty FE/BE field names) so the export is the _raw format the analyser
   // reads — the user only chooses index / time / which APIs; the query resolves to the analysis format.
-  const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure);
+  const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure, sources);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
   const verLabel = clientVersion && clientVersion.toUpperCase() !== 'BASE' ? clientVersion : '';
 
@@ -72,6 +94,16 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         <div><label>Index <span className="muted">(your Splunk index)</span></label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
       </div>
 
+      <label>Environment(s) <span className="muted">(source — select 1 or more; none = all)</span></label>
+      <div className="timerange">
+        {ENVIRONMENTS.map((e) => (
+          <button key={e.source} type="button" className={'tpill' + (envs.has(e.source) ? ' on' : '')}
+                  title={'source="' + e.source + '"'} onClick={() => toggleEnv(e.source)}>{e.label}</button>
+        ))}
+      </div>
+      <input className="env-custom" value={customSrc} placeholder='other source(s), comma-separated e.g. *spl-gw-sg-uat-03*'
+             onChange={(e) => set('splCustomSource', e.target.value, setCustomSrc)} />
+
       <label>Time range <span className="muted">(query window — max 30 days)</span></label>
       <div className="timerange">
         {TIME_PRESETS.map((p) => (
@@ -87,6 +119,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
             + <b>{be.length}</b> backend path(s). Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends
             (by hosturl) to <code>{beMarker}</code>{verLabel ? <>, and only release <b>{verLabel}</b> lines</> : null}. Service versions are
             validated by the analyser after upload.</>}
+        {sources.length > 0 ? <> From <b>{sources.length}</b> environment source(s).</> : <> From <b>all</b> environments (no source filter).</>}
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

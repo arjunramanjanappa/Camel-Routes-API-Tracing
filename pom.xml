@@ -255,8 +255,18 @@
                                         <exec executable="${bundle}/jre/bin/java${exe.suffix}" failonerror="false">
                                             <arg value="-Xshare:dump"/>
                                         </exec>
-                                        <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                              tofile="${bundle}/app/traceguard.jar"/>
+                                        <!-- Ship the app EXTRACTED (exploded), not as a fat jar: a nested-jar fat jar
+                                             loads classes slower than a flat classpath - this is how IntelliJ runs, and
+                                             it's the biggest single speedup for analysis. Produces app/<jar> + app/lib/. -->
+                                        <echo message="extracting app (exploded layout loads classes faster than a fat jar)"/>
+                                        <exec executable="${java.home}/bin/java${exe.suffix}" failonerror="true">
+                                            <arg value="-Djarmode=tools"/>
+                                            <arg value="-jar"/>
+                                            <arg value="${project.build.directory}/${project.build.finalName}.jar"/>
+                                            <arg value="extract"/>
+                                            <arg value="--destination"/>
+                                            <arg value="${bundle}/app"/>
+                                        </exec>
                                         <copy todir="${bundle}">
                                             <fileset dir="${project.basedir}/packaging/launcher"/>
                                             <fileset dir="${project.basedir}/packaging" includes="traceguard.ico"/>

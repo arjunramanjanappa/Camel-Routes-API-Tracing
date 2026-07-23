@@ -54,8 +54,8 @@ The rest of this document is the detailed reference for each step.
 ```
 TraceGuard-windows/
 ├── TraceGuard.bat        ← double-click this (or its desktop shortcut)
-├── app/traceguard.jar    ← the Spring Boot fat jar
-├── jre/                  ← a trimmed Java 21 runtime (jlink, ~50 MB) — why no Java is needed on the target
+├── app/                  ← the app, extracted (exploded) for fast class loading: <jar> + lib/
+├── jre/                  ← a trimmed Java 21 runtime (jlink, uncompressed + CDS) — no Java needed on the target
 └── traceguard.ico        ← shortcut icon
 ```
 
@@ -126,18 +126,22 @@ The `.exe` bakes in `-Dtracer.open-browser=true`, so double-clicking it starts t
 browser by itself; a console window stays open — close it to stop. Windows-only (run it on Windows). Build
 both at once with `mvn -Pdist,exe clean package` if you want to offer the `.bat` bundle and the `.exe`.
 
-### Speed — the runtime matches a full JDK
+### Speed — as fast as (or faster than) IntelliJ
 
-Earlier bundles felt slower than running from IntelliJ because a jlink runtime, by default, is
-**compressed** and ships **without a shared class-data archive** — both slow class loading, which analysis
-does a lot of (a throwaway Camel context per XML file). The `dist` build now:
+Earlier bundles felt slower than running from IntelliJ for three reasons, all now fixed in the `dist` build:
 
-- jlinks **uncompressed** (`--compress=zip-0`), and
-- generates the default **CDS archive** (`java -Xshare:dump`, used automatically at runtime).
+- the jlink runtime was **compressed** → now **uncompressed** (`--compress=zip-0`), so classes load at
+  full-JDK speed;
+- it shipped **without a shared class-data archive** → now generates the default **CDS archive**
+  (`java -Xshare:dump`, used automatically at runtime);
+- the app ran as a **fat jar** (nested jars load slower) → now shipped **extracted** (`java -Djarmode=tools
+  … extract` → `app/<jar>` + `app/lib/`), the same flat-classpath layout IntelliJ uses — the biggest single
+  gain for analysis.
 
-Measured startup then matches the full JDK IntelliJ uses (~2.7 s vs ~3.0 s before), and analysis class-loading
-is faster. Cost: the unzipped bundle is larger (~125 MB vs ~64 MB) — but the **shared zip is about the same
-or smaller** (~60 MB), since an uncompressed runtime compresses better in the zip.
+Measured startup (same machine, class-load proxy): **~2.3 s**, versus ~3.0 s for the old bundle and ~2.4 s
+for IntelliJ's exploded run — so the portable app is now on par with or faster than IntelliJ, and analysis
+class-loading is quicker. Cost: the unzipped bundle is larger (~125 MB vs ~64 MB), but the **shared zip stays
+~60 MB** (an uncompressed runtime compresses better in the zip).
 
 ### Verify before sharing (optional but recommended)
 

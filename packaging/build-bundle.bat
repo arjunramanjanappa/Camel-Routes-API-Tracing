@@ -84,7 +84,9 @@ echo ==^> generating CDS archive ^(faster class loading^)
 "%DIST%\jre\bin\java.exe" -Xshare:dump >nul 2>&1
 
 REM --- Assemble ----------------------------------------------------------------
-copy /y "!JAR!" "%DIST%\app\traceguard.jar" >nul
+echo ==^> extracting app ^(exploded layout loads classes faster than a fat jar^)
+"!JDKDIR!\bin\java.exe" -Djarmode=tools -jar "!JAR!" extract --destination "%DIST%\app"
+if errorlevel 1 ( echo ERROR: jar extract failed. & exit /b 1 )
 copy /y "%HERE%launcher\TraceGuard.bat" "%DIST%\" >nul
 
 REM --- Icon (copy the pre-built icon that ships in packaging\) ------------------

@@ -101,7 +101,11 @@ Write-Host "==> generating CDS archive (faster class loading)"
 & (Join-Path $jreOut 'bin\java.exe') -Xshare:dump *> $null
 
 # --- Assemble -----------------------------------------------------------------
-Copy-Item $jar.FullName (Join-Path $dist 'app\traceguard.jar') -Force
+# Ship the app EXTRACTED (exploded), not as a fat jar — a flat classpath loads classes faster (this is
+# how IntelliJ runs). Produces app\<jar> + app\lib\.
+Write-Host "==> extracting app (exploded layout loads classes faster than a fat jar)"
+& (Join-Path $JdkHome 'bin\java.exe') -Djarmode=tools -jar $jar.FullName extract --destination (Join-Path $dist 'app')
+if ($LASTEXITCODE -ne 0) { throw "jar extract failed (exit $LASTEXITCODE)." }
 Copy-Item (Join-Path $PSScriptRoot 'launcher\TraceGuard.bat') $dist -Force
 
 # Icon: copy the pre-built icon that ships in packaging\.

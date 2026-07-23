@@ -72,7 +72,9 @@ echo "==> generating CDS archive (faster class loading)"
 "$DIST/jre/bin/java" -Xshare:dump >/dev/null 2>&1 || true
 
 # --- Assemble -----------------------------------------------------------------
-cp "$JAR" "$DIST/app/traceguard.jar"
+# Ship the app EXTRACTED (exploded), not as a fat jar — a flat classpath loads classes faster.
+echo "==> extracting app (exploded layout loads classes faster than a fat jar)"
+"$JH/bin/java" -Djarmode=tools -jar "$JAR" extract --destination "$DIST/app"
 cp "$HERE/launcher/TraceGuard.command" "$DIST/"
 chmod +x "$DIST/TraceGuard.command"
 

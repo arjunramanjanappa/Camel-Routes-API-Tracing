@@ -37,6 +37,7 @@
              Tomcat + Camel + JGit(TLS). Defaults are for *nix; the OS profiles below override
              jlink.executable / os.tag. -->
         <jlink.executable>${java.home}/bin/jlink</jlink.executable>
+        <jpackage.executable>${java.home}/bin/jpackage</jpackage.executable>
         <os.tag>unix</os.tag>
         <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
     </properties>
@@ -193,6 +194,7 @@
                 <npm.install.args>/c npm install</npm.install.args>
                 <npm.build.args>/c npm run build</npm.build.args>
                 <jlink.executable>${java.home}/bin/jlink.exe</jlink.executable>
+                <jpackage.executable>${java.home}/bin/jpackage.exe</jpackage.executable>
                 <os.tag>windows</os.tag>
             </properties>
         </profile>
@@ -256,6 +258,74 @@
                                         <echo message="  Bundle : ${bundle}"/>
                                         <echo message="  Zip    : ${project.build.directory}/dist/TraceGuard-${os.tag}.zip  (share this)"/>
                                         <echo message="  Run    : unzip, then double-click TraceGuard.bat (Windows) / TraceGuard.command (macOS)"/>
+                                        <echo message="=================================================================="/>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- ============================================================================
+             mvn -Pexe package   ->   a native TraceGuard.exe (Windows) via jpackage.
+             Produces an "app-image": a folder with TraceGuard.exe + an embedded runtime,
+             carrying the shield icon. No admin, no installer, no MSI/WiX — unzip-and-run,
+             just like the .bat bundle but a real .exe. The launcher bakes in
+             -Dtracer.open-browser=true, so double-clicking the .exe starts the server and
+             opens the browser itself. Output:
+                 target/dist-exe/TraceGuard/TraceGuard.exe   (+ runtime/, app/)
+                 target/dist-exe/TraceGuard-windows-exe.zip  (ship this)
+             Windows-only (uses the win-console launcher); run it on Windows. jpackage ships
+             with the JDK, so there is nothing extra to install.
+             ============================================================================ -->
+        <profile>
+            <id>exe</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>jpackage-exe</id>
+                                <phase>package</phase>
+                                <goals><goal>run</goal></goals>
+                                <configuration>
+                                    <target>
+                                        <property name="stage" value="${project.build.directory}/jpackage-input"/>
+                                        <property name="out" value="${project.build.directory}/dist-exe"/>
+                                        <delete dir="${stage}"/>
+                                        <delete dir="${out}"/>
+                                        <mkdir dir="${stage}"/>
+                                        <!-- jpackage bundles everything in the input dir into the app; stage only the jar -->
+                                        <copy file="${project.build.directory}/${project.build.finalName}.jar"
+                                              tofile="${stage}/traceguard.jar"/>
+                                        <echo message="jpackage -> native TraceGuard.exe using ${jpackage.executable}"/>
+                                        <exec executable="${jpackage.executable}" failonerror="true">
+                                            <arg value="--type"/>            <arg value="app-image"/>
+                                            <arg value="--name"/>            <arg value="TraceGuard"/>
+                                            <arg value="--input"/>           <arg value="${stage}"/>
+                                            <arg value="--main-jar"/>        <arg value="traceguard.jar"/>
+                                            <arg value="--icon"/>            <arg value="${project.basedir}/packaging/traceguard.ico"/>
+                                            <arg value="--java-options"/>    <arg value="-Dtracer.open-browser=true"/>
+                                            <arg value="--add-modules"/>     <arg value="${jlink.modules}"/>
+                                            <arg value="--app-version"/>     <arg value="${project.version}"/>
+                                            <arg value="--vendor"/>          <arg value="UOB"/>
+                                            <arg value="--win-console"/>
+                                            <arg value="--dest"/>            <arg value="${out}"/>
+                                        </exec>
+                                        <!-- the exe icon comes from the icon arg above; also drop the .ico alongside -->
+                                        <copy file="${project.basedir}/packaging/traceguard.ico" todir="${out}/TraceGuard"/>
+                                        <zip destfile="${out}/TraceGuard-windows-exe.zip">
+                                            <zipfileset dir="${out}/TraceGuard" prefix="TraceGuard" filemode="755"/>
+                                        </zip>
+                                        <echo message="=================================================================="/>
+                                        <echo message="  Exe : ${out}/TraceGuard/TraceGuard.exe"/>
+                                        <echo message="  Zip : ${out}/TraceGuard-windows-exe.zip  (share this)"/>
+                                        <echo message="  Run : unzip, then double-click TraceGuard.exe"/>
                                         <echo message="=================================================================="/>
                                     </target>
                                 </configuration>

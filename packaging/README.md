@@ -59,13 +59,20 @@ TraceGuard-windows/
 └── traceguard.ico        ← shortcut icon
 ```
 
-The launcher finds `jre\bin\java`, starts the jar in its own **"TraceGuard"** console window, polls
-`http://localhost:8080/` with `curl`, and opens your default browser as soon as it responds. **Close the
-"TraceGuard" window to stop the app.** No PowerShell is used, so the auto-open works even where group policy
-blocks scripts. macOS/Linux use `TraceGuard.command` the same way.
+The launcher finds `jre\bin\java` and starts the jar with `-Dtracer.open-browser=true`. **The app itself
+opens your default browser** once the server is ready (via `java.awt.Desktop`, falling back to
+`rundll32` / `open` / `xdg-open`) — no PowerShell, so auto-open works even where group policy blocks scripts.
+The console window stays open; **close it to stop the app.** macOS/Linux use `TraceGuard.command` the same way.
 
 The launcher falls back to `JAVA_HOME`/`java` on `PATH` if no bundled `jre` is present — so the same script
 also works on a dev box that already has Java.
+
+### Prefer a real `.exe`?
+
+`mvn -Pexe package` builds a native **`TraceGuard.exe`** (via `jpackage`) with the shield icon and an
+embedded runtime — same no-admin, unzip-and-run model, just a double-click `.exe` instead of a `.bat`. It
+bakes in `-Dtracer.open-browser=true`, so it starts the server and opens the browser by itself. See
+[Building a bundle](#building-a-bundle-on-a-build-machine) below.
 
 ---
 
@@ -100,6 +107,25 @@ target\dist\TraceGuard-<os>.zip     ship this
 
 Normal `mvn package` and `spring-boot:run` are unaffected — the bundling only runs under `-Pdist`.
 
+### Native `.exe` (`-Pexe`, Windows)
+
+```
+mvn -Pexe clean package
+```
+
+Uses `jpackage` (bundled in the JDK — nothing extra to install) to build a native **app-image**: a folder
+with `TraceGuard.exe` + an embedded runtime, carrying the shield icon. No admin, no MSI/WiX installer —
+unzip-and-run, like the `.bat` bundle but a real `.exe`. Output:
+
+```
+target\dist-exe\TraceGuard\TraceGuard.exe   the app (+ runtime\, app\)
+target\dist-exe\TraceGuard-windows-exe.zip  ship this
+```
+
+The `.exe` bakes in `-Dtracer.open-browser=true`, so double-clicking it starts the server and opens the
+browser by itself; a console window stays open — close it to stop. Windows-only (run it on Windows). Build
+both at once with `mvn -Pdist,exe clean package` if you want to offer the `.bat` bundle and the `.exe`.
+
 ### Verify before sharing (optional but recommended)
 
 Unzip the output somewhere and double-click the launcher yourself — the browser should open at
@@ -121,8 +147,8 @@ Boot + Tomcat + Camel + JGit).
 
 1. Copy the zip to the machine and unzip it anywhere under your user folder
    (e.g. `C:\Users\<you>\Apps\TraceGuard-windows`).
-2. Double-click **`TraceGuard.bat`** (Windows) / **`TraceGuard.command`** (macOS — right-click ▸ Open the
-   first time to clear Gatekeeper).
+2. Double-click **`TraceGuard.bat`** — or **`TraceGuard.exe`** if you built the `-Pexe` variant — on Windows;
+   **`TraceGuard.command`** on macOS (right-click ▸ Open the first time to clear Gatekeeper).
 3. Optional desktop icon — **no scripts needed:** right-click `TraceGuard.bat` ▸ **Send to ▸ Desktop (create
    shortcut)**. To brand it, right-click the shortcut ▸ **Properties ▸ Change Icon** ▸ browse to the bundled
    `traceguard.ico`. (Where scripts are allowed, `Create-Shortcut.ps1` does this automatically.)

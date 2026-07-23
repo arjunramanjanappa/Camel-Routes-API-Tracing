@@ -124,8 +124,10 @@ mvn -Pdist clean package        # → target/dist/TraceGuard-<os>.zip
 
 The recipient unzips it and double-clicks `TraceGuard.bat` (Windows) /
 `TraceGuard.command` (macOS) — the browser opens automatically. Pure Maven, so it
-works where group policy blocks scripts. Full guide (prerequisites, sharing,
-install, troubleshooting): **[packaging/README.md](packaging/README.md)**.
+works where group policy blocks scripts. Prefer a real `.exe`? `mvn -Pexe clean
+package` builds a native `TraceGuard.exe` (via `jpackage`) with the same no-admin,
+unzip-and-run model. Full guide (prerequisites, sharing, install, troubleshooting):
+**[packaging/README.md](packaging/README.md)**.
 
 ---
 

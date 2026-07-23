@@ -2,8 +2,8 @@
 # ============================================================================
 #  TraceGuard standalone launcher (macOS / Linux).
 #  Double-click (macOS: this .command opens in Terminal) or run from a shell.
-#  Starts the bundled server and opens your browser. No install, no admin.
-#  Close this window / press Ctrl-C to stop TraceGuard.
+#  Starts the bundled server; the app opens your browser itself when ready.
+#  No install, no admin. Close this window / press Ctrl-C to stop TraceGuard.
 # ============================================================================
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -41,15 +41,8 @@ if curl -sf -m 2 "$URL" >/dev/null 2>&1; then
   open_url "$URL"; exit 0
 fi
 
-# --- Background: wait for the server, then open the browser ---
-(
-  for _ in $(seq 1 90); do
-    if curl -sf -m 2 "$URL" >/dev/null 2>&1; then open_url "$URL"; break; fi
-    sleep 0.8
-  done
-) &
-
-echo "[TraceGuard] Starting... your browser will open when it is ready."
+# --- Start the server; the app opens the browser itself when ready ---
+echo "[TraceGuard] Starting... your browser will open automatically when it is ready."
 echo "[TraceGuard] Keep this window open while you use TraceGuard. Ctrl-C to stop."
 echo
-exec "$JAVA" -jar "$JAR"
+exec "$JAVA" -Dtracer.open-browser=true -jar "$JAR"

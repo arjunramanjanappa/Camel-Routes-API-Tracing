@@ -3,6 +3,7 @@
 *.docx binary
 *.xlsx binary
 *.pdf binary
+*.ico binary
 
 # Unix shell launchers MUST stay LF — CRLF makes bash fail with '\r' errors on macOS/Linux.
 *.sh text eol=lf

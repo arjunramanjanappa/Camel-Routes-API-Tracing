@@ -31,6 +31,14 @@
         <npm.build.args>run build</npm.build.args>
         <!-- -Dskip.frontend=true skips the React build (fast Java-only iterations). -->
         <skip.frontend>false</skip.frontend>
+
+        <!-- 'dist' profile (mvn -Pdist package): jlink a trimmed JRE into a self-contained,
+             zero-install desktop bundle. Curated module set — verified to boot Spring Boot +
+             Tomcat + Camel + JGit(TLS). Defaults are for *nix; the OS profiles below override
+             jlink.executable / os.tag. -->
+        <jlink.executable>${java.home}/bin/jlink</jlink.executable>
+        <os.tag>unix</os.tag>
+        <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
     </properties>
 
     <dependencyManagement>
@@ -184,7 +192,78 @@
                 <npm.executable>cmd</npm.executable>
                 <npm.install.args>/c npm install</npm.install.args>
                 <npm.build.args>/c npm run build</npm.build.args>
+                <jlink.executable>${java.home}/bin/jlink.exe</jlink.executable>
+                <os.tag>windows</os.tag>
             </properties>
+        </profile>
+        <profile>
+            <id>mac</id>
+            <activation><os><family>mac</family></os></activation>
+            <properties><os.tag>mac</os.tag></properties>
+        </profile>
+        <profile>
+            <id>linux</id>
+            <activation>
+                <os><family>unix</family><name>linux</name></os>
+            </activation>
+            <properties><os.tag>linux</os.tag></properties>
+        </profile>
+
+        <!-- ============================================================================
+             mvn -Pdist package   ->   a self-contained, zero-install desktop bundle.
+             Builds the fat jar (as usual), jlinks a trimmed JRE, drops in the launcher
+             + icon, and zips it all. No PowerShell / .bat script execution needed — pure
+             Maven, so it works where group policy blocks scripts. Output:
+                 target/dist/TraceGuard-<os>/       (the folder)
+                 target/dist/TraceGuard-<os>.zip    (ship this)
+             jlink builds a runtime for the OS Maven runs on, so build the mac bundle on a
+             Mac, the windows bundle on Windows. Normal `package` / spring-boot:run are
+             unaffected (this only runs under -Pdist).
+             ============================================================================ -->
+        <profile>
+            <id>dist</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>bundle</id>
+                                <phase>package</phase>
+                                <goals><goal>run</goal></goals>
+                                <configuration>
+                                    <target>
+                                        <property name="bundle" value="${project.build.directory}/dist/TraceGuard-${os.tag}"/>
+                                        <delete dir="${project.build.directory}/dist"/>
+                                        <mkdir dir="${bundle}/app"/>
+                                        <echo message="jlink -> trimmed JRE (${os.tag}) using ${jlink.executable}"/>
+                                        <exec executable="${jlink.executable}" failonerror="true">
+                                            <arg line="--add-modules ${jlink.modules} --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output &quot;${bundle}/jre&quot;"/>
+                                        </exec>
+                                        <copy file="${project.build.directory}/${project.build.finalName}.jar"
+                                              tofile="${bundle}/app/traceguard.jar"/>
+                                        <copy todir="${bundle}">
+                                            <fileset dir="${project.basedir}/packaging/launcher"/>
+                                            <fileset dir="${project.basedir}/packaging" includes="traceguard.ico"/>
+                                        </copy>
+                                        <zip destfile="${project.build.directory}/dist/TraceGuard-${os.tag}.zip">
+                                            <!-- filemode 755 keeps the .command launcher + jre binaries executable on macOS/Linux -->
+                                            <zipfileset dir="${bundle}" prefix="TraceGuard-${os.tag}" filemode="755"/>
+                                        </zip>
+                                        <echo message="=================================================================="/>
+                                        <echo message="  Bundle : ${bundle}"/>
+                                        <echo message="  Zip    : ${project.build.directory}/dist/TraceGuard-${os.tag}.zip  (share this)"/>
+                                        <echo message="  Run    : unzip, then double-click TraceGuard.bat (Windows) / TraceGuard.command (macOS)"/>
+                                        <echo message="=================================================================="/>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 </project>

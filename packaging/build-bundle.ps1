@@ -98,22 +98,10 @@ if ($LASTEXITCODE -ne 0) { throw "jlink failed (exit $LASTEXITCODE)." }
 Copy-Item $jar.FullName (Join-Path $dist 'app\traceguard.jar') -Force
 Copy-Item (Join-Path $PSScriptRoot 'launcher\TraceGuard.bat') $dist -Force
 
-# Icon: convert the app's TG logo PNG (src\...\tgLogo.ts) to a .ico for the shortcut.
-try {
-  Add-Type -AssemblyName System.Drawing
-  $logoTs = Get-Content (Join-Path $root 'src\main\frontend\src\tgLogo.ts') -Raw
-  if ($logoTs -match 'base64,([A-Za-z0-9+/=]+)') {
-    $bytes = [Convert]::FromBase64String($Matches[1])
-    $ms = New-Object System.IO.MemoryStream(,$bytes)
-    $png = [System.Drawing.Image]::FromStream($ms)
-    $bmp = New-Object System.Drawing.Bitmap($png, 64, 64)
-    $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-    $fs = [System.IO.File]::Create((Join-Path $dist 'traceguard.ico'))
-    $icon.Save($fs); $fs.Close()
-    $icon.Dispose(); $bmp.Dispose(); $png.Dispose(); $ms.Dispose()
-    Write-Host "==> Icon written: traceguard.ico"
-  } else { Write-Warning "Could not extract logo base64 from tgLogo.ts; skipping icon." }
-} catch { Write-Warning "Icon generation failed (non-fatal): $_" }
+# Icon: copy the pre-built icon that ships in packaging\.
+$ico = Join-Path $PSScriptRoot 'traceguard.ico'
+if (Test-Path $ico) { Copy-Item $ico $dist -Force; Write-Host "==> Icon: traceguard.ico" }
+else { Write-Warning "packaging\traceguard.ico not found; skipping icon (non-fatal)." }
 
 # --- Zip ----------------------------------------------------------------------
 $zip = Join-Path $root 'dist\TraceGuard-windows.zip'

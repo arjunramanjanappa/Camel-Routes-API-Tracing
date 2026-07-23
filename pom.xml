@@ -321,22 +321,38 @@
                                         <delete dir="${stage}"/>
                                         <delete dir="${out}"/>
                                         <mkdir dir="${stage}"/>
-                                        <!-- jpackage bundles everything in the input dir into the app; stage only the jar -->
-                                        <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                              tofile="${stage}/traceguard.jar"/>
+                                        <!-- Extract the app (exploded) into the jpackage input, and jlink uncompressed
+                                             (via jlink-options) + generate CDS below - so the .exe loads classes as fast
+                                             as the .bat bundle. jpackage copies the whole input dir into the app image. -->
+                                        <echo message="extracting app (exploded) for jpackage input"/>
+                                        <exec executable="${java.home}/bin/java${exe.suffix}" failonerror="true">
+                                            <arg value="-Djarmode=tools"/>
+                                            <arg value="-jar"/>
+                                            <arg value="${project.build.directory}/${project.build.finalName}.jar"/>
+                                            <arg value="extract"/>
+                                            <arg value="--destination"/>
+                                            <arg value="${stage}"/>
+                                        </exec>
                                         <echo message="jpackage -> native TraceGuard.exe using ${jpackage.executable}"/>
                                         <exec executable="${jpackage.executable}" failonerror="true">
                                             <arg value="--type"/>            <arg value="app-image"/>
                                             <arg value="--name"/>            <arg value="TraceGuard"/>
                                             <arg value="--input"/>           <arg value="${stage}"/>
-                                            <arg value="--main-jar"/>        <arg value="traceguard.jar"/>
+                                            <arg value="--main-jar"/>        <arg value="${project.build.finalName}.jar"/>
                                             <arg value="--icon"/>            <arg value="${project.basedir}/packaging/traceguard.ico"/>
                                             <arg value="--java-options"/>    <arg value="-Dtracer.open-browser=true"/>
                                             <arg value="--add-modules"/>     <arg value="${jlink.modules}"/>
+                                            <!-- uncompressed runtime; keep native commands so runtime/bin/java exists for the CDS dump -->
+                                            <arg value="--jlink-options"/>   <arg value="--strip-debug --no-man-pages --no-header-files --compress=zip-0"/>
                                             <arg value="--app-version"/>     <arg value="${project.version}"/>
                                             <arg value="--vendor"/>          <arg value="UOB"/>
                                             <arg value="--win-console"/>
                                             <arg value="--dest"/>            <arg value="${out}"/>
+                                        </exec>
+                                        <!-- default CDS archive in the embedded runtime (used automatically at runtime) -->
+                                        <echo message="generating CDS archive in the embedded runtime"/>
+                                        <exec executable="${out}/TraceGuard/runtime/bin/java${exe.suffix}" failonerror="false">
+                                            <arg value="-Xshare:dump"/>
                                         </exec>
                                         <!-- the exe icon comes from the icon arg above; also drop the .ico alongside -->
                                         <copy file="${project.basedir}/packaging/traceguard.ico" todir="${out}/TraceGuard"/>

@@ -45,6 +45,9 @@ target\dist\TraceGuard-windows.zip      (~64 MB: app jar + bundled JRE + launche
 > runs on) to produce `target/dist/TraceGuard-mac.zip`; they double-click `TraceGuard.command` (right-click ▸
 > Open the first time to clear Gatekeeper).
 
+**Prefer a real `.exe`?** `mvn -Pexe clean package` builds a native `TraceGuard.exe` (Windows) —
+see [Native `.exe`](#native-exe--pexe-windows) below.
+
 The rest of this document is the detailed reference for each step.
 
 ---
@@ -115,16 +118,30 @@ mvn -Pexe clean package
 
 Uses `jpackage` (bundled in the JDK — nothing extra to install) to build a native **app-image**: a folder
 with `TraceGuard.exe` + an embedded runtime, carrying the shield icon. No admin, no MSI/WiX installer —
-unzip-and-run, like the `.bat` bundle but a real `.exe`. Output:
+unzip-and-run, like the `.bat` bundle but a real `.exe`. Windows-only (uses `jpackage`'s win-console launcher
+— run it on Windows). Output:
 
 ```
-target\dist-exe\TraceGuard\TraceGuard.exe   the app (+ runtime\, app\)
-target\dist-exe\TraceGuard-windows-exe.zip  ship this
+target\dist-exe\TraceGuard\
+├── TraceGuard.exe      ← double-click this
+├── app\                ← the app, extracted (jar + lib\) for fast class loading
+├── runtime\            ← the embedded Java runtime (uncompressed + CDS; no Java needed on the target)
+└── traceguard.ico
+target\dist-exe\TraceGuard-windows-exe.zip   ← ship this
 ```
 
-The `.exe` bakes in `-Dtracer.open-browser=true`, so double-clicking it starts the server and opens the
-browser by itself; a console window stays open — close it to stop. Windows-only (run it on Windows). Build
-both at once with `mvn -Pdist,exe clean package` if you want to offer the `.bat` bundle and the `.exe`.
+**Share it:** send `target\dist-exe\TraceGuard-windows-exe.zip`. The recipient unzips it anywhere in their
+user folder and double-clicks **`TraceGuard.exe`** — it bakes in `-Dtracer.open-browser=true`, so it starts
+the server and opens the browser by itself. A console window stays open; **close it to stop.** No admin, no
+Java, no install. (On first launch SmartScreen may say *"Windows protected your PC"* → **More info ▸ Run
+anyway** — unsigned internal tool.)
+
+Build **both** the `.bat` bundle and the `.exe` in one run with `mvn -Pdist,exe clean package`.
+
+> **`.exe` vs `.bat` bundle — which to send?** Functionally identical, and **the same speed** — the `.exe`
+> gets the same tuning as the `-Pdist` bundle (extracted app + uncompressed runtime + CDS; see
+> [Speed](#speed--as-fast-as-or-faster-than-intellij)). Pick on feel: the `.exe` is a nicer double-click;
+> the `.bat` bundle is a hair smaller. Both need no admin/Java/install.
 
 ### Speed — as fast as (or faster than) IntelliJ
 

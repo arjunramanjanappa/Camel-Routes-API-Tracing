@@ -59,9 +59,10 @@ TraceGuard-windows/
 └── traceguard.ico        ← shortcut icon
 ```
 
-The launcher finds `jre\bin\java`, runs the jar, waits for `http://localhost:8080/`, opens your default
-browser, and keeps a small console window open. **Close that window to stop TraceGuard.** macOS/Linux use
-`TraceGuard.command` the same way.
+The launcher finds `jre\bin\java`, starts the jar in its own **"TraceGuard"** console window, polls
+`http://localhost:8080/` with `curl`, and opens your default browser as soon as it responds. **Close the
+"TraceGuard" window to stop the app.** No PowerShell is used, so the auto-open works even where group policy
+blocks scripts. macOS/Linux use `TraceGuard.command` the same way.
 
 The launcher falls back to `JAVA_HOME`/`java` on `PATH` if no bundled `jre` is present — so the same script
 also works on a dev box that already has Java.

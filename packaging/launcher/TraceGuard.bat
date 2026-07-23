@@ -1,11 +1,12 @@
 @echo off
 setlocal enabledelayedexpansion
-title TraceGuard
+title TraceGuard Launcher
 REM ============================================================================
 REM  TraceGuard standalone launcher (Windows).
 REM  Double-click this (or its desktop shortcut). It starts the bundled server
-REM  and opens your browser. No install, no admin, no PATH changes.
-REM  Close this window to stop TraceGuard.
+REM  in its own "TraceGuard" window and opens your browser. No install, no admin,
+REM  no PATH changes, and no PowerShell (works where group policy blocks scripts).
+REM  Close the "TraceGuard" window to stop the app.
 REM ============================================================================
 
 set "HERE=%~dp0"
@@ -26,24 +27,47 @@ if not exist "%JAR%" (
 )
 if not exist "!JAR!" (
   echo [TraceGuard] Could not find the application jar under "%HERE%app\".
-  echo Make sure this launcher sits next to the "app" and "jre" folders.
+  echo Keep TraceGuard.bat next to the "app" and "jre" folders ^(run it from inside the unzipped folder^).
   pause
   exit /b 1
 )
 
-REM --- If a server is already answering on the port, just open the browser ---
-powershell -NoProfile -Command "try{[void](Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 '%URL%');exit 0}catch{exit 1}" >nul 2>&1
-if !errorlevel! equ 0 (
-  echo [TraceGuard] Already running - opening %URL%
-  start "" "%URL%"
-  timeout /t 2 >nul
-  exit /b 0
+REM --- curl ships with Windows 10/11; used to poll readiness (no PowerShell) ---
+set "HAVE_CURL="
+where curl >nul 2>&1 && set "HAVE_CURL=1"
+
+REM --- If a server already answers on the port, just open the browser and exit ---
+if defined HAVE_CURL (
+  curl -s -o nul -m 2 "%URL%" && (
+    echo [TraceGuard] Already running - opening %URL%
+    start "" "%URL%"
+    exit /b 0
+  )
 )
 
-REM --- Background: wait for the server to come up, then open the default browser ---
-start "" /b powershell -NoProfile -WindowStyle Hidden -Command "$u='%URL%';for($i=0;$i -lt 90;$i++){try{[void](Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 $u);Start-Process $u;break}catch{Start-Sleep -Milliseconds 800}}"
+REM --- Start the server in its OWN window. Closing that window stops TraceGuard. ---
+start "TraceGuard" "!JAVAC!" -jar "!JAR!"
 
-echo [TraceGuard] Starting... your browser will open when it is ready.
-echo [TraceGuard] Keep this window open while you use TraceGuard. Close it to stop.
-echo.
-"!JAVAC!" -jar "!JAR!"
+REM --- Wait for it to come up, then open the default browser (pure cmd) ---
+echo [TraceGuard] Starting... your browser will open automatically when it is ready.
+if defined HAVE_CURL (
+  for /l %%i in (1,1,90) do (
+    curl -s -o nul -m 2 "%URL%" && (
+      start "" "%URL%"
+      goto :opened
+    )
+    timeout /t 1 /nobreak >nul
+  )
+  REM Fell through without a response - open anyway so the user isn't stuck.
+  start "" "%URL%"
+) else (
+  REM No curl: wait a few seconds for boot, then open.
+  timeout /t 6 /nobreak >nul
+  start "" "%URL%"
+)
+
+:opened
+echo [TraceGuard] Opened %URL%
+echo [TraceGuard] To stop TraceGuard, close the "TraceGuard" window.
+timeout /t 4 /nobreak >nul
+exit /b 0

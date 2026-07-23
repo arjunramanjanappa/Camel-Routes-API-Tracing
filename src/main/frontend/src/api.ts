@@ -22,6 +22,37 @@ export async function saveAppConfig(app: string, modules: ConfigModule[]): Promi
   }
 }
 
+/** Machine-wide config state (tokens are never returned raw — only presence + a masked preview). */
+export interface AppSettings {
+  home: string;
+  bitbucketTokenSet: boolean;
+  bitbucketTokenMasked: string;
+  npmTokenSet: boolean;
+  npmTokenMasked: string;
+}
+
+/** Read the config-menu state: where the machine-wide config lives and which tokens are set. */
+export async function fetchSettings(): Promise<AppSettings> {
+  const res = await fetch('/internal/settings');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as AppSettings;
+}
+
+/**
+ * Save the Bitbucket / npm tokens. Only the fields present are changed — pass a string to set it
+ * (empty string clears), or omit a field to leave it as-is. Returns the refreshed masked state.
+ */
+export async function saveSettings(patch: { bitbucketToken?: string; npmToken?: string }): Promise<AppSettings> {
+  const res = await fetch('/internal/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => null);
+    throw new Error((d && d.error) || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as AppSettings;
+}
+
 /** Build a query string; string values are set once, string[] values are appended once per entry (repeated params). */
 function qs(params: Record<string, string | string[] | undefined>): string {
   const p = new URLSearchParams();

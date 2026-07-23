@@ -905,3 +905,29 @@ button.impact-api.linkish:hover { color: #1e40af; }
 [data-theme="dark"] .reviewbox-add { background: #1e293b; border-color: #b91c1c; color: #fca5a5; }
 [data-theme="dark"] .reviewbox-sub { color: #f0a0a0; }
 [data-theme="dark"] .reviewbox-list { color: #fecaca; }
+
+/* Config menu (⚙) — machine-wide Bitbucket / npm tokens */
+.config-modal { width: min(520px, 96vw); height: auto; max-height: 88vh; }
+.config-body { padding: 18px 20px; overflow: auto; display: flex; flex-direction: column; gap: 18px; }
+.cfg-field { display: flex; flex-direction: column; gap: 6px; }
+.cfg-field > label { font-size: 13px; font-weight: 600; color: #323f4b; }
+.cfg-field > input { padding: 9px 11px; font-size: 13px; border: 1px solid #cbd2d9; border-radius: 7px; background: #fff; }
+.cfg-field > input:focus { outline: none; border-color: var(--accent); }
+.cfg-status { font-size: 12px; color: #52606d; display: flex; align-items: center; gap: 8px; }
+.cfg-status code { background: #f0f2f5; padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+.cfg-actions { display: flex; justify-content: flex-end; }
+.cfg-actions .primary { padding: 9px 18px; font-size: 13px; font-weight: 600; border: 0; border-radius: 7px; background: var(--accent); color: #fff; cursor: pointer; }
+.cfg-actions .primary:hover { background: var(--accent-hover); }
+.cfg-actions .primary:disabled { opacity: .6; cursor: default; }
+.cfg-note { font-size: 12px; color: #6b7280; line-height: 1.5; border-top: 1px solid #eef0f3; padding-top: 12px; }
+.cfg-note code { background: #f0f2f5; padding: 1px 5px; border-radius: 5px; word-break: break-all; }
+.cfg-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 12px; padding: 8px 11px; border-radius: 7px; }
+.cfg-ok { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; font-size: 12px; padding: 8px 11px; border-radius: 7px; }
+[data-theme="dark"] .config-body { color: #e2e8f0; }
+[data-theme="dark"] .cfg-field > label { color: #e2e8f0; }
+[data-theme="dark"] .cfg-field > input { background: #0f172a; border-color: #334155; color: #e2e8f0; }
+[data-theme="dark"] .cfg-status { color: #cbd5e1; }
+[data-theme="dark"] .cfg-status code, [data-theme="dark"] .cfg-note code { background: #1e293b; }
+[data-theme="dark"] .cfg-note { color: #94a3b8; border-color: #1e293b; }
+[data-theme="dark"] .cfg-error { background: #2a1416; border-color: #7f1d1d; color: #fca5a5; }
+[data-theme="dark"] .cfg-ok { background: #0c2a20; border-color: #14532d; color: #6ee7b7; }

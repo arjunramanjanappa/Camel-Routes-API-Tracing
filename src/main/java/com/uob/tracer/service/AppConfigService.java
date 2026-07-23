@@ -26,27 +26,40 @@ public class AppConfigService {
     /** One configured module — the same shape the UI's ModuleSource uses, minus its client-side id. */
     public record ModuleEntry(String sourceType, String sourceDir, String repo, String branch) {}
 
+    /** Where the module config lived before it moved under the machine-wide home; read once for migration. */
+    private static final Path LEGACY_FILE = Path.of("config", "app-modules.json");
+
     private final Path file;
     private final ObjectMapper mapper;
     private final Object lock = new Object();   // serialise read-modify-write of the shared file
 
-    public AppConfigService(@Value("${tracer.app-config-file:config/app-modules.json}") String path,
+    public AppConfigService(@Value("${tracer.home:}") String home,
+                            @Value("${tracer.app-config-file:}") String path,
                             ObjectMapper mapper) {
-        this.file = Path.of(path);
+        if (path != null && !path.isBlank()) {
+            this.file = Path.of(path.trim());   // explicit override (e.g. an IntelliJ run config)
+        } else {
+            Path base = (home != null && !home.isBlank())
+                    ? Path.of(home.trim())
+                    : Path.of(System.getProperty("user.home", "."), ".traceguard");
+            this.file = base.resolve("app-modules.json");   // machine-wide, shared with standalone + IntelliJ
+        }
         this.mapper = mapper;
     }
 
     /** Every app's configured module list, keyed by app name. Empty map when the file doesn't exist yet. */
     public Map<String, List<ModuleEntry>> readAll() {
         synchronized (lock) {
-            if (!Files.exists(file)) {
+            Path src = Files.exists(file) ? file
+                    : (Files.exists(LEGACY_FILE) ? LEGACY_FILE : null);   // fall back to the pre-move location
+            if (src == null) {
                 return new LinkedHashMap<>();
             }
             try {
-                return mapper.readValue(Files.readAllBytes(file),
+                return mapper.readValue(Files.readAllBytes(src),
                         new TypeReference<LinkedHashMap<String, List<ModuleEntry>>>() {});
             } catch (IOException e) {
-                throw new IllegalArgumentException("Could not read the app config at " + file + ": " + e.getMessage());
+                throw new IllegalArgumentException("Could not read the app config at " + src + ": " + e.getMessage());
             }
         }
     }

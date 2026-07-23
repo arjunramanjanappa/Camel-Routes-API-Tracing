@@ -3,6 +3,7 @@ import TraceView from './views/TraceView';
 import ImpactView from './views/ImpactView';
 import ReleaseDiffView from './views/ReleaseDiffView';
 import AppPicker from './components/AppPicker';
+import ConfigMenu from './components/ConfigMenu';
 
 type View = 'trace' | 'impact' | 'diff';
 type Theme = 'light' | 'dark';
@@ -11,6 +12,7 @@ export default function App() {
   const [app, setApp] = useState<string | null>(null);
   const [view, setView] = useState<View>('trace');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('tracer.theme') as Theme) || 'light');
+  const [showConfig, setShowConfig] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -33,6 +35,7 @@ export default function App() {
           <button className={view === 'impact' ? 'tab active' : 'tab'} onClick={() => setView('impact')}>Release Test</button>
           <button className={view === 'diff' ? 'tab active' : 'tab'} onClick={() => setView('diff')}>Release Impact</button>
           <button className="tab" title="Switch application" onClick={() => setApp(null)}>⇄ App</button>
+          <button className="tab" title="Config — Bitbucket / npm tokens" onClick={() => setShowConfig(true)}>⚙ Config</button>
           <button className="tab theme-toggle" title="Toggle theme"
                   onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
             {theme === 'light' ? '🌙' : '☀️'}
@@ -42,6 +45,7 @@ export default function App() {
       {view === 'trace' && <TraceView app={app} colorMode={theme} />}
       {view === 'impact' && <ImpactView app={app} colorMode={theme} />}
       {view === 'diff' && <ReleaseDiffView app={app} colorMode={theme} />}
+      {showConfig && <ConfigMenu onClose={() => setShowConfig(false)} />}
     </div>
   );
 }

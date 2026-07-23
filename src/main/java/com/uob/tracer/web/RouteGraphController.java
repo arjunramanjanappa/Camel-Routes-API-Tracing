@@ -6,6 +6,7 @@ import com.uob.tracer.api.TraceRequest;
 import com.uob.tracer.service.AppConfigService;
 import com.uob.tracer.service.LogAnalysisService;
 import com.uob.tracer.service.RouteTraceService;
+import com.uob.tracer.service.SettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -38,8 +39,11 @@ public class RouteGraphController {
     private final RouteTraceService service;
     private final LogAnalysisService logService;
     private final AppConfigService appConfig;
+    private final SettingsService settings;
 
-    public RouteGraphController(RouteTraceService service, LogAnalysisService logService, AppConfigService appConfig) {
+    public RouteGraphController(RouteTraceService service, LogAnalysisService logService,
+                                AppConfigService appConfig, SettingsService settings) {
+        this.settings = settings;
         this.service = service;
         this.logService = logService;
         this.appConfig = appConfig;
@@ -190,6 +194,45 @@ public class RouteGraphController {
                                              @RequestBody List<AppConfigService.ModuleEntry> modules) {
         appConfig.save(app, modules);
         return Map.of("status", "saved");
+    }
+
+    /**
+     * Config menu state: whether each token is configured and where the machine-wide config lives. The
+     * raw token values are never returned — only presence and a masked preview — so the secret can't be
+     * read back out of the UI.
+     */
+    @GetMapping("/internal/settings")
+    public Map<String, Object> settings() {
+        SettingsService.Settings s = settings.read();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("home", settings.home().toString());
+        out.put("bitbucketTokenSet", !s.bitbucketToken().isBlank());
+        out.put("bitbucketTokenMasked", mask(s.bitbucketToken()));
+        out.put("npmTokenSet", !s.npmToken().isBlank());
+        out.put("npmTokenMasked", mask(s.npmToken()));
+        return out;
+    }
+
+    /**
+     * Save the Bitbucket / npm tokens. A field left out of the body (null) is kept as-is, so one token
+     * can be updated without clearing the other; an empty string clears that token. Returns the same
+     * masked state as {@link #settings()}.
+     */
+    @PostMapping("/internal/settings")
+    public Map<String, Object> saveSettings(@RequestBody Map<String, String> body) {
+        settings.save(
+                body.containsKey("bitbucketToken") ? nz(body.get("bitbucketToken")) : null,
+                body.containsKey("npmToken") ? nz(body.get("npmToken")) : null);
+        return settings();
+    }
+
+    private static String nz(String v) { return v == null ? "" : v; }
+
+    /** Show only the last 4 characters of a token, e.g. {@code ••••abcd}; blank when unset. */
+    private static String mask(String token) {
+        if (token == null || token.isBlank()) return "";
+        String t = token.trim();
+        return t.length() <= 4 ? "••••" : "••••" + t.substring(t.length() - 4);
     }
 
     private static String firstName(List<MultipartFile> files) {

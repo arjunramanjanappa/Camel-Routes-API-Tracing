@@ -32,7 +32,10 @@ public class SourceResolver {
     /** Skip a re-fetch if we fetched this repo+branch within this window (bounds fetches to ~1/request). */
     private static final long FETCH_THROTTLE_MS = 2000;
 
-    private final String token;
+    /** Startup fallback token from {@code bitbucket.token} (application.yml / IntelliJ run config). */
+    private final String propertyToken;
+    /** Machine-wide settings — the config menu's live Bitbucket token overrides the property. May be null in tests. */
+    private final SettingsService settings;
     private final Path workDir;
     private final Map<String, Object> locks = new ConcurrentHashMap<>();
     private final Map<String, Long> lastFetch = new ConcurrentHashMap<>();
@@ -45,16 +48,42 @@ public class SourceResolver {
 
     @org.springframework.beans.factory.annotation.Autowired
     public SourceResolver(@Value("${bitbucket.token:}") String token,
-                          @Value("${bitbucket.work-dir:}") String workDir) {
-        this.token = token == null ? "" : token.trim();
+                          @Value("${bitbucket.work-dir:}") String workDir,
+                          SettingsService settings) {
+        this.propertyToken = token == null ? "" : token.trim();
+        this.settings = settings;
         this.workDir = (workDir == null || workDir.isBlank())
                 ? Path.of(System.getProperty("java.io.tmpdir"), "traceguard-repos")
                 : Path.of(workDir.trim());
     }
 
-    /** Convenience for tests / local-only use (no token, default work dir). */
+    /** Convenience for tests / local-only use (no token, default work dir, no settings store). */
     public SourceResolver(String token) {
-        this(token, null);
+        this(token, (String) null);
+    }
+
+    /** Convenience for tests / local-only use (fixed token + work dir, no settings store). */
+    public SourceResolver(String token, String workDir) {
+        this.propertyToken = token == null ? "" : token.trim();
+        this.settings = null;
+        this.workDir = (workDir == null || workDir.isBlank())
+                ? Path.of(System.getProperty("java.io.tmpdir"), "traceguard-repos")
+                : Path.of(workDir.trim());
+    }
+
+    /**
+     * The token to authenticate with: the live one saved via the config menu ({@link SettingsService})
+     * when present, otherwise the {@code bitbucket.token} property. Read per request so a token saved in
+     * the UI takes effect without a restart.
+     */
+    private String currentToken() {
+        if (settings != null) {
+            String live = settings.bitbucketToken();
+            if (live != null && !live.isBlank()) {
+                return live.trim();
+            }
+        }
+        return propertyToken;
     }
 
     /** Clone/fetch {@code repo} at {@code ref} (branch or tag) and return the local working dir. */
@@ -166,6 +195,7 @@ public class SourceResolver {
     }
 
     private TransportConfigCallback auth() {
+        String token = currentToken();
         return transport -> {
             if (transport instanceof TransportHttp http && !token.isBlank()) {
                 http.setAdditionalHeaders(Map.of("Authorization", "Bearer " + token));
@@ -211,8 +241,8 @@ public class SourceResolver {
         String m = rootMsg == null ? "" : rootMsg.toLowerCase(java.util.Locale.ROOT);
         if (m.contains("401") || m.contains("not authorized") || m.contains("unauthorized")
                 || m.contains("authentication") || m.contains("403") || m.contains("forbidden")) {
-            return "  →  Authentication failed. Set a valid Bitbucket HTTP access token (Read scope) in "
-                    + "'bitbucket.token' (application.yml) — quote it if it has special characters — and RESTART the app.";
+            return "  →  Authentication failed. Save a valid Bitbucket HTTP access token (Read scope) in the "
+                    + "Config menu (⚙) — it takes effect immediately — or set 'bitbucket.token' in application.yml.";
         }
         if (m.contains("pkix") || m.contains("certification path") || m.contains("certificate")
                 || m.contains("ssl") || m.contains("handshake")) {

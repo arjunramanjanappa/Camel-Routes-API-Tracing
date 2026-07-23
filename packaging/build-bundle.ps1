@@ -91,8 +91,14 @@ if ($Full) {
   $modArgs = @('--add-modules', $mods)
 }
 Write-Host "==> jlink -> $jreOut"
-& $jlink @modArgs --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output $jreOut
+# compress=zip-0 (uncompressed): larger on disk but classes load as fast as a full JDK — compression
+# slows analysis (a Camel context per XML file loads many classes). The zip still compresses well.
+& $jlink @modArgs --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output $jreOut
 if ($LASTEXITCODE -ne 0) { throw "jlink failed (exit $LASTEXITCODE)." }
+
+# Generate the default CDS archive so JDK classes load as fast as on a full JDK (best-effort).
+Write-Host "==> generating CDS archive (faster class loading)"
+& (Join-Path $jreOut 'bin\java.exe') -Xshare:dump *> $null
 
 # --- Assemble -----------------------------------------------------------------
 Copy-Item $jar.FullName (Join-Path $dist 'app\traceguard.jar') -Force

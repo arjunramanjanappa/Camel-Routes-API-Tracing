@@ -38,6 +38,7 @@
              jlink.executable / os.tag. -->
         <jlink.executable>${java.home}/bin/jlink</jlink.executable>
         <jpackage.executable>${java.home}/bin/jpackage</jpackage.executable>
+        <exe.suffix></exe.suffix>
         <os.tag>unix</os.tag>
         <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
     </properties>
@@ -195,6 +196,7 @@
                 <npm.build.args>/c npm run build</npm.build.args>
                 <jlink.executable>${java.home}/bin/jlink.exe</jlink.executable>
                 <jpackage.executable>${java.home}/bin/jpackage.exe</jpackage.executable>
+                <exe.suffix>.exe</exe.suffix>
                 <os.tag>windows</os.tag>
             </properties>
         </profile>
@@ -241,8 +243,17 @@
                                         <delete dir="${project.build.directory}/dist"/>
                                         <mkdir dir="${bundle}/app"/>
                                         <echo message="jlink -> trimmed JRE (${os.tag}) using ${jlink.executable}"/>
+                                        <!-- compress=zip-0 (uncompressed): larger on disk but classes load as fast as a
+                                             full JDK - compression makes analysis slower (a Camel context per XML file
+                                             loads many classes). -->
                                         <exec executable="${jlink.executable}" failonerror="true">
-                                            <arg line="--add-modules ${jlink.modules} --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output &quot;${bundle}/jre&quot;"/>
+                                            <arg line="--add-modules ${jlink.modules} --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output &quot;${bundle}/jre&quot;"/>
+                                        </exec>
+                                        <!-- Generate the default CDS archive so JDK classes load as fast as on a full
+                                             JDK (a jlink image ships without one). Non-fatal if it can't be created. -->
+                                        <echo message="generating CDS archive (faster class loading)"/>
+                                        <exec executable="${bundle}/jre/bin/java${exe.suffix}" failonerror="false">
+                                            <arg value="-Xshare:dump"/>
                                         </exec>
                                         <copy file="${project.build.directory}/${project.build.finalName}.jar"
                                               tofile="${bundle}/app/traceguard.jar"/>

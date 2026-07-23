@@ -126,6 +126,19 @@ The `.exe` bakes in `-Dtracer.open-browser=true`, so double-clicking it starts t
 browser by itself; a console window stays open — close it to stop. Windows-only (run it on Windows). Build
 both at once with `mvn -Pdist,exe clean package` if you want to offer the `.bat` bundle and the `.exe`.
 
+### Speed — the runtime matches a full JDK
+
+Earlier bundles felt slower than running from IntelliJ because a jlink runtime, by default, is
+**compressed** and ships **without a shared class-data archive** — both slow class loading, which analysis
+does a lot of (a throwaway Camel context per XML file). The `dist` build now:
+
+- jlinks **uncompressed** (`--compress=zip-0`), and
+- generates the default **CDS archive** (`java -Xshare:dump`, used automatically at runtime).
+
+Measured startup then matches the full JDK IntelliJ uses (~2.7 s vs ~3.0 s before), and analysis class-loading
+is faster. Cost: the unzipped bundle is larger (~125 MB vs ~64 MB) — but the **shared zip is about the same
+or smaller** (~60 MB), since an uncompressed runtime compresses better in the zip.
+
 ### Verify before sharing (optional but recommended)
 
 Unzip the output somewhere and double-click the launcher yourself — the browser should open at

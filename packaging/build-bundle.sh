@@ -66,7 +66,10 @@ else
   MODPATH=()
 fi
 echo "==> jlink -> $DIST/jre"
-"$JH/bin/jlink" "${MODPATH[@]}" --add-modules "$MODS" --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output "$DIST/jre"
+# compress=zip-0 (uncompressed): larger on disk but classes load as fast as a full JDK.
+"$JH/bin/jlink" "${MODPATH[@]}" --add-modules "$MODS" --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output "$DIST/jre"
+echo "==> generating CDS archive (faster class loading)"
+"$DIST/jre/bin/java" -Xshare:dump >/dev/null 2>&1 || true
 
 # --- Assemble -----------------------------------------------------------------
 cp "$JAR" "$DIST/app/traceguard.jar"

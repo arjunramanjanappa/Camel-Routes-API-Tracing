@@ -77,8 +77,11 @@ if "%FULL%"=="1" (
   set "MODARGS=--add-modules java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent"
 )
 echo ==^> jlink -^> %DIST%\jre
-"!JLINK!" !MODARGS! --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output "%DIST%\jre"
+REM compress=zip-0 (uncompressed): larger on disk but classes load as fast as a full JDK.
+"!JLINK!" !MODARGS! --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output "%DIST%\jre"
 if errorlevel 1 ( echo ERROR: jlink failed. & exit /b 1 )
+echo ==^> generating CDS archive ^(faster class loading^)
+"%DIST%\jre\bin\java.exe" -Xshare:dump >nul 2>&1
 
 REM --- Assemble ----------------------------------------------------------------
 copy /y "!JAR!" "%DIST%\app\traceguard.jar" >nul

@@ -70,8 +70,16 @@ also works on a dev box that already has Java.
 
 ## Building a bundle (on a build machine)
 
-The build machine needs a **full JDK 21** (for `jlink`) and **npm** on `PATH` (Maven compiles the React
-frontend). The target machine needs neither.
+### Prerequisites (build machine only — the target needs none of this)
+
+| Need | Why | Check |
+|------|-----|-------|
+| **Full JDK 21** (not a JRE — must have `jlink`) | Builds the trimmed runtime | `java -version` → 21.x, and `jlink --version` works |
+| **Node + npm** on `PATH` | Maven compiles the React frontend | `npm -v` prints a version |
+| **Maven** (or IntelliJ's bundled one) | Runs the build | `mvn -v` — or use IntelliJ ▸ **Terminal** |
+
+> Easiest: run the build from **IntelliJ's Terminal**, the same place `mvn spring-boot:run` works — it
+> already has `npm`, `mvn`, and a JDK on `PATH`.
 
 ### Recommended: Maven (`-Pdist`)
 
@@ -82,7 +90,7 @@ mvn -Pdist clean package
 Pure Maven — no PowerShell or `.bat` execution, so it works on locked-down machines where group policy
 blocks scripts. The `dist` profile does the normal build, then jlinks a trimmed JRE and assembles + zips the
 bundle. `jlink` builds a runtime for the OS Maven runs on, so **build the Windows bundle on Windows and the
-mac bundle on a Mac**. Output:
+mac bundle on a Mac**. Expect a final `[echo]` banner ending in `BUILD SUCCESS`, and:
 
 ```
 target\dist\TraceGuard-<os>\        the bundle folder
@@ -91,13 +99,20 @@ target\dist\TraceGuard-<os>.zip     ship this
 
 Normal `mvn package` and `spring-boot:run` are unaffected — the bundling only runs under `-Pdist`.
 
+### Verify before sharing (optional but recommended)
+
+Unzip the output somewhere and double-click the launcher yourself — the browser should open at
+`http://localhost:8080` within a few seconds. That confirms the bundled JRE runs the jar on a clean path
+before you send it. Close the console window to stop.
+
 ### Alternative: standalone scripts
 
 If you'd rather not use the profile (and scripts aren't blocked), the same result comes from
 `packaging\build-bundle.bat` (pure cmd — no PowerShell), `packaging\build-bundle.ps1`
 (`-SkipBuild` / `-Full` / `-Mvn` / `-JdkHome` options), or `packaging/build-bundle.sh` on macOS/Linux.
-If a trimmed runtime ever misses a class, the scripts' `full` / `-Full` option jlinks every JDK module
-(the default curated set is verified to boot Spring Boot + Tomcat + Camel + JGit).
+These write to `dist\` (repo root) rather than `target\dist\`. If a trimmed runtime ever misses a class,
+their `full` / `-Full` option jlinks every JDK module (the default curated set is verified to boot Spring
+Boot + Tomcat + Camel + JGit).
 
 ---
 
@@ -135,4 +150,39 @@ lists come back automatically — in both the standalone app and IntelliJ.
 `~/.traceguard` for tokens/modules, so config is shared with the bundle. The old `bitbucket.token` in
 `application.yml` / the `BITBUCKET_TOKEN` env var still work as a fallback when the Config menu hasn't been
 used.
-```
+
+---
+
+## Updating / shipping a new version
+
+There's no auto-update. To push a new build: rebuild (`mvn -Pdist clean package`) and send the new zip. The
+recipient deletes their old `TraceGuard-<os>` folder and unzips the new one in its place. Their config
+(tokens, saved modules) lives in `~/.traceguard`, **not** in the bundle folder, so it survives the swap —
+nothing to re-enter.
+
+---
+
+## Troubleshooting
+
+**Build side**
+
+- **`jlink` not found / “not a JDK”** — you're on a JRE. Point at a full JDK 21: set `JAVA_HOME` to it (or,
+  for the scripts, pass `-JdkHome`). Verify with `jlink --version`.
+- **`npm` / frontend build fails** — Node/npm isn't on `PATH`. Run from IntelliJ's Terminal, or install Node.
+  For a quick jar-only rebuild during dev use `-Dskip.frontend=true` (not for a shared build — it skips the UI).
+- **`maven-antrun-plugin ... could not be resolved` (offline)** — the first `-Pdist` build fetches the plugin;
+  run once with network access (your normal Maven repo/Nexus is enough).
+
+**Recipient side**
+
+- **“Windows protected your PC” (SmartScreen)** — click **More info ▸ Run anyway**. Unsigned internal tool;
+  expected. (Some mail/AV gateways strip `.bat` from zips — share via a file share or an inner zip if so.)
+- **Browser doesn't open but the console is running** — open `http://localhost:8080` manually. If another app
+  owns port 8080, close it (the app is fixed to 8080).
+- **“Could not find the application jar”** — the launcher was moved out of the bundle. Keep `TraceGuard.bat`
+  next to the `app\` and `jre\` folders (run it from inside the unzipped folder).
+- **A class is missing at runtime** (rare, only if the module set was trimmed too far) — rebuild with the full
+  module set: `packaging\build-bundle.bat full` (or `build-bundle.ps1 -Full`). Bigger, includes every JDK module.
+- **macOS “can't be opened” (Gatekeeper)** — right-click `TraceGuard.command` ▸ **Open** once; thereafter it
+  double-clicks normally.
+- **First launch is slow** — the JVM warms up on first start; subsequent launches are quicker.

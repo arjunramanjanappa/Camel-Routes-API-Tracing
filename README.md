@@ -112,6 +112,21 @@ java -jar target/traceguard-1.0.0.jar
   current UI. **If the UI looks stale, stop the old jar/process and run the
   freshly built one, then hard-refresh (`Ctrl+Shift+R`).**
 
+### Share it as a desktop app
+
+To hand TraceGuard to someone who has **no Java, no admin rights, and can't install
+anything**, build a self-contained bundle (fat jar + a trimmed Java runtime + a
+double-click launcher) and send the zip:
+
+```bash
+mvn -Pdist clean package        # → target/dist/TraceGuard-<os>.zip
+```
+
+The recipient unzips it and double-clicks `TraceGuard.bat` (Windows) /
+`TraceGuard.command` (macOS) — the browser opens automatically. Pure Maven, so it
+works where group policy blocks scripts. Full guide (prerequisites, sharing,
+install, troubleshooting): **[packaging/README.md](packaging/README.md)**.
+
 ---
 
 ## Applications (Mighty / SPL)

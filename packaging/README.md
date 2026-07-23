@@ -10,6 +10,42 @@ see the same config.
 
 ---
 
+## Sharing it with others (TL;DR)
+
+`mvn spring-boot:run` is **not** shareable — it only runs on your machine and needs the full source, a JDK,
+and npm. To hand TraceGuard to someone, build the self-contained bundle and send the zip. The recipient
+needs **no admin, no Java, no install**.
+
+**1. Build the bundle** — run this from a shell where `npm` works (e.g. IntelliJ's **Terminal**, the same
+place `spring-boot:run` works):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build-bundle.ps1
+```
+
+It rebuilds the frontend, jlinks a trimmed Java runtime, and produces:
+
+```
+dist\TraceGuard-windows.zip      (~85 MB: app jar + bundled JRE + launcher + icon)
+```
+
+**2. Send `dist\TraceGuard-windows.zip`** — email, Teams, or a network share.
+
+**3. The recipient:**
+- Unzips it anywhere in their **own** user folder (e.g. `C:\Users\them\Apps\TraceGuard-windows`).
+- Double-clicks **`TraceGuard.bat`** → the browser opens at `http://localhost:8080`. Close the console to quit.
+- (optional) Desktop icon: `powershell -ExecutionPolicy Bypass -File Create-Shortcut.ps1`
+- First run: opens **⚙ Config** and pastes their **own** Bitbucket token (tokens are per-machine — everyone
+  sets their own).
+
+> **macOS recipients:** run `./packaging/build-bundle.sh` **on a Mac** (jlink builds a runtime for the OS it
+> runs on) to produce `TraceGuard-mac.zip`; they double-click `TraceGuard.command` (right-click ▸ Open the
+> first time to clear Gatekeeper).
+
+The rest of this document is the detailed reference for each step.
+
+---
+
 ## How it runs
 
 ```

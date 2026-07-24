@@ -1,5 +1,4 @@
 import type { ApiLogResult, LogAnalysisReport, LogStatus } from '../types';
-import { exportLogSummaryPdf } from '../logSummaryPdf';
 
 /**
  * The leadership Summary for the Release Test tab: a plain readiness view of an uploaded run log — how
@@ -28,12 +27,7 @@ function remarkOf(a: ApiLogResult): string {
     || (a.attempts > 0 ? `${a.failureCount}/${a.attempts} failed` : '—');
 }
 
-export default function TestSummary({ report, app, version, country }: {
-  report: LogAnalysisReport;
-  app?: string;
-  version?: string;
-  country?: string;
-}) {
+export default function TestSummary({ report }: { report: LogAnalysisReport }) {
   const apis = [...report.apis].sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status] || a.api.localeCompare(b.api));
   let passed = 0, issues = 0, notTested = 0;
   for (const a of apis) {
@@ -46,11 +40,7 @@ export default function TestSummary({ report, app, version, country }: {
 
   return (
     <div className="sumv" style={{ marginTop: 12 }}>
-      <div className="row between" style={{ margin: '2px 0 8px', flexWrap: 'wrap', gap: 8 }}>
-        <p className="sumv-eyebrow" style={{ margin: 0 }}>Verification readiness · from the uploaded run log</p>
-        <button className="minibtn" onClick={() => exportLogSummaryPdf(report, app, version, country).catch(() => {})}
-                title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
-      </div>
+      <p className="sumv-eyebrow" style={{ margin: '2px 0 8px' }}>Verification readiness · from the uploaded run log</p>
 
       <div className="sumv-tiles">
         <div className="sumv-tile accent"><div className="n">{total}</div><div className="l">APIs checked</div></div>

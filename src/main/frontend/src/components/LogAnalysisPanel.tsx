@@ -3,6 +3,7 @@ import { analyzeLog, analyzeLogMulti, type UploadProgress } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
 import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
+import { exportLogSummaryPdf } from '../logSummaryPdf';
 import TestSummary from './TestSummary';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
@@ -467,6 +468,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     if (!report) return;
     exportLogPdf(report, app, version, needsReview).catch(() => {});
   };
+  /** Leadership Summary PDF — from the combined report (covers all modules). */
+  const exportSummaryPdf = () => { if (report) exportLogSummaryPdf(report, app, version, country).catch(() => {}); };
 
   // Front-end APIs and backends are shown one section at a time. The segmented switch only
   // appears when a report has a STANDALONE backend section (a backend-scoped analysis). In a
@@ -591,9 +594,16 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </div>
       )}
 
+      {report && (
+        <div className="export-bar" style={{ paddingRight: 0 }}>
+          <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
+          <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers">⤓ Detailed PDF</button>
+        </div>
+      )}
+
       {report && viewMode === 'summary' && (
-        <div style={{ marginTop: 12 }} ref={multi ? undefined : resultsRef}>
-          <TestSummary report={report} app={app} version={version} country={country} />
+        <div style={{ marginTop: 4 }} ref={multi ? undefined : resultsRef}>
+          <TestSummary report={report} />
         </div>
       )}
 

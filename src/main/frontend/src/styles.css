@@ -1019,3 +1019,5 @@ button.impact-api.linkish:hover { color: #1e40af; }
 [data-theme="dark"] .sumv-group-head { color: #cbd5e1; }
 [data-theme="dark"] .sumv-group-cnt { background: #131f38; color: #93a3ba; }
 [data-theme="dark"] .sumv-group-list li .path { color: #cbd5e1; }
+/* Two-report export bar (Summary + Detailed) — shown on every tab, both view modes */
+.export-bar { display: flex; justify-content: flex-end; gap: 6px; padding: 4px 18px 10px; flex-wrap: wrap; }

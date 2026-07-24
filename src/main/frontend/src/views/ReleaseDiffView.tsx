@@ -704,15 +704,16 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         </div>
       )}
 
+      {!loading && report && (
+        <div className="export-bar">
+          <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
+          <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
+        </div>
+      )}
+
       {!loading && report && viewMode === 'summary' && (
         <div className="impact-body" style={{ padding: '0 18px 20px' }}>
-          <div className="row between" style={{ margin: '4px 0 6px', flexWrap: 'wrap', gap: 8 }}>
-            <h2 style={{ margin: 0 }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
-            <span className="row" style={{ gap: 6 }}>
-              <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
-              <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
-            </span>
-          </div>
+          <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
           <CodeChangeSummary report={report} />
           <div className="testlog-bar" style={{ marginTop: 10 }}>
             <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">

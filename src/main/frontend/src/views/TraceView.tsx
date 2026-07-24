@@ -15,6 +15,7 @@ import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 import Loader, { SCAN_MESSAGES } from '../components/Loader';
 import { exportApiTracePdf } from '../apiTracePdf';
+import { exportScopeSummaryPdf } from '../scopeSummaryPdf';
 import { analyzeModules, moduleValid, type ModuleResult, type ModuleSource } from '../modules';
 import { useAppModules } from '../appModules';
 
@@ -138,6 +139,15 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
     finally { setExporting(false); }
   };
 
+  const exportSummaryPdf = async () => {
+    setExporting(true); setError(null);
+    try {
+      const cats = catalogs.map((r) => ({ name: r.name, cat: asCatalog(r.result), error: r.error })).filter((c) => c.cat || c.error);
+      if (cats.length) await exportScopeSummaryPdf(cats as { name: string; cat: CatalogResponse | null; error?: string }[], app, version, country);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setExporting(false); }
+  };
+
   const onField = (patch: { country?: string; version?: string }) => {
     if (patch.country !== undefined) { setCountry(patch.country); if (modules[0]) loadMeta(modules[0]); }
     if (patch.version !== undefined) setVersion(patch.version);
@@ -183,6 +193,12 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
                        onExport={exportPdf} exportDisabled={exporting || !catalogs.length}
                        exportLabel={exporting ? 'PDF…' : '⤓ Export PDF'}
                        exportTitle="One PDF covering every module for this release" />
+      )}
+      {scopeCat && (
+        <div className="export-bar">
+          <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads">⤓ Summary PDF</button>
+          <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers">⤓ Detailed PDF</button>
+        </div>
       )}
       {viewMode === 'summary' && scopeCat && (
         <div style={{ padding: '0 18px 18px' }}><ScopeSummary catalog={scopeCat} /></div>

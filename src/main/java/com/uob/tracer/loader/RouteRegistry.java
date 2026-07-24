@@ -33,6 +33,14 @@ public class RouteRegistry {
     private final Map<String, RouteModel> byFromName = new LinkedHashMap<>();
     private final Map<String, RouteModel> byRouteId = new LinkedHashMap<>();
     private final List<RouteModel> all = new ArrayList<>();
+    /**
+     * Ambient routes: dependency routes NOT reachable from the country's own assembly closure. They are
+     * wholesale-included so a {@code direct:} host resolves without an import (see SourceIndex), and so stay
+     * lookup-able — but they must NOT count as one of THIS country's APIs/versions (that would let another
+     * country's versioned route, e.g. {@code R6.0_validate} from {@code security-th-v1.xml}, become the
+     * predecessor of an SG API). Identity set: excluded from operation/version enumeration only.
+     */
+    private final Set<RouteModel> ambient = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     /** application.properties (+ other source properties): resolves {@code {{key}}} in route names. */
     private final Map<String, String> properties;
 
@@ -78,7 +86,19 @@ public class RouteRegistry {
     }
 
     public void add(RouteModel route) {
+        add(route, false);
+    }
+
+    /**
+     * Add a route. {@code ambient} = a dependency route not reachable from the country closure: kept for
+     * {@code direct:} host lookup, but excluded from this country's operation/version enumeration. Country
+     * routes are added first (before ambient), so on a name clash the country's own route wins the index.
+     */
+    public void add(RouteModel route, boolean ambient) {
         all.add(route);
+        if (ambient) {
+            this.ambient.add(route);
+        }
         if (route.fromName() != null) {
             byFromName.putIfAbsent(resolveName(route.fromName()), route);
         }
@@ -123,6 +143,9 @@ public class RouteRegistry {
     public List<String> availableVersionsFor(String operationName) {
         List<String> versions = new ArrayList<>();
         for (RouteModel route : all) {
+            if (ambient.contains(route)) {
+                continue;   // another country's dependency route is not a version of this country's API
+            }
             String key = keyOf(route);
             if (key == null) {
                 continue;
@@ -144,6 +167,9 @@ public class RouteRegistry {
     public Set<String> operationNames() {
         Set<String> ops = new LinkedHashSet<>();
         for (RouteModel route : all) {
+            if (ambient.contains(route)) {
+                continue;   // ambient dependency routes are not this country's own operations
+            }
             String key = keyOf(route);
             if (key == null) {
                 continue;
@@ -158,6 +184,9 @@ public class RouteRegistry {
     public List<String> allVersions() {
         Set<String> versions = new LinkedHashSet<>();
         for (RouteModel route : all) {
+            if (ambient.contains(route)) {
+                continue;   // ambient dependency routes don't define this country's versions
+            }
             String key = keyOf(route);
             if (key == null) {
                 continue;

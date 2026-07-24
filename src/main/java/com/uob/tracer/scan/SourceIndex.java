@@ -310,16 +310,26 @@ public class SourceIndex {
             return registry;
         }
         Set<FileInfo> closure = closureOf(starts, scopeWarnings);
-        // Dependency files are country- and version-agnostic shared/core routes (host resolution),
-        // not country bootstraps — so they are ALWAYS in scope, even when the country bootstrap
-        // reaches them via direct: rather than an <import>. Union them into the closure so a host
-        // defined in a dependency resolves regardless of the selected country.
-        Set<FileInfo> included = new java.util.LinkedHashSet<>(closure);
-        included.addAll(dependencyFiles);   // precomputed once — no per-call rescan of the merged file list
+        // Dependency files are country- and version-agnostic shared/core routes (host resolution), not
+        // country bootstraps — so they are ALWAYS in scope, even when the country bootstrap reaches them via
+        // direct: rather than an <import>, so a host defined in a dependency resolves regardless of country.
+        // But a dependency file that is NOT part of this country's assembly closure is AMBIENT: it stays
+        // lookup-able for direct: hosts, yet must not contribute its routes as one of THIS country's
+        // APIs/versions — otherwise another country's versioned route (e.g. R6.0_validate in a TH security
+        // file) would wrongly become the predecessor of an SG API. A dependency file reached via the
+        // closure (imported/ref'd) is a full country route and stays non-ambient.
+        Set<FileInfo> ambientFiles = new java.util.LinkedHashSet<>(dependencyFiles);
+        ambientFiles.removeAll(closure);
         int routeCount = 0;
-        for (FileInfo f : included) {
+        for (FileInfo f : closure) {                 // country routes first — they win any name clash
             for (RouteModel r : f.routes()) {
                 registry.add(r);
+                routeCount++;
+            }
+        }
+        for (FileInfo f : ambientFiles) {            // dependency-only files — host lookup, not country APIs
+            for (RouteModel r : f.routes()) {
+                registry.add(r, true);
                 routeCount++;
             }
         }

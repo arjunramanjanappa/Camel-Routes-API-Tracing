@@ -163,12 +163,15 @@ export interface ApiDiff {
   authors?: string[];
   /** True when a pre-existing (BAU) @Component Java class wired into this API's flow was modified by the release. */
   codeChanged?: boolean;
-  /** Changed bean classes (with commit authors), e.g. `statusProcessor (StatusProcessor.java) — Alice, Bob`. */
+  /** Changed bean classes (with the app-version(s) that changed each + commit authors), e.g.
+   *  `statusProcessor (StatusProcessor.java) · 19.18.0 — Alice, Bob`. */
   changedClasses?: string[];
   /** Routes to re-test for that class change, each tagged Current / BAU / Future. */
   impactedRoutes?: ImpactedRoute[];
   /** Test-priority derived from the combined change signals. */
   risk?: 'High' | 'Medium' | 'Low';
+  /** Distinct app/commit version(s) that changed this API's classes, e.g. `['19.18.0','19.10.1']`. */
+  changedVersions?: string[];
 }
 
 /** A route to re-test for a shared-class change, tagged by its relation to the release. */

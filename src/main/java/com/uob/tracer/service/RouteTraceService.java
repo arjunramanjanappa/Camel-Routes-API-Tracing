@@ -640,6 +640,7 @@ public class RouteTraceService {
             ApiDiff d = apis.get(i);
             List<String> flow = flowByApi.getOrDefault(d.api(), List.of());
             LinkedHashSet<String> changedClasses = new LinkedHashSet<>();
+            LinkedHashSet<String> changedVersions = new LinkedHashSet<>();   // app-version(s) that changed this API's classes
             LinkedHashSet<ImpactedRoute> impacted = new LinkedHashSet<>();
             for (String routeId : flow) {
                 // Code change = a changed @Component Java class only. Route XML / payload changes are already
@@ -665,7 +666,9 @@ public class RouteTraceService {
                     if (hits.isEmpty()) {
                         continue;
                     }
-                    changedClasses.add(classLabel(beanName, classFile, rc.fileAuthors().get(hit)));
+                    List<String> vers = rc.fileVersions().getOrDefault(hit, List.of());
+                    changedVersions.addAll(vers);
+                    changedClasses.add(classLabel(beanName, classFile, vers, rc.fileAuthors().get(hit)));
                     impacted.addAll(hits);
                 }
             }
@@ -679,7 +682,8 @@ public class RouteTraceService {
             if (ApiDiff.UNCHANGED.equals(d.status())) {
                 continue;
             }
-            apis.set(i, d.withCodeChange(true, new ArrayList<>(changedClasses), new ArrayList<>(impacted)));
+            apis.set(i, d.withCodeChange(true, new ArrayList<>(changedClasses), new ArrayList<>(impacted),
+                    new ArrayList<>(changedVersions)));
             codeChangedCount++;
             if (ApiDiff.NEW.equals(d.status())) {
                 newToChanged++;
@@ -885,8 +889,11 @@ public class RouteTraceService {
     }
 
     /** {@code beanName (Class.java)}, plus the release commit authors who changed it when known. */
-    private static String classLabel(String beanName, String classFile, List<String> authors) {
+    private static String classLabel(String beanName, String classFile, List<String> versions, List<String> authors) {
         String base = beanName + " (" + fileName(classFile) + ")";
+        if (versions != null && !versions.isEmpty()) {
+            base += " · " + String.join(", ", versions);   // " · 19.18.0, 19.10.1" — the version(s) that changed it
+        }
         return (authors != null && !authors.isEmpty()) ? base + " — " + String.join(", ", authors) : base;
     }
 

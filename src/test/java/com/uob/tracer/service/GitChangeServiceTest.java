@@ -16,31 +16,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Unit + integration coverage for {@link GitChangeService}: version-token normalisation and, when a git
- * CLI is available, the end-to-end "what did this release change" detection (version-token matching,
- * whitespace-insensitive net diff, and graceful degradation on a non-git directory).
+ * Unit + integration coverage for {@link GitChangeService}: version-token parsing (exact, multi-value) and,
+ * when a git CLI is available, the end-to-end "what did this release change" detection — exact version-token
+ * matching, per-version attribution, whitespace-insensitive net diff, and graceful non-git degradation.
  */
 class GitChangeServiceTest {
 
-    // --- normalise: 19.18.0 ≡ 19.18, but 19.8 ≠ 19.18 (no git needed) ---
+    // --- parse: comma/space-separated, exact tokens, no normalisation (no git needed) ---
 
     @Test
-    void trailingZeroSegmentsAreDropped() {
-        assertThat(GitChangeService.normalize("19.18.0")).isEqualTo("19.18");
-        assertThat(GitChangeService.normalize("19.18")).isEqualTo("19.18");
-        assertThat(GitChangeService.normalize("19.18.0.0")).isEqualTo("19.18");
+    void parsesMultipleVersionsExactlyAsEntered() {
+        assertThat(GitChangeService.parseVersions("19.10, 19.10.0, 19.10.1 , 19.18.0"))
+                .containsExactly("19.10", "19.10.0", "19.10.1", "19.18.0");   // distinct, order preserved
+        assertThat(GitChangeService.parseVersions("19.18.0")).containsExactly("19.18.0");
     }
 
     @Test
-    void differentMinorsStayDistinct() {
-        assertThat(GitChangeService.normalize("19.8")).isNotEqualTo(GitChangeService.normalize("19.18"));
-        assertThat(GitChangeService.normalize("19.8")).isEqualTo("19.8");
-    }
-
-    @Test
-    void nonVersionStringNormalisesToNull() {
-        assertThat(GitChangeService.normalize("no-version-here")).isNull();
-        assertThat(GitChangeService.normalize(null)).isNull();
+    void parseIgnoresBlankAndSplitsOnWhitespaceOrComma() {
+        assertThat(GitChangeService.parseVersions("  19.10   19.18.0 ,, ")).containsExactly("19.10", "19.18.0");
+        assertThat(GitChangeService.parseVersions("  ")).isEmpty();
+        assertThat(GitChangeService.parseVersions(null)).isEmpty();
     }
 
     // --- a non-git directory degrades to "unavailable", never throws ---
@@ -82,7 +77,7 @@ class GitChangeServiceTest {
     }
 
     @Test
-    void appVersionMatchesRegardlessOfTrailingZero(@TempDir Path dir) throws Exception {
+    void versionMatchIsExactNoTrailingZeroEquivalence(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         initRepo(dir);
         Files.writeString(dir.resolve("Foo.java"), "class Foo { int a = 1; }\n");
@@ -90,10 +85,32 @@ class GitChangeServiceTest {
         Files.writeString(dir.resolve("Foo.java"), "class Foo { int a = 2; }\n");
         commit(dir, "[JIRA-2][SG][19.18.0] change Foo");
 
-        // The commit tags 19.18.0; asking for the normalised 19.18 must still match.
-        GitChangeService.ReleaseChanges rc = new GitChangeService().changedFor(dir, "19.18");
-        assertThat(rc.matchedCommits()).isEqualTo(1);
-        assertThat(rc.changedFiles()).contains("Foo.java");
+        // The commit tags exactly 19.18.0. Asking for 19.18 must NOT match (distinct Jira versions).
+        assertThat(new GitChangeService().changedFor(dir, "19.18").matchedCommits()).isZero();
+        // Asking for the exact 19.18.0 matches.
+        GitChangeService.ReleaseChanges exact = new GitChangeService().changedFor(dir, "19.18.0");
+        assertThat(exact.matchedCommits()).isEqualTo(1);
+        assertThat(exact.changedFiles()).contains("Foo.java");
+    }
+
+    @Test
+    void multipleVersionsUnionWithPerFileAttribution(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("Foo.java"), "class Foo { int a = 1; }\n");
+        Files.writeString(dir.resolve("Baz.java"), "class Baz { int c = 1; }\n");
+        commit(dir, "[JIRA-1][SG][19.9.0] baseline");
+        Files.writeString(dir.resolve("Foo.java"), "class Foo { int a = 2; }\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] change Foo");
+        Files.writeString(dir.resolve("Baz.java"), "class Baz { int c = 2; }\n");
+        commit(dir, "[JIRA-3][SG][19.10.1] change Baz");
+
+        // Both listed versions are matched; changed files are the union, attributed per version.
+        GitChangeService.ReleaseChanges rc = new GitChangeService().changedFor(dir, "19.18.0, 19.10.1");
+        assertThat(rc.matchedCommits()).isEqualTo(2);
+        assertThat(rc.changedFiles()).contains("Foo.java", "Baz.java");
+        assertThat(rc.fileVersions().get("Foo.java")).containsExactly("19.18.0");
+        assertThat(rc.fileVersions().get("Baz.java")).containsExactly("19.10.1");
     }
 
     @Test

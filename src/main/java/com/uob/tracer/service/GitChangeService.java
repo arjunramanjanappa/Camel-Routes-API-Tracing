@@ -15,10 +15,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Finds the files a release changed, where a "release" is identified by the app/commit version token in
- * the commit message ({@code [jira][country][19.18.0]-message}, position may vary). Shells out to the
- * git CLI (like {@link GitBlameService}) and degrades gracefully to "no changes" if git is missing or
- * the source isn't a work tree.
+ * Finds the files a release changed, where a "release" is identified by the app/commit version token(s) in
+ * the commit message ({@code [jira][country][19.18.0]-message}, position may vary). One or more versions may
+ * be given (comma/space-separated) and are matched <b>literally</b> — {@code 19.10}, {@code 19.10.0} and
+ * {@code 19.10.1} are distinct (the exact Jira version used to commit). Shells out to the git CLI (like
+ * {@link GitBlameService}) and degrades gracefully to "no changes" if git is missing or the source isn't a
+ * work tree.
  *
  * <p>Whitespace-only changes are ignored ({@code -w}); the net effect from before the release to HEAD is
  * used, so reverts within the release don't count. Renames are followed ({@code -M}).
@@ -26,25 +28,28 @@ import java.util.regex.Pattern;
 public class GitChangeService {
 
     /**
-     * Files (repo-relative, forward-slashed) the release changed, how many commits matched its version, and
-     * the distinct commit authors who changed each file (from the matched commits) — for "who to ask".
+     * Files (repo-relative, forward-slashed) the release changed, how many commits matched, the distinct
+     * commit authors who changed each file (for "who to ask"), and — for the per-version breakdown — which
+     * of the requested version(s) changed each file.
      */
     public record ReleaseChanges(Set<String> changedFiles, int matchedCommits, boolean gitAvailable,
-                                 Map<String, List<String>> fileAuthors) {
+                                 Map<String, List<String>> fileAuthors,
+                                 Map<String, List<String>> fileVersions) {
         public static ReleaseChanges none() {
-            return new ReleaseChanges(Set.of(), 0, false, Map.of());
+            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of());
         }
     }
 
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]+)\\]");
-    private static final Pattern VERSIONISH = Pattern.compile("\\d+(?:\\.\\d+)*");
 
     public ReleaseChanges changedFor(Path repoDir, String appVersion) {
-        if (repoDir == null || appVersion == null || appVersion.isBlank()) {
+        if (repoDir == null) {
             return ReleaseChanges.none();
         }
-        String wanted = normalize(appVersion);
-        if (wanted == null) {
+        // One or more versions, comma/space-separated, matched literally. Insertion order is kept so the
+        // per-file version list reads in the order the user entered them.
+        Set<String> wanted = parseVersions(appVersion);
+        if (wanted.isEmpty()) {
             return ReleaseChanges.none();
         }
 
@@ -55,7 +60,10 @@ public class GitChangeService {
             return ReleaseChanges.none();   // not a work tree / git missing
         }
         List<String> matched = new ArrayList<>();
-        long earliestTs = Long.MAX_VALUE;
+        Map<String, List<String>> commitVersions = new LinkedHashMap<>();   // hash -> the requested version(s) it carries
+        // git log is newest-first (and never lists a parent before its child), so the LAST matched commit we
+        // see is the oldest — a robust pre-release baseline even when several commits share a timestamp
+        // (which timestamp comparison would tie-break wrongly).
         String earliest = null;
         for (String rec : log) {
             String r = rec.strip();
@@ -66,38 +74,38 @@ public class GitChangeService {
             if (f.length < 3) {
                 continue;
             }
-            if (messageMatches(f[2], wanted)) {
-                matched.add(f[0].trim());
-                long ts;
-                try {
-                    ts = Long.parseLong(f[1].trim());
-                } catch (NumberFormatException e) {
-                    ts = 0;
-                }
-                if (ts < earliestTs) {
-                    earliestTs = ts;
-                    earliest = f[0].trim();
-                }
+            List<String> vs = versionsIn(f[2], wanted);
+            if (!vs.isEmpty()) {
+                String hash = f[0].trim();
+                matched.add(hash);
+                commitVersions.put(hash, vs);
+                earliest = hash;   // overwritten each match → ends on the oldest matched commit
             }
         }
         if (matched.isEmpty()) {
-            return new ReleaseChanges(Set.of(), 0, true, Map.of());   // no commit matched the version
+            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of());   // no commit matched any version
         }
 
-        // 2. Candidate files + their authors: non-whitespace changes across the matched commits (one git show).
-        //    The "@@@<hash>|<author>" format line precedes each commit's numstat block, so files are attributed
-        //    to the author of the matched commit that changed them.
+        // 2. Candidate files + their authors + the version(s) that touched them: non-whitespace changes across
+        //    the matched commits (one git show). The "@@@<hash>|<author>" format line precedes each commit's
+        //    numstat block, so files are attributed to the matched commit (its author and its version) that
+        //    changed them.
         Set<String> candidates = new LinkedHashSet<>();
         Map<String, LinkedHashSet<String>> authors = new LinkedHashMap<>();
+        Map<String, LinkedHashSet<String>> versions = new LinkedHashMap<>();
         List<String> showArgs = new ArrayList<>(List.of("show", "--format=@@@%H|%an", "-w", "-M", "--numstat"));
         showArgs.addAll(matched);
         List<String> stat = run(repoDir, 30, showArgs.toArray(new String[0]));
         if (stat != null) {
             String curAuthor = null;
+            List<String> curVersions = List.of();
             for (String line : stat) {
                 if (line.startsWith("@@@")) {
-                    int bar = line.indexOf('|');
-                    curAuthor = bar >= 0 ? line.substring(bar + 1).trim() : null;
+                    String rest = line.substring(3);
+                    int bar = rest.indexOf('|');
+                    String hash = (bar >= 0 ? rest.substring(0, bar) : rest).trim();
+                    curAuthor = bar >= 0 ? rest.substring(bar + 1).trim() : null;
+                    curVersions = commitVersions.getOrDefault(hash, List.of());
                     continue;
                 }
                 String[] c = line.split("\t");
@@ -110,6 +118,9 @@ public class GitChangeService {
                     candidates.add(file);
                     if (curAuthor != null && !curAuthor.isEmpty()) {
                         authors.computeIfAbsent(file, k -> new LinkedHashSet<>()).add(curAuthor);
+                    }
+                    if (!curVersions.isEmpty()) {
+                        versions.computeIfAbsent(file, k -> new LinkedHashSet<>()).addAll(curVersions);
                     }
                 }
             }
@@ -129,51 +140,57 @@ public class GitChangeService {
             }
         }
         Map<String, List<String>> fileAuthors = new LinkedHashMap<>();
+        Map<String, List<String>> fileVersions = new LinkedHashMap<>();
         for (String f : candidates) {
             LinkedHashSet<String> a = authors.get(f);
             if (a != null && !a.isEmpty()) {
                 fileAuthors.put(f, new ArrayList<>(a));
             }
+            LinkedHashSet<String> v = versions.get(f);
+            if (v != null && !v.isEmpty()) {
+                fileVersions.put(f, orderedByRequest(v, wanted));
+            }
         }
-        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors);
+        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions);
     }
 
-    private static boolean messageMatches(String body, String wanted) {
-        Matcher m = BRACKET.matcher(body);
+    /** Split the field into the distinct version tokens the user entered (comma/whitespace-separated), trimmed. */
+    static Set<String> parseVersions(String field) {
+        Set<String> out = new LinkedHashSet<>();
+        if (field == null) {
+            return out;
+        }
+        for (String part : field.trim().split("[,\\s]+")) {
+            String p = part.trim();
+            if (!p.isEmpty()) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /** The requested version(s) that appear as a literal {@code [token]} in the commit subject, in subject order. */
+    private static List<String> versionsIn(String subject, Set<String> wanted) {
+        List<String> found = new ArrayList<>();
+        Matcher m = BRACKET.matcher(subject);
         while (m.find()) {
             String tok = m.group(1).trim();
-            if (VERSIONISH.matcher(tok).matches() && wanted.equals(normalize(tok))) {
-                return true;
+            if (wanted.contains(tok) && !found.contains(tok)) {
+                found.add(tok);   // literal, exact match: 19.10 != 19.10.0 != 19.10.1
             }
         }
-        return false;
+        return found;
     }
 
-    /**
-     * Drop trailing-zero segments so {@code 19.18.0} ≡ {@code 19.18}, while {@code 19.8} stays distinct
-     * from {@code 19.18}. Returns null if there's no dotted-number version in the string.
-     */
-    static String normalize(String v) {
-        if (v == null) {
-            return null;
-        }
-        Matcher m = VERSIONISH.matcher(v.trim());
-        if (!m.find()) {
-            return null;
-        }
-        String[] parts = m.group().split("\\.");
-        int end = parts.length;
-        while (end > 1 && parts[end - 1].chars().allMatch(ch -> ch == '0')) {
-            end--;   // strip trailing all-zero segments (19.18.0 -> 19.18)
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < end; i++) {
-            if (i > 0) {
-                sb.append('.');
+    /** Order the versions of one file by the order the user requested them (stable, readable badges). */
+    private static List<String> orderedByRequest(Set<String> got, Set<String> wanted) {
+        List<String> out = new ArrayList<>();
+        for (String w : wanted) {
+            if (got.contains(w)) {
+                out.add(w);
             }
-            sb.append(Integer.parseInt(parts[i]));   // normalise 08 -> 8
         }
-        return sb.toString();
+        return out;
     }
 
     /** numstat rename forms: {@code old => new} or {@code dir/{old => new}/file} → the new path (forward-slashed). */

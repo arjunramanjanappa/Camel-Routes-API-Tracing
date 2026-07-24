@@ -30,12 +30,14 @@ import java.util.List;
  * @param authors               for a NEW API, the git-blame authors who added its routes (empty otherwise / when not a git work tree)
  * @param codeChanged           true when a pre-existing (BAU) {@code @Component} Java class wired into this API's
  *                              flow was modified by the app-version release — independent of the version-to-version diff
- * @param changedClasses        display labels of changed bean classes (with commit authors), e.g.
- *                              {@code statusProcessor (StatusProcessor.java) — Alice, Bob}
+ * @param changedClasses        display labels of changed bean classes (with the app-version(s) that changed each,
+ *                              and commit authors), e.g. {@code statusProcessor (StatusProcessor.java) · 19.18.0 — Alice, Bob}
  * @param impactedRoutes        the routes to re-test for that class change, each tagged Current / BAU / Future —
  *                              per route family: the release's own route, the current BAU baseline, and every future version
  * @param risk                  test-priority for this API — {@link #RISK_HIGH} / {@link #RISK_MEDIUM} /
  *                              {@link #RISK_LOW}, derived from the combined change signals (set in a final pass)
+ * @param changedVersions       the distinct app/commit versions (as entered) that changed this API's classes, e.g.
+ *                              {@code [19.18.0, 19.10.1]} — for the per-version badge; empty when no code change
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -50,7 +52,8 @@ public record ApiDiff(String api, String operation,
                       boolean codeChanged,
                       List<String> changedClasses,
                       List<ImpactedRoute> impactedRoutes,
-                      String risk) {
+                      String risk,
+                      List<String> changedVersions) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
@@ -76,21 +79,21 @@ public record ApiDiff(String api, String operation,
                    List<String> authors) {
         this(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                false, List.of(), List.of(), RISK_LOW);
+                false, List.of(), List.of(), RISK_LOW, List.of());
     }
 
     /** A copy of this diff annotated with the release's shared-class code changes for the flow. */
     public ApiDiff withCodeChange(boolean codeChanged, List<String> changedClasses,
-                                  List<ImpactedRoute> impactedRoutes) {
+                                  List<ImpactedRoute> impactedRoutes, List<String> changedVersions) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions);
     }
 
     /** A copy of this diff with its computed test-priority. */
     public ApiDiff withRisk(String risk) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions);
     }
 }

@@ -148,7 +148,22 @@ function CodeChangeBlock({ d, onOpenApi, routeLog }: { d: ApiDiff; onOpenApi?: (
   return (
     <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
       <span className="diff-code-label">⚙ Code changed</span>
-      {classes.map((c) => <span key={'c' + c} className="chg code" title="changed @Component class (with the commit authors)">{c}</span>)}
+      {classes.map((c) => {
+        // Label: "bean (File.java) · <versions> — <authors>"  (· versions and — authors both optional).
+        const dash = c.lastIndexOf(' — ');
+        const head = dash >= 0 ? c.slice(0, dash) : c;
+        const authors = dash >= 0 ? c.slice(dash + 3) : '';
+        const dot = head.indexOf(' · ');
+        const name = dot >= 0 ? head.slice(0, dot) : head;
+        const vers = dot >= 0 ? head.slice(dot + 3) : '';
+        return (
+          <span key={'c' + c} className="chg code" title="changed @Component class — app version(s) that changed it, and commit authors">
+            {name}
+            {vers && <span className="code-ver" title="app/commit version(s) that changed this class">{vers}</span>}
+            {authors && <span className="code-auth"> — {authors}</span>}
+          </span>
+        );
+      })}
       {byCat.length > 0 && (
         <div className="diff-code-cross">
           <div className="diff-code-cross-head">⚠ Shared code — also re-test:</div>
@@ -652,8 +667,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
             </datalist>
           </div>
           <div style={{ width: 200 }}>
-            <label title="The version token in your commit messages, e.g. 19.18.0. Detects Java/route code changes for this release.">Commit/App version <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
-            <input value={appVersion} placeholder="19.18.0 — detect code changes" onChange={(e) => setAppVersion(e.target.value)}
+            <label title="The exact version token(s) in your commit messages, e.g. 19.18.0. Matched literally (19.10 ≠ 19.10.0). List several, comma-separated, to catch every Jira that touched shared code — e.g. 19.10, 19.10.1, 19.18.0.">Commit/App version(s) <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+            <input value={appVersion} placeholder="19.10, 19.10.1, 19.18.0" onChange={(e) => setAppVersion(e.target.value)}
                    onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
           </div>
           <button className="trace" style={{ width: 150, marginTop: 0, alignSelf: 'flex-end' }}
@@ -726,7 +741,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
                       <div className="diff-card-id"><code>{a.api}</code><span className="muted op">{a.operation}</span></div>
                       <span className="row" style={{ gap: 6 }}>
                         {a.codeChanged && report.appVersion && (
-                          <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">changed in {report.appVersion}</span>
+                          <span className="diff-badge code" title="A shared Java class in this API's flow was changed by the app-version release">changed in {(a.changedVersions && a.changedVersions.length ? a.changedVersions.join(', ') : report.appVersion)}</span>
                         )}
                         <span className="diff-badge" title="the version this API is currently on">
                           {a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion}

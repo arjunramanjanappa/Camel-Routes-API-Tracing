@@ -102,6 +102,8 @@ class CodeChangeImpactTest {
         assertThat(residence.codeChanged()).isTrue();
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("statusProcessor"));
         assertThat(residence.changedClasses()).anyMatch(c -> c.contains("Test"));   // commit author shown
+        assertThat(residence.changedClasses()).anyMatch(c -> c.contains("· 19.18.0"));   // per-version tag on the class
+        assertThat(residence.changedVersions()).containsExactly("19.18.0");             // per-API version(s)
         // The re-test route carries the owning API path (no manual back-trace needed).
         assertThat(residence.impactedRoutes())
                 .anyMatch(r -> r.route().contains("R7.14_getStatus") && r.category().equals("BAU")

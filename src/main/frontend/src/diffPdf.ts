@@ -102,7 +102,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
     'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
     'Only changed, new and code-changed APIs are listed — the ones to regression-test this release. Unchanged APIs are counted in the summary above but not listed.',
     'Changed = the resolved Camel flow differs (routes, backends or service versions). New = first appears in this release.',
-    ...(appVersion ? ['Code changed = a pre-existing (BAU) @Component Java class an API uses was modified by app version ' + appVersion + ' (whitespace-only changes ignored; new classes shipped with a new route are not counted), shown with the commit authors. A NEW API that changes shared code is listed under Changed. "Shared code — also re-test" lists, per route family, the current BAU route (immediate-lower, else base) plus every future/higher version — each must be tested now, as this change won\'t surface under their own version later.'] : []),
+    ...(appVersion ? ['Code changed = a pre-existing (BAU) @Component Java class an API uses was modified by app version(s) ' + appVersion + ' (matched exactly; whitespace-only changes ignored; new classes shipped with a new route are not counted), shown with the version(s) that changed each class and the commit authors. A NEW API that changes shared code is listed under Changed. "Shared code — also re-test" lists, per route family, the current BAU route (immediate-lower, else base) plus every future/higher version — each must be tested now, as this change won\'t surface under their own version later.'] : []),
     'Under "What changed", lines marked - were removed and + were added vs the previous version.',
   ]);
 

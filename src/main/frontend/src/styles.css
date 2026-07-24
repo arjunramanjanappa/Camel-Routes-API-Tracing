@@ -779,6 +779,11 @@ tr.lsub code { background: transparent; }
 .diff-card.code { border-left-color: #7c3aed; }
 .chg.code { background: #ede9fe; color: #6d28d9; }
 [data-theme="dark"] .chg.code { background: #2e1065; color: #c4b5fd; }
+/* per-version tag + authors on a changed-class chip */
+.code-ver { font-size: 10px; font-weight: 700; background: #6d28d9; color: #fff; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
+.code-auth { color: #7c6fae; font-weight: 500; }
+[data-theme="dark"] .code-ver { background: #7c3aed; color: #f5f3ff; }
+[data-theme="dark"] .code-auth { color: #a892d6; }
 .diff-code { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 8px; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 6px; padding: 5px 9px; }
 .diff-code-label { font-size: 11px; font-weight: 700; color: #6d28d9; }
 .diff-code-cross { flex-basis: 100%; margin-top: 5px; font-size: 11px; }

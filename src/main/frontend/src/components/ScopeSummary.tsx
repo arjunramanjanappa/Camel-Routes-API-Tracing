@@ -1,45 +1,73 @@
+import { useState } from 'react';
 import type { CatalogResponse } from '../types';
+import { groupByFeature, versionLabel } from '../feature';
 
 /**
- * The leadership Summary for the Release Scope tab: a plain "what's in this release" view — how many APIs
- * are in scope and their names grouped by version — instead of the technical route flow graph (which stays
- * in Detailed). Reuses the shared `.sumv-*` styles.
+ * The leadership Summary for the Release Scope tab: a plain "what's in this release" view — the APIs in
+ * scope grouped by version (BAU for base routes) and then by business feature — instead of the technical
+ * route flow graph (which stays in Detailed). A Front-end ⇄ Backend toggle switches between the front-end
+ * paths and the backend APIs they call. Reuses the shared `.sumv-*` styles.
  */
 export default function ScopeSummary({ catalog }: { catalog: CatalogResponse }) {
+  const [side, setSide] = useState<'fe' | 'be'>('fe');
   const groups = catalog.groups || [];
-  const allApis = new Set<string>();
-  groups.forEach((g) => g.traces.forEach((t) => { if (t.api) allApis.add(t.api); }));
+
+  // Items per version group for the selected side (front-end paths, or the backend APIs the traces call).
+  const perGroup = groups.map((g) => {
+    const items = side === 'fe'
+      ? g.traces.map((t) => t.api)
+      : g.traces.flatMap((t) => t.backendApis || []);
+    return { version: g.version, features: groupByFeature(items), count: new Set(items.map((x) => (x || '').replace(/^\{\{[^}]+\}\}/, '').split('?')[0]).filter(Boolean)).size };
+  }).filter((g) => g.count > 0);
+
+  const total = perGroup.reduce((n, g) => n + g.count, 0);
+  const featureNames = new Set<string>();
+  perGroup.forEach((g) => g.features.forEach((f) => featureNames.add(f.feature)));
 
   return (
     <div className="sumv">
-      <p className="sumv-eyebrow">What’s in this release{catalog.country ? ` · ${catalog.country}` : ''}</p>
-
-      <div className="sumv-tiles">
-        <div className="sumv-tile accent"><div className="n">{allApis.size}</div><div className="l">APIs in scope</div></div>
-        <div className="sumv-tile violet"><div className="n">{groups.length}</div><div className="l">Version group{groups.length === 1 ? '' : 's'}</div></div>
+      <div className="row between" style={{ margin: '2px 0 10px', flexWrap: 'wrap', gap: 8 }}>
+        <p className="sumv-eyebrow" style={{ margin: 0 }}>What’s in this release{catalog.country ? ` · ${catalog.country}` : ''}</p>
+        <div className="seg">
+          <button className={side === 'fe' ? 'on' : ''} onClick={() => setSide('fe')}>Front-end APIs</button>
+          <button className={side === 'be' ? 'on' : ''} onClick={() => setSide('be')}>Backend APIs</button>
+        </div>
       </div>
 
-      {allApis.size === 0 ? (
-        <div className="sumv-empty">No APIs in scope — analyse a release above.</div>
+      <div className="sumv-tiles">
+        <div className="sumv-tile accent"><div className="n">{total}</div><div className="l">{side === 'fe' ? 'Front-end' : 'Backend'} APIs in scope</div></div>
+        <div className="sumv-tile good"><div className="n">{featureNames.size}</div><div className="l">Feature{featureNames.size === 1 ? '' : 's'}</div></div>
+        <div className="sumv-tile violet"><div className="n">{perGroup.length}</div><div className="l">Version group{perGroup.length === 1 ? '' : 's'}</div></div>
+      </div>
+
+      {total === 0 ? (
+        <div className="sumv-empty">No {side === 'fe' ? 'front-end' : 'backend'} APIs in scope — analyse a release above.</div>
       ) : (
         <div className="sumv-groups">
-          {groups.map((g) => {
-            const apis = [...new Set(g.traces.map((t) => t.api).filter(Boolean))] as string[];
-            if (apis.length === 0) return null;
-            return (
-              <div className="sumv-group" key={g.version}>
-                <div className="sumv-group-head">
-                  <span>{g.version === 'N/A' ? 'Base routes' : 'Release ' + g.version}</span>
-                  <span className="sumv-group-cnt">{apis.length}</span>
-                </div>
-                <ul className="sumv-group-list">
-                  {apis.map((a) => <li key={a}><span className="path">{a}</span></li>)}
-                </ul>
+          {perGroup.map((g) => (
+            <div className="sumv-group" key={g.version}>
+              <div className="sumv-group-head">
+                <span>{versionLabel(g.version)}</span>
+                <span className="sumv-group-cnt">{g.count}</span>
               </div>
-            );
-          })}
+              {g.features.map((f) => (
+                <div className="sumv-feat" key={f.feature}>
+                  <div className="sumv-feat-head">
+                    <span className="sumv-feat-name">{f.feature}</span>
+                    <span className="sumv-feat-cnt">{f.items.length}</span>
+                  </div>
+                  <ul className="sumv-group-list">
+                    {f.items.map((a) => <li key={a}><span className="path">{displayPath(a)}</span></li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
+/** Strip a backend {{placeholder}} prefix for display (front-end paths are unaffected). */
+function displayPath(p: string): string { return p.replace(/^\{\{[^}]+\}\}/, ''); }

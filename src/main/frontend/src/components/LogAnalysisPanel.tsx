@@ -3,6 +3,7 @@ import { analyzeLog, analyzeLogMulti, type UploadProgress } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
 import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
+import TestSummary from './TestSummary';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
 
@@ -205,6 +206,8 @@ interface Props {
   /** Unresolved imports/routes from the impact index — surfaced in the exported report. */
   needsReview?: string[];
   onReport?: (hasReport: boolean) => void;
+  /** 'summary' renders the leadership readiness view (donut + Result/Remark) instead of the full tables. */
+  viewMode?: 'summary' | 'detailed';
 }
 
 /** Passed / issues / not-tested tallies for a module's report — drives the per-module coverage strip. */
@@ -298,7 +301,7 @@ function FileZone({ files, onAdd, onRemove, onClear, hint, label }: {
  * front-end APIs are read from front-end log lines, selected backends from backend
  * log lines; with nothing selected the whole release is analysed.
  */
-export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport }: Props) {
+export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport, viewMode = 'detailed' }: Props) {
   const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
   const [files, setFiles] = useState<File[]>([]);   // one upload (chunks) analysed against every selected module
   const [limitToSelection, setLimitToSelection] = useState(true);
@@ -588,7 +591,13 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </div>
       )}
 
-      {report && (
+      {report && viewMode === 'summary' && (
+        <div style={{ marginTop: 12 }} ref={multi ? undefined : resultsRef}>
+          <TestSummary report={report} app={app} version={version} country={country} />
+        </div>
+      )}
+
+      {report && viewMode !== 'summary' && (
         <div style={{ marginTop: 12, scrollMarginTop: 12 }} ref={multi ? undefined : resultsRef}>
           {multi && activeLogId && (
             <div className="sub" style={{ marginBottom: 6 }}>Showing module <b>{perModule.find((p) => p.id === activeLogId)?.name || 'module'}</b>.</div>

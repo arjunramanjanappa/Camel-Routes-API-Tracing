@@ -1006,3 +1006,16 @@ button.impact-api.linkish:hover { color: #1e40af; }
 .view-switch button { border: 0; background: transparent; color: inherit; opacity: .72; font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 13px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
 .view-switch button.on { background: var(--accent, #2563eb); color: #fff; opacity: 1; }
 [data-theme="dark"] .view-switch { background: rgba(148,163,184,.14); }
+.sumv-tile.good::before { background: #16a34a; }
+
+/* Release Scope summary — API groups by version */
+.sumv-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
+.sumv-group { background: #fff; border: 1px solid #e4e9f0; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.sumv-group-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 10px; }
+.sumv-group-cnt { font-size: 12px; font-weight: 700; color: #5b6b82; background: #f1f5f9; border-radius: 999px; padding: 1px 9px; }
+.sumv-group-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.sumv-group-list li .path { font-family: SFMono-Regular, Consolas, monospace; font-size: 12.5px; color: #1f2933; }
+[data-theme="dark"] .sumv-group { background: #0e1729; border-color: #1c2942; }
+[data-theme="dark"] .sumv-group-head { color: #cbd5e1; }
+[data-theme="dark"] .sumv-group-cnt { background: #131f38; color: #93a3ba; }
+[data-theme="dark"] .sumv-group-list li .path { color: #cbd5e1; }

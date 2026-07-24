@@ -53,8 +53,8 @@ export default function App() {
           </button>
         </nav>
       </header>
-      {view === 'trace' && <TraceView app={app} colorMode={theme} />}
-      {view === 'impact' && <ImpactView app={app} colorMode={theme} />}
+      {view === 'trace' && <TraceView app={app} colorMode={theme} viewMode={viewMode} />}
+      {view === 'impact' && <ImpactView app={app} colorMode={theme} viewMode={viewMode} />}
       {view === 'diff' && <ReleaseDiffView app={app} colorMode={theme} viewMode={viewMode} />}
       {showConfig && <ConfigMenu onClose={() => setShowConfig(false)} />}
     </div>

@@ -23,7 +23,7 @@ import { useAppModules } from '../appModules';
 function appKey(app: string, f: string) { return `tracer.${app}.${f}`; }
 const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 
-export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
+export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMode = 'detailed' }: { app?: string; colorMode?: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
@@ -222,7 +222,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
       )}
 
 
-      <Steps steps={steps} />
+      {viewMode !== 'summary' && <Steps steps={steps} />}
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
@@ -237,15 +237,18 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
 
       {!loading && idx && (
         <>
-        {multi && activeModule && (
+        {viewMode !== 'summary' && multi && activeModule && (
           <div className="sub" style={{ padding: '0 18px 4px' }}>Picking APIs for module <b>{names[activeModule.id] || 'module'}</b> — the log verification below covers all {logModules.length} modules in one report.</div>
         )}
-        {idx.needsReview && idx.needsReview.length > 0 && (
+        {viewMode === 'summary' && (
+          <div className="sub" style={{ padding: '4px 18px 0' }}>Upload the run log to see which of this release&rsquo;s APIs passed. (Switch to <b>Detailed</b> to build Splunk queries and pick specific APIs.)</div>
+        )}
+        {viewMode !== 'summary' && idx.needsReview && idx.needsReview.length > 0 && (
           <div style={{ padding: '0 18px' }}>
             <NeedsReviewBox items={idx.needsReview} />
           </div>
         )}
-        <div className="impact-body">
+        <div className="impact-body" style={viewMode === 'summary' ? { display: 'none' } : undefined}>
           <div className="impact-left">
             <div className="panel">
               <div className="row between">
@@ -383,7 +386,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light' }: { ap
                             selectedApis={selectedApiList} selectedBackends={selectedBackendList}
                             modules={logModules}
                             deps={depParams(deps)} needsReview={idx.needsReview}
-                            onReport={setAnalysed} />
+                            onReport={setAnalysed} viewMode={viewMode} />
         </div>
         </>
       )}

@@ -10,6 +10,7 @@ import NeedsReviewBox from '../components/NeedsReviewBox';
 import { depParams, loadDeps, saveDeps } from '../deps';
 import ResultPanels from '../components/ResultPanels';
 import DetailPanel from '../components/DetailPanel';
+import ScopeSummary from '../components/ScopeSummary';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 import Loader, { SCAN_MESSAGES } from '../components/Loader';
@@ -25,7 +26,7 @@ function asCatalog(r: AnalyzeResponse | null): CatalogResponse | null {
   return r && r.mode === 'catalog' ? r : null;
 }
 
-export default function TraceView({ app = 'Mighty', colorMode }: { app?: string; colorMode: 'light' | 'dark' }) {
+export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detailed' }: { app?: string; colorMode: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) || '');
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base (per-run)
@@ -97,6 +98,9 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
   // Release Scope graph is grouped by release version so it isn't one big undifferentiated chunk.
   // With a concrete release the graph defaults to that release's APIs; N/A/base and All are a click away.
   const catForGraph = data?.mode === 'catalog' ? data : null;
+  // Source for the leadership Scope summary: the active catalog, or the active module's catalog if the user
+  // has drilled into a single API's trace.
+  const scopeCat = catForGraph ?? asCatalog(catalogs.find((r) => r.module.id === activeId)?.result ?? catalogs.find((r) => r.result)?.result ?? null);
   const graphGroups = useMemo(
     () => (catForGraph ? catForGraph.groups.filter((g) => g.version !== NO_ROUTE) : []),
     [catForGraph]
@@ -180,6 +184,13 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
                        exportLabel={exporting ? 'PDF…' : '⤓ Export PDF'}
                        exportTitle="One PDF covering every module for this release" />
       )}
+      {viewMode === 'summary' && scopeCat && (
+        <div style={{ padding: '0 18px 18px' }}><ScopeSummary catalog={scopeCat} /></div>
+      )}
+      {viewMode === 'summary' && !scopeCat && !loading && (
+        <div className="sub" style={{ padding: '8px 18px' }}>Analyse a release above to see the APIs in scope. (Switch to <b>Detailed</b> for the route flow graph.)</div>
+      )}
+      {viewMode !== 'summary' && (
       <div className="layout">
         <aside className="sidebar">
           {catalogs.length > 1 && activeModule && (
@@ -237,6 +248,7 @@ export default function TraceView({ app = 'Mighty', colorMode }: { app?: string;
         <Legend />
         </div>
       </div>
+      )}
     </div>
   );
 }

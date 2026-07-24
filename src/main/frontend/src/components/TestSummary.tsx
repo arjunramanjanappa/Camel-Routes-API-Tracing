@@ -75,7 +75,7 @@ export default function TestSummary({ report }: { report: LogAnalysisReport }) {
       ) : (
         <div className="sumv-tablewrap">
           <table className="sumv-table">
-            <thead><tr><th>API</th><th>Result</th><th>Remark</th></tr></thead>
+            <thead><tr><th>API</th><th>Latest Result</th><th>Remark</th></tr></thead>
             <tbody>
               {groupItemsByFeature(apis, (a) => a.api).map((fg) => (
                 <Fragment key={fg.feature}>

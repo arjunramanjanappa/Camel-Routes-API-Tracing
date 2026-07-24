@@ -57,7 +57,7 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
   if (total) {
     r.bookmark('Results');
     r.banner('Results', PAL.purple, 'Per-API verdict from the log, grouped by business feature, worst first within each. Full detail (response codes, latency, backends) is in the Detailed report.');
-    const cols = [{ header: 'API', w: 0.40, mono: true }, { header: 'Result', w: 0.20 }, { header: 'Remark', w: 0.40 }];
+    const cols = [{ header: 'API', w: 0.38, mono: true }, { header: 'Latest Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
     const rowCells = (a: ApiLogResult) => {
       const res = resultRamp(a.status);
       return [

@@ -7,17 +7,22 @@ import ConfigMenu from './components/ConfigMenu';
 
 type View = 'trace' | 'impact' | 'diff';
 type Theme = 'light' | 'dark';
+type ViewMode = 'summary' | 'detailed';
 
 export default function App() {
   const [app, setApp] = useState<string | null>(null);
   const [view, setView] = useState<View>('trace');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('tracer.theme') as Theme) || 'light');
+  // Summary (for release managers/leads) vs Detailed (for devs/testers). Default Summary; remembered per user.
+  const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem('tracer.viewMode') as ViewMode) || 'summary');
   const [showConfig, setShowConfig] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('tracer.theme', theme);
   }, [theme]);
+
+  useEffect(() => { localStorage.setItem('tracer.viewMode', viewMode); }, [viewMode]);
 
   if (!app) {
     return <AppPicker onPick={(a) => { setApp(a); localStorage.setItem('tracer.app', a); }} />;
@@ -31,6 +36,12 @@ export default function App() {
           <span>Trace the flow. Guard the release. <span className="header-ai">· ✨ Powered by AI</span></span>
         </div>
         <nav className="tabs">
+          <div className="view-switch" role="group" aria-label="View mode">
+            <button className={viewMode === 'summary' ? 'on' : ''} title="Summary — for release managers, coordinators & delivery leads"
+                    onClick={() => setViewMode('summary')}>◱ Summary</button>
+            <button className={viewMode === 'detailed' ? 'on' : ''} title="Detailed — for developers & testers"
+                    onClick={() => setViewMode('detailed')}>⚙ Detailed</button>
+          </div>
           <button className={view === 'trace' ? 'tab active' : 'tab'} onClick={() => setView('trace')}>Release Scope</button>
           <button className={view === 'impact' ? 'tab active' : 'tab'} onClick={() => setView('impact')}>Release Test</button>
           <button className={view === 'diff' ? 'tab active' : 'tab'} onClick={() => setView('diff')}>Release Impact</button>
@@ -44,7 +55,7 @@ export default function App() {
       </header>
       {view === 'trace' && <TraceView app={app} colorMode={theme} />}
       {view === 'impact' && <ImpactView app={app} colorMode={theme} />}
-      {view === 'diff' && <ReleaseDiffView app={app} colorMode={theme} />}
+      {view === 'diff' && <ReleaseDiffView app={app} colorMode={theme} viewMode={viewMode} />}
       {showConfig && <ConfigMenu onClose={() => setShowConfig(false)} />}
     </div>
   );

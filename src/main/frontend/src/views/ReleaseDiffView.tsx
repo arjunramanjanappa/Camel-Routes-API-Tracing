@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { fetchVersionDiff, analyzeLogMulti } from '../api';
 import type { ApiDiff, ApiLogResult, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
+import { exportDiffSummaryPdf } from '../diffSummaryPdf';
+import ImpactSummary from '../components/ImpactSummary';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
 import { sourceParams } from '../components/SourceFields';
@@ -424,7 +426,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
 const ALL_STATUSES: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
 const GROUP_LABEL: Record<DiffStatus, string> = { CHANGED: 'Changed', NEW: 'New', UNCHANGED: 'Unchanged' };
 
-export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: string; colorMode?: 'light' | 'dark' }) {
+export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = 'detailed' }: { app?: string; colorMode?: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app || 'Mighty');
   const [modulesOpen, setModulesOpen] = useState(true);
   const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
@@ -628,23 +630,25 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
     }
   };
 
-  // The PDF is one report covering every module (each module's Changed + New + snapshot),
-  // independent of which module/group is on screen.
-  const exportPdf = () => {
-    const mods = reports.map((r) => {
-      // Reshape the per-version log into this module's (version -> api -> result) for the PDF.
-      const byVer: Record<string, Record<string, ApiLogResult>> = {};
-      for (const [v, byMod] of Object.entries(logByVer)) { const mm = byMod[r.module.id]; if (mm) byVer[v] = mm; }
-      // This module's remarks, keyed by `api|operation` (strip the module-id prefix from the stored key).
-      const rem: Record<string, string> = {};
-      const pfx = r.module.id + '|';
-      for (const [k, v] of Object.entries(remarks)) { if (k.startsWith(pfx)) rem[k.slice(pfx.length)] = v; }
-      return { name: r.name, report: r.result, error: r.error,
-        logByVer: Object.keys(byVer).length ? byVer : undefined,
-        remarks: Object.keys(rem).length ? rem : undefined };
-    }).filter((m) => m.report || m.error);
-    if (mods.length) exportDiffPdf(mods, app).catch(() => {});
-  };
+  // One report covering every module (each module's Changed + New + snapshot), independent of which
+  // module/group is on screen. Shared by both exports so Summary & Detailed cover the same data.
+  const buildMods = () => reports.map((r) => {
+    // Reshape the per-version log into this module's (version -> api -> result) for the PDF.
+    const byVer: Record<string, Record<string, ApiLogResult>> = {};
+    for (const [v, byMod] of Object.entries(logByVer)) { const mm = byMod[r.module.id]; if (mm) byVer[v] = mm; }
+    // This module's remarks, keyed by `api|operation` (strip the module-id prefix from the stored key).
+    const rem: Record<string, string> = {};
+    const pfx = r.module.id + '|';
+    for (const [k, v] of Object.entries(remarks)) { if (k.startsWith(pfx)) rem[k.slice(pfx.length)] = v; }
+    return { name: r.name, report: r.result, error: r.error,
+      logByVer: Object.keys(byVer).length ? byVer : undefined,
+      remarks: Object.keys(rem).length ? rem : undefined };
+  }).filter((m) => m.report || m.error);
+
+  /** Detailed PDF — full route/class/test report for developers & testers. */
+  const exportPdf = () => { const mods = buildMods(); if (mods.length) exportDiffPdf(mods, app).catch(() => {}); };
+  /** Summary PDF — 1–2 page RAG overview for release managers & delivery leads. */
+  const exportSummaryPdf = () => { const mods = buildMods(); if (mods.length) exportDiffSummaryPdf(mods, app).catch(() => {}); };
 
   return (
     <div className="impact">
@@ -700,7 +704,30 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
       )}
 
-      {!loading && report && report.snapshot && (
+      {!loading && report && viewMode === 'summary' && (
+        <div className="impact-body" style={{ padding: '0 18px 20px' }}>
+          <div className="row between" style={{ margin: '4px 0 6px', flexWrap: 'wrap', gap: 8 }}>
+            <h2 style={{ margin: 0 }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
+            <span className="row" style={{ gap: 6 }}>
+              <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
+              <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
+            </span>
+          </div>
+          <CodeChangeSummary report={report} />
+          <div className="testlog-bar" style={{ marginTop: 10 }}>
+            <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">
+              {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</> : '⤒ Attach test log'}
+              <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
+                     disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
+            </label>
+            {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
+            {hasLog && <button className="linkbtn" onClick={() => { setLogByVer({}); setLogInfo(null); }}>Clear</button>}
+          </div>
+          <ImpactSummary report={report} log={activeLog} />
+        </div>
+      )}
+
+      {!loading && report && report.snapshot && viewMode === 'detailed' && (
         <div className="impact-body diff-layout">
           <div className="diff-nav">
             <div className="diff-nav-head">Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</div>
@@ -763,7 +790,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light' }: { app?: st
         </div>
       )}
 
-      {!loading && report && !report.snapshot && (
+      {!loading && report && !report.snapshot && viewMode === 'detailed' && (
         <div className="impact-body diff-layout">
           <div className="diff-nav">
             <div className="diff-nav-head">Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</div>

@@ -1,5 +1,6 @@
 import type { ApiLogResult, LogAnalysisReport, LogStatus } from './types';
-import { ReportDoc, PAL, generatedStamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, type Ramp } from './pdfReport';
+import { groupItemsByFeature } from './feature';
 
 /**
  * The 1–2 page leadership Summary PDF for the Release Test tab — verification readiness (passed / issues /
@@ -55,17 +56,20 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
 
   if (total) {
     r.bookmark('Results');
-    r.banner('Results', PAL.purple, 'Per-API verdict from the log, worst first. Full detail (response codes, latency, backends) is in the Detailed report.');
-    r.wrapTable(
-      [{ header: 'API', w: 0.40, mono: true }, { header: 'Result', w: 0.20 }, { header: 'Remark', w: 0.40 }],
-      apis.map((a) => {
-        const res = resultRamp(a.status);
-        return [
-          { text: a.api, mono: true, color: PAL.ink },
-          pillCell(res.label, res.ramp),
-          { text: remarkOf(a), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
-        ];
-      }));
+    r.banner('Results', PAL.purple, 'Per-API verdict from the log, grouped by business feature, worst first within each. Full detail (response codes, latency, backends) is in the Detailed report.');
+    const cols = [{ header: 'API', w: 0.40, mono: true }, { header: 'Result', w: 0.20 }, { header: 'Remark', w: 0.40 }];
+    const rowCells = (a: ApiLogResult) => {
+      const res = resultRamp(a.status);
+      return [
+        { text: a.api, mono: true, color: PAL.ink },
+        pillCell(res.label, res.ramp),
+        { text: remarkOf(a), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
+      ];
+    };
+    for (const fg of groupItemsByFeature(apis, (a) => a.api)) {
+      r.para(`${fg.feature}  (${fg.items.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
+      r.wrapTable(cols, fg.items.map(rowCells));
+    }
   }
 
   r.legend('What the labels mean', [

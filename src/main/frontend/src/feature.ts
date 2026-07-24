@@ -35,3 +35,17 @@ export function groupByFeature(paths: (string | null | undefined)[]): { feature:
 export function versionLabel(version: string | null | undefined): string {
   return !version || version === 'N/A' || version === 'BASE' ? 'BAU' : 'Release ' + version;
 }
+
+/**
+ * Group arbitrary rows by the feature of their path, features sorted A→Z, order within each feature
+ * preserved (so a caller's risk/severity sort survives). Used to group the Impact/Test summary tables.
+ */
+export function groupItemsByFeature<T>(items: T[], pathOf: (x: T) => string | null | undefined): { feature: string; items: T[] }[] {
+  const m = new Map<string, T[]>();
+  for (const it of items) {
+    const f = featureOf(pathOf(it) || '');
+    if (!m.has(f)) m.set(f, []);
+    m.get(f)!.push(it);
+  }
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([feature, rows]) => ({ feature, items: rows }));
+}

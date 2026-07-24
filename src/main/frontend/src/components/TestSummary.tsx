@@ -1,4 +1,6 @@
+import { Fragment } from 'react';
 import type { ApiLogResult, LogAnalysisReport, LogStatus } from '../types';
+import { groupItemsByFeature } from '../feature';
 
 /**
  * The leadership Summary for the Release Test tab: a plain readiness view of an uploaded run log — how
@@ -75,16 +77,21 @@ export default function TestSummary({ report }: { report: LogAnalysisReport }) {
           <table className="sumv-table">
             <thead><tr><th>API</th><th>Result</th><th>Remark</th></tr></thead>
             <tbody>
-              {apis.map((a) => {
-                const r = resultOf(a);
-                return (
-                  <tr key={a.api + '|' + a.operation}>
-                    <td className="sumv-api"><span className="path">{a.api}</span></td>
-                    <td><span className={'sumv-tst ' + r.cls}>{r.label}</span></td>
-                    <td style={{ color: a.status === 'SUCCESS' ? '#8497ad' : undefined, fontSize: 13 }}>{remarkOf(a)}</td>
-                  </tr>
-                );
-              })}
+              {groupItemsByFeature(apis, (a) => a.api).map((fg) => (
+                <Fragment key={fg.feature}>
+                  <tr className="sumv-feat-row"><td colSpan={3}><span className="sumv-feat-name">{fg.feature}</span><span className="sumv-feat-cnt">{fg.items.length}</span></td></tr>
+                  {fg.items.map((a) => {
+                    const r = resultOf(a);
+                    return (
+                      <tr key={a.api + '|' + a.operation}>
+                        <td className="sumv-api"><span className="path">{a.api}</span></td>
+                        <td><span className={'sumv-tst ' + r.cls}>{r.label}</span></td>
+                        <td style={{ color: a.status === 'SUCCESS' ? '#8497ad' : undefined, fontSize: 13 }}>{remarkOf(a)}</td>
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
         </div>

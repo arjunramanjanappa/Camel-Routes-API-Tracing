@@ -1,6 +1,7 @@
 import type { ApiDiff, ApiLogResult, DiffStatus } from './types';
-import { ReportDoc, PAL, generatedStamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, type Ramp } from './pdfReport';
 import type { ModuleDiff } from './diffPdf';
+import { groupItemsByFeature } from './feature';
 
 /**
  * The 1–2 page leadership Summary PDF — a RAG overview (what's changing, how risky, is it tested) for
@@ -109,7 +110,7 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
     const cols = multi
       ? [{ header: 'API', w: 0.28, mono: true }, { header: 'Module', w: 0.16 }, { header: 'What changed', w: 0.24 }, { header: 'Risk', w: 0.14 }, { header: 'Tested', w: 0.18 }]
       : [{ header: 'API', w: 0.40, mono: true }, { header: 'What changed', w: 0.28 }, { header: 'Risk', w: 0.16 }, { header: 'Tested', w: 0.16 }];
-    const body = rows.map((row) => {
+    const rowCells = (row: Row) => {
       const wc = whatChanged(row.a);
       const rk = riskOf(row.a);
       const t = testedRamp(row.log);
@@ -120,8 +121,12 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
         pillCell(rk, riskRamp(rk)),
         hasAnyLog ? pillCell(t.label, t.ramp) : '—',
       ];
-    });
-    r.wrapTable(cols, body);
+    };
+    // Grouped by business feature (fx / manage / payment …), features A→Z, highest-risk first within each.
+    for (const fg of groupItemsByFeature(rows, (row) => row.api)) {
+      r.para(`${fg.feature}  (${fg.items.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
+      r.wrapTable(cols, fg.items.map(rowCells));
+    }
   }
 
   // ---- Plain-English key ----

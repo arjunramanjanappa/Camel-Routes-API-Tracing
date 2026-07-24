@@ -1,4 +1,6 @@
+import { Fragment } from 'react';
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from '../types';
+import { groupItemsByFeature } from '../feature';
 
 /**
  * The leadership-facing "Summary" projection of a Release Impact report — the same data the detailed
@@ -110,19 +112,24 @@ export default function ImpactSummary({ report, log }: {
           <table className="sumv-table">
             <thead><tr><th>API</th><th>What changed</th><th>Risk</th>{hasLog && <th>Tested</th>}</tr></thead>
             <tbody>
-              {toVerify.map((a) => {
-                const wc = whatChanged(a);
-                const r = riskOf(a);
-                const t = hasLog ? testedOf(log![a.api]) : null;
-                return (
-                  <tr key={a.api + '|' + a.operation} data-sev={r}>
-                    <td className="sumv-sev sumv-api"><span className="path">{a.api}</span></td>
-                    <td><span className={'sumv-pill ' + wc.kind}>{wc.label}</span></td>
-                    <td><span className={'sumv-risk ' + r}><span className="dot" />{r}</span></td>
-                    {hasLog && <td><span className={'sumv-tst ' + t!.cls}>{t!.label}</span></td>}
-                  </tr>
-                );
-              })}
+              {groupItemsByFeature(toVerify, (a) => a.api).map((fg) => (
+                <Fragment key={fg.feature}>
+                  <tr className="sumv-feat-row"><td colSpan={hasLog ? 4 : 3}><span className="sumv-feat-name">{fg.feature}</span><span className="sumv-feat-cnt">{fg.items.length}</span></td></tr>
+                  {fg.items.map((a) => {
+                    const wc = whatChanged(a);
+                    const r = riskOf(a);
+                    const t = hasLog ? testedOf(log![a.api]) : null;
+                    return (
+                      <tr key={a.api + '|' + a.operation} data-sev={r}>
+                        <td className="sumv-sev sumv-api"><span className="path">{a.api}</span></td>
+                        <td><span className={'sumv-pill ' + wc.kind}>{wc.label}</span></td>
+                        <td><span className={'sumv-risk ' + r}><span className="dot" />{r}</span></td>
+                        {hasLog && <td><span className={'sumv-tst ' + t!.cls}>{t!.label}</span></td>}
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
         </div>

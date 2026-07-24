@@ -8,7 +8,7 @@ import type { ModuleDiff } from './diffPdf';
  * developer report is {@link exportDiffPdf} (route/class/test detail).
  */
 
-function effectiveStatus(a: ApiDiff): DiffStatus { return a.status === 'NEW' && a.codeChanged ? 'CHANGED' : a.status; }
+function effectiveStatus(a: ApiDiff): DiffStatus { return a.status === 'NEW' && a.codeChanged ? 'CHANGED' : a.status as DiffStatus; }
 function riskOf(a: ApiDiff): 'High' | 'Medium' | 'Low' { return (a.risk as 'High' | 'Medium' | 'Low') || 'Low'; }
 function whatChanged(a: ApiDiff): { label: string; ramp: Ramp } {
   if (effectiveStatus(a) === 'NEW') return { label: 'New API', ramp: PAL.blue };

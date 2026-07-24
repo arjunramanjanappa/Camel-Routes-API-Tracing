@@ -11,7 +11,7 @@ type Risk = 'High' | 'Medium' | 'Low';
 const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
 /** A NEW API that changed shared BAU code is grouped under Changed (mirrors the backend promotion). */
-function effectiveStatus(a: ApiDiff): DiffStatus { return a.status === 'NEW' && a.codeChanged ? 'CHANGED' : a.status; }
+function effectiveStatus(a: ApiDiff): DiffStatus { return a.status === 'NEW' && a.codeChanged ? 'CHANGED' : a.status as DiffStatus; }
 
 /** Plain-English "what changed" for a stakeholder — one primary reason, derived from existing fields. */
 function whatChanged(a: ApiDiff): { label: string; kind: string } {

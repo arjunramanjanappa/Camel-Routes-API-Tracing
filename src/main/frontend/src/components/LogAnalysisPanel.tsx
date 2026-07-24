@@ -595,9 +595,11 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       )}
 
       {report && (
-        <div className="export-bar" style={{ paddingRight: 0 }}>
-          <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
-          <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers">⤓ Detailed PDF</button>
+        <div className="export-bar" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          <div className="export-bar-right">
+            <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
+            <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers">⤓ Detailed PDF</button>
+          </div>
         </div>
       )}
 
@@ -653,7 +655,6 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
                 <option value="severity">Sort: worst first</option>
                 <option value="api">Sort: name</option>
               </select>
-              <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ Export PDF</button>
             </span>
           </div>
 

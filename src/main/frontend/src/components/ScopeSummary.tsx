@@ -1,15 +1,13 @@
-import { useState } from 'react';
 import type { CatalogResponse } from '../types';
 import { groupByFeature, versionLabel } from '../feature';
 
 /**
  * The leadership Summary for the Release Scope tab: a plain "what's in this release" view — the APIs in
  * scope grouped by version (BAU for base routes) and then by business feature — instead of the technical
- * route flow graph (which stays in Detailed). A Front-end ⇄ Backend toggle switches between the front-end
- * paths and the backend APIs they call. Reuses the shared `.sumv-*` styles.
+ * route flow graph (which stays in Detailed). The Front-end ⇄ Backend toggle lives in the tab toolbar and
+ * is passed in via `side`. Reuses the shared `.sumv-*` styles.
  */
-export default function ScopeSummary({ catalog }: { catalog: CatalogResponse }) {
-  const [side, setSide] = useState<'fe' | 'be'>('fe');
+export default function ScopeSummary({ catalog, side = 'fe' }: { catalog: CatalogResponse; side?: 'fe' | 'be' }) {
   const groups = catalog.groups || [];
 
   // Items per version group for the selected side (front-end paths, or the backend APIs the traces call).
@@ -26,13 +24,7 @@ export default function ScopeSummary({ catalog }: { catalog: CatalogResponse }) 
 
   return (
     <div className="sumv">
-      <div className="row between" style={{ margin: '2px 0 10px', flexWrap: 'wrap', gap: 8 }}>
-        <p className="sumv-eyebrow" style={{ margin: 0 }}>What’s in this release{catalog.country ? ` · ${catalog.country}` : ''}</p>
-        <div className="seg">
-          <button className={side === 'fe' ? 'on' : ''} onClick={() => setSide('fe')}>Front-end APIs</button>
-          <button className={side === 'be' ? 'on' : ''} onClick={() => setSide('be')}>Backend APIs</button>
-        </div>
-      </div>
+      <p className="sumv-eyebrow" style={{ margin: '2px 0 10px' }}>What’s in this release{catalog.country ? ` · ${catalog.country}` : ''} · {side === 'fe' ? 'front-end' : 'backend'} APIs</p>
 
       <div className="sumv-tiles">
         <div className="sumv-tile accent"><div className="n">{total}</div><div className="l">{side === 'fe' ? 'Front-end' : 'Backend'} APIs in scope</div></div>

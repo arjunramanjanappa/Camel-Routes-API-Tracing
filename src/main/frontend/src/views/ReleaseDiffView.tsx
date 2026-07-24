@@ -706,8 +706,10 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
 
       {!loading && report && (
         <div className="export-bar">
-          <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
-          <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
+          <div className="export-bar-right">
+            <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
+            <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
+          </div>
         </div>
       )}
 
@@ -736,9 +738,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               <span className="diff-nav-label">Latest routes</span>
               <span className="diff-nav-count">{report.snapshotCount ?? report.apis.length}</span>
             </div>
-            {report.apis.length > 0 && reports.length <= 1 && (
-              <button className="minibtn diff-nav-export" onClick={exportPdf} title="Download the latest-routes snapshot as a PDF">⤓ Export PDF</button>
-            )}
           </div>
           <div className="diff-main">
             <NeedsReviewBox items={report.needsReview ?? []} />
@@ -802,9 +801,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                 <span className="diff-nav-count">{counts[s]}</span>
               </button>
             ))}
-            {report.apis.length > 0 && reports.length <= 1 && (
-              <button className="minibtn diff-nav-export" onClick={exportPdf} title="Download the full report as a PDF">⤓ Export PDF</button>
-            )}
           </div>
 
           <div className="diff-main">

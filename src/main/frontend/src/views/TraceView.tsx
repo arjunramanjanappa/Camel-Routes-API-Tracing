@@ -41,6 +41,7 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
   const [search, setSearch] = useState('');
   const [graphGroup, setGraphGroup] = useState<string>('ALL');   // which release version's subgraph the graph shows
   const [exporting, setExporting] = useState(false);
+  const [scopeSide, setScopeSide] = useState<'fe' | 'be'>('fe');   // Front-end vs Backend APIs in the Scope summary
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a successful analysis
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const graphRef = useRef<GraphHandle>(null);
@@ -196,12 +197,22 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
       )}
       {scopeCat && (
         <div className="export-bar">
-          <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads">⤓ Summary PDF</button>
-          <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers">⤓ Detailed PDF</button>
+          <div className="export-bar-left">
+            {viewMode === 'summary' && (
+              <div className="seg" title="Front-end paths vs the backend APIs they call">
+                <button className={scopeSide === 'fe' ? 'on' : ''} onClick={() => setScopeSide('fe')}>Front-end</button>
+                <button className={scopeSide === 'be' ? 'on' : ''} onClick={() => setScopeSide('be')}>Backend</button>
+              </div>
+            )}
+          </div>
+          <div className="export-bar-right">
+            <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads">⤓ Summary PDF</button>
+            <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers">⤓ Detailed PDF</button>
+          </div>
         </div>
       )}
       {viewMode === 'summary' && scopeCat && (
-        <div style={{ padding: '0 18px 18px' }}><ScopeSummary catalog={scopeCat} /></div>
+        <div style={{ padding: '0 18px 18px' }}><ScopeSummary catalog={scopeCat} side={scopeSide} /></div>
       )}
       {viewMode === 'summary' && !scopeCat && !loading && (
         <div className="sub" style={{ padding: '8px 18px' }}>Analyse a release above to see the APIs in scope. (Switch to <b>Detailed</b> for the route flow graph.)</div>
@@ -230,8 +241,8 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
               <button key={g.version}
                       className={'gg-chip' + (g.version === 'N/A' ? ' na' : '') + (graphGroup === g.version ? ' on' : '')}
                       onClick={() => setGraphGroup(g.version)}
-                      title={g.version === 'N/A' ? 'Base-route APIs — no route at this release' : 'APIs on release ' + g.version}>
-                {g.version === 'N/A' ? 'Base' : 'R' + g.version}<b>{g.traces.length}</b>
+                      title={g.version === 'N/A' ? 'BAU (base-route) APIs — no route at this release' : 'APIs on release ' + g.version}>
+                {g.version === 'N/A' ? 'BAU' : 'R' + g.version}<b>{g.traces.length}</b>
               </button>
             ))}
             <button className={'gg-chip' + (graphGroup === 'ALL' ? ' on' : '')} onClick={() => setGraphGroup('ALL')}
@@ -245,13 +256,7 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph">Fit</button>
           <button className="minibtn" onClick={() => graphRef.current?.exportPng()}>PNG</button>
-          {/* Multi-module: the report export lives in the common "By module" strip header instead. */}
-          {catalogs.length <= 1 && (
-            <button className="minibtn" onClick={exportPdf} disabled={exporting || !catalogs.length}
-                    title="Export the report for this release">
-              {exporting ? 'PDF…' : 'PDF'}
-            </button>
-          )}
+          {/* PDF export lives in the shared toolbar above (Summary / Detailed) — one place per tab. */}
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>
         {loading && <div className="overlay"><Loader messages={SCAN_MESSAGES} note="multi-module analysis" /></div>}

@@ -175,11 +175,12 @@ class CrossCountryDependencyScopeTest {
                 + "<routeContextRef ref=\"" + ctxRef + "\"/></camelContext></beans>";
     }
 
-    @Test
-    void anotherCountrysSameNamedSecurityFileDoesNotLeakViaWildcardImport(@TempDir Path primaryDir) throws Exception {
-        // SG and TH bootstraps each wildcard-import every security-*.xml. The country lives only in the FILE
-        // NAME (security-sg-9.14.xml vs security-th-9.14.xml), not a directory segment, so SG's wildcard also
-        // matches TH's file. TH's older R6.0 route must not become the predecessor of SG's new R9.14.
+    /**
+     * SG and TH bootstraps each wildcard-import every {@code security-*.xml}. The country lives only in the
+     * FILE NAME ({@code security-sg-9.14.xml} vs {@code security-th-9.14.xml}), not a directory segment, so
+     * SG's wildcard also matches TH's file. Shared by the diff / catalog / impact-index guards below.
+     */
+    private void wildcardSecurityScenario(Path primaryDir) throws Exception {
         Files.writeString(primaryDir.resolve("SG.xml"), wildcardBootstrap("routes/security-*.xml", "sgSecurityContext"));
         Files.writeString(primaryDir.resolve("TH.xml"), wildcardBootstrap("routes/security-*.xml", "thSecurityContext"));
         Files.createDirectories(primaryDir.resolve("routes"));
@@ -198,6 +199,12 @@ class CrossCountryDependencyScopeTest {
                     public Object authCodeValidate(Object b){ return null; }
                 }
                 """);
+    }
+
+    @Test
+    void anotherCountrysSameNamedSecurityFileDoesNotLeakViaWildcardImport(@TempDir Path primaryDir) throws Exception {
+        // Release Impact: TH's older R6.0 must not become the predecessor of SG's new R9.14.
+        wildcardSecurityScenario(primaryDir);
 
         VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
                 new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
@@ -209,6 +216,38 @@ class CrossCountryDependencyScopeTest {
         assertThat(authCode.lowerRoute()).isNotEqualTo("R6.0_authCodeValidate");
         assertThat(authCode.lowerVersion()).isNotEqualTo("6.0");
         assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
+    }
+
+    @Test
+    void wildcardImportedThSecurityVersionIsAbsentFromSgCatalog(@TempDir Path primaryDir) throws Exception {
+        // Release Scope: the catalog must not surface the TH file's 6.0 version or its R6.0 route.
+        wildcardSecurityScenario(primaryDir);
+
+        CatalogResponse cat = (CatalogResponse) new RouteTraceService(primaryDir.toString()).analyze(
+                new TraceRequest(null, null, null, null, "SG", null, null, null, null, null));
+
+        assertThat(cat.getVersionsFound()).doesNotContain("6.0");
+        List<String> routes = cat.getGroups().stream()
+                .flatMap(g -> g.traces().stream())
+                .map(TraceResponse::getResolvedRoute)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        assertThat(routes).noneMatch(r -> r.contains("R6.0"));
+    }
+
+    @Test
+    void wildcardImportedThSecurityRouteIsAbsentFromSgImpactIndex(@TempDir Path primaryDir) throws Exception {
+        // Release Test: the impact-index must resolve to SG's own R9.14, never the TH file's R6.0.
+        wildcardSecurityScenario(primaryDir);
+
+        ImpactIndex idx = new RouteTraceService(primaryDir.toString()).impactIndex(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
+
+        ApiImpact authCode = idx.getApis().stream()
+                .filter(a -> "authCodeValidate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("authCodeValidate not in the SG impact-index"));
+        assertThat(authCode.resolvedRoute()).isEqualTo("R9.14_authCodeValidate");
+        assertThat(authCode.routes()).noneMatch(r -> r.contains("R6.0"));
     }
 
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------

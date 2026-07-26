@@ -625,9 +625,15 @@ public class RouteTraceService {
         // Registry-wide bean usage: which routes reference each bean. Needed to tell a NEW bean (used only by
         // the release's own R<release>_ route) from a PRE-EXISTING one an older route already uses — only the
         // latter is a shared-code change worth flagging. An older route referencing it may not even be in this
-        // API's flow (it's a different version of the API), so this must span the whole registry, not the flow.
+        // API's flow (it's a different version of the API), so this spans the whole registry.
+        // AMBIENT routes are excluded: a dependency route from another country's scope (not reachable from this
+        // country's bootstrap) must not make a class look pre-existing/shared here, nor appear as an impacted
+        // route — that BAU-class change belongs to the other country's scope (picked up when it's analysed).
         Map<String, List<String>> beanUsage = new LinkedHashMap<>();
         for (RouteModel rm : registry.all()) {
+            if (registry.isAmbient(rm)) {
+                continue;
+            }
             for (String bn : beanRefs(rm)) {
                 beanUsage.computeIfAbsent(bn, k -> new ArrayList<>()).add(rm.routeId());
             }

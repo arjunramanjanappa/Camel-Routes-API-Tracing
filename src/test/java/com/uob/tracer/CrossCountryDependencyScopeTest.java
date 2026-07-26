@@ -7,11 +7,17 @@ import com.uob.tracer.service.RouteTraceService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Cross-country leakage guard. A dependency source carries another country's versioned route
@@ -75,5 +81,102 @@ class CrossCountryDependencyScopeTest {
         assertThat(validate.lowerVersion()).isNotEqualTo("6.0");
         // With no in-scope lower version, it's a NEW API for SG (nothing below 9.14 in SG's own scope).
         assertThat(validate.status()).isEqualTo(ApiDiff.NEW);
+    }
+
+    // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------
+
+    private static String routeCtxBean(String id, String routeId, String bean) {
+        return "<beans:beans xmlns:beans=\"http://www.springframework.org/schema/beans\">"
+                + "<routeContext id=\"" + id + "\"><route id=\"" + routeId + "\">"
+                + "<from uri=\"direct:" + routeId + "\"/><to uri=\"bean:" + bean + "\"/></route></routeContext></beans:beans>";
+    }
+
+    private static String beanClass(String simpleName, String beanName, int value) {
+        return "import org.springframework.stereotype.Component;\n@Component(\"" + beanName + "\")\n"
+                + "public class " + simpleName + " { public int score() { return " + value + "; } }\n";
+    }
+
+    @Test
+    void sharedClassChangedOnlyInAnotherCountrysDependencyRouteIsNotFlaggedHere(@TempDir Path primaryDir,
+                                                                                @TempDir Path depDir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+
+        // Primary SG: a NEW R9.14_validate that uses bean sharedProc. No lower version in SG's own scope.
+        Files.writeString(primaryDir.resolve("SG.xml"),
+                "<beans xmlns=\"http://www.springframework.org/schema/beans\">"
+                        + "<camelContext id=\"camelContext\" xmlns=\"http://camel.apache.org/schema/spring\">"
+                        + "<routeContextRef ref=\"sgSecurityContext\"/></camelContext></beans>");
+        Files.createDirectories(primaryDir.resolve("sg"));
+        Files.writeString(primaryDir.resolve("sg/security-sg-v1.xml"),
+                routeCtxBean("sgSecurityContext", "R9.14_validate", "sharedProc"));
+        Files.writeString(primaryDir.resolve("SharedProc.java"), beanClass("SharedProc", "sharedProc", 1));
+        Files.writeString(primaryDir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints { @CommandHandler @PostMapping("/validate") public Object validate(Object b){ return null; } }
+                """);
+        initRepo(primaryDir);
+        // The 19.14.0 release changes sharedProc.
+        Files.writeString(primaryDir.resolve("SharedProc.java"), beanClass("SharedProc", "sharedProc", 2));
+        commit(primaryDir, "[JIRA-1][SG][19.14.0] tweak sharedProc");
+
+        // Dependency: TH's R6.0_validate uses the SAME bean — the ONLY other user of sharedProc.
+        Files.writeString(depDir.resolve("security-th-v1.xml"),
+                routeCtxBean("thSecurityContext", "R6.0_validate", "sharedProc"));
+        List<String> deps = List.of("local:" + depDir);
+
+        VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
+                new TraceRequest(null, "9.14", null, primaryDir.toString(), "SG", null, null, deps, null, "19.14.0"));
+
+        ApiDiff validate = report.getApis().stream()
+                .filter(a -> "validate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("validate API not in the SG diff"));
+
+        // In SG's own scope sharedProc is used ONLY by the new R9.14 route, so it's new code — not a shared
+        // BAU change. The TH dependency's R6.0 usage must not make it pre-existing, nor be an impacted route.
+        assertThat(validate.codeChanged()).isFalse();
+        assertThat(validate.impactedRoutes()).noneMatch(r -> r.route() != null && r.route().contains("R6.0"));
+        assertThat(validate.status()).isEqualTo(ApiDiff.NEW);
+    }
+
+    // ---------- git helpers ----------
+
+    private static boolean gitAvailable() {
+        try {
+            Process p = new ProcessBuilder("git", "--version").redirectErrorStream(true).start();
+            return p.waitFor(10, TimeUnit.SECONDS) && p.exitValue() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void initRepo(Path dir) throws Exception {
+        git(dir, "init");
+        git(dir, "config", "user.email", "test@example.com");
+        git(dir, "config", "user.name", "Test");
+        git(dir, "config", "commit.gpgsign", "false");
+        git(dir, "add", "-A");
+        git(dir, "commit", "-m", "[JIRA-0][SG][19.10.0] baseline");
+    }
+
+    private static void commit(Path dir, String message) throws Exception {
+        git(dir, "add", "-A");
+        git(dir, "commit", "-m", message);
+    }
+
+    private static void git(Path dir, String... args) throws Exception {
+        List<String> cmd = new ArrayList<>(List.of("git", "-C", dir.toString()));
+        cmd.addAll(List.of(args));
+        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        StringBuilder out = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                out.append(line).append('\n');
+            }
+        }
+        if (!p.waitFor(30, TimeUnit.SECONDS) || p.exitValue() != 0) {
+            throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + out);
+        }
     }
 }

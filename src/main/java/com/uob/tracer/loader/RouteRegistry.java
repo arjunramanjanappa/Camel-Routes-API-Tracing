@@ -131,6 +131,15 @@ public class RouteRegistry {
         return all;
     }
 
+    /**
+     * True when a route is ambient — a dependency route not reachable from the country closure. Callers that
+     * enumerate "this country's own" routes (bean usage, route ownership) skip these so another country's
+     * routes never appear as this country's impacted/owned routes; {@code direct:} host lookup still uses them.
+     */
+    public boolean isAmbient(RouteModel route) {
+        return ambient.contains(route);
+    }
+
     public int size() {
         return all.size();
     }

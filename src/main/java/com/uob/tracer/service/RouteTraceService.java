@@ -640,7 +640,8 @@ public class RouteTraceService {
         }
 
         int codeChangedCount = 0;
-        int newToChanged = 0;   // NEW APIs promoted to the Changed group because they change shared code
+        int newToChanged = 0;         // NEW APIs promoted to the Changed group because they change shared code
+        int unchangedToChanged = 0;   // BAU/Unchanged APIs promoted because their own route's shared class changed
         List<ApiDiff> apis = report.getApis();
         for (int i = 0; i < apis.size(); i++) {
             ApiDiff d = apis.get(i);
@@ -681,25 +682,26 @@ public class RouteTraceService {
             if (changedClasses.isEmpty()) {
                 continue;
             }
-            // Unchanged (BAU, no flow change) APIs deliberately do NOT show a code change — it would be noise;
-            // the change is surfaced on the New/Changed API that introduced it, via the re-test list. A NEW API
-            // that changes shared BAU code is promoted into the Changed group so it's tested (its route body is
-            // still rendered as "new", but it lands under Changed).
-            if (ApiDiff.UNCHANGED.equals(d.status())) {
-                continue;
-            }
+            // An API whose own resolved flow uses a class this release changed IS impacted — even a BAU API on
+            // a lower route (e.g. /getStatus on R9.10 whose statusProcessor was modified). It becomes a code
+            // change requiring a backward-compatibility test, and is promoted into the Changed group (its route
+            // body still renders as its own version; New/Unchanged just move it under Changed for testers).
             apis.set(i, d.withCodeChange(true, new ArrayList<>(changedClasses), new ArrayList<>(impacted),
                     new ArrayList<>(changedVersions)));
             codeChangedCount++;
             if (ApiDiff.NEW.equals(d.status())) {
                 newToChanged++;
+            } else if (ApiDiff.UNCHANGED.equals(d.status())) {
+                unchangedToChanged++;
             }
         }
         report.setCodeChangedCount(codeChangedCount);
-        // A NEW API that changes shared code counts under Changed (where testers look for what to regression-test).
-        if (newToChanged > 0) {
+        // New/Unchanged APIs that change shared code count under Changed (where testers look for regressions).
+        int promoted = newToChanged + unchangedToChanged;
+        if (promoted > 0) {
             report.setNewCount(Math.max(0, report.getNewCount() - newToChanged));
-            report.setChangedCount(report.getChangedCount() + newToChanged);
+            report.setUnchangedCount(Math.max(0, report.getUnchangedCount() - unchangedToChanged));
+            report.setChangedCount(report.getChangedCount() + promoted);
         }
     }
 

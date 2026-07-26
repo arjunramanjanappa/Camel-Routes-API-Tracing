@@ -82,7 +82,7 @@ class CodeChangeImpactTest {
     }
 
     @Test
-    void newApiThatChangesSharedBauCodeIsPromotedToChangedAndUnchangedApiIsNot(@TempDir Path dir) throws Exception {
+    void newAndBauApisThatChangeSharedCodeAreBothPromotedToChanged(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         writeBaseline(dir);
         initRepo(dir);
@@ -108,18 +108,20 @@ class CodeChangeImpactTest {
         assertThat(residence.impactedRoutes())
                 .anyMatch(r -> r.route().contains("R7.14_getStatus") && r.category().equals("BAU")
                         && "/getStatus".equals(r.api()));
-        assertThat(report.getChangedCount()).isEqualTo(1);             // promoted New→Changed
+        assertThat(report.getChangedCount()).isEqualTo(2);   // getResidence (New→Changed) + getStatus (BAU class changed → Changed)
         assertThat(report.getNewCount()).isZero();
         // A shared-class code change is High test-priority and forces a backward-compat (older-version) re-test.
         assertThat(residence.risk()).isEqualTo(ApiDiff.RISK_HIGH);
         assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
         assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
 
-        // getStatus is UNCHANGED (a 9.18 client still resolves to R7.14) — no code change shown, even though it
-        // uses the changed class. The signal is carried on the getResidence card via the re-test list.
+        // getStatus resolves to R7.14, whose statusProcessor the release changed — its OWN flow is impacted, so it
+        // becomes a code change needing backward-compat and is promoted into Changed. Its status field stays
+        // UNCHANGED (no route/flow change of its own), like a New API keeps "new" while landing under Changed.
         ApiDiff status = apiByRoute(report, "getStatus");
         assertThat(status.status()).isEqualTo(ApiDiff.UNCHANGED);
-        assertThat(status.codeChanged()).isFalse();
+        assertThat(status.codeChanged()).isTrue();
+        assertThat(status.changedClasses()).anyMatch(c -> c.contains("statusProcessor"));
     }
 
     @Test

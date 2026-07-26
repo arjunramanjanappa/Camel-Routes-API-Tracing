@@ -90,7 +90,7 @@ function riskReasons(a: ApiDiff): string[] {
  * (The card still shows it was newly added.) Mirrors the backend's New→Changed count promotion.
  */
 function effectiveStatus(a: ApiDiff): DiffStatus {
-  if (a.status === 'NEW' && a.codeChanged) return 'CHANGED';
+  if ((a.status === 'NEW' || a.status === 'UNCHANGED') && a.codeChanged) return 'CHANGED';
   return a.status as DiffStatus;
 }
 

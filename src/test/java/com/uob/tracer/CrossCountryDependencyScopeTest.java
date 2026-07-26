@@ -250,6 +250,42 @@ class CrossCountryDependencyScopeTest {
         assertThat(authCode.routes()).noneMatch(r -> r.contains("R6.0"));
     }
 
+    @Test
+    void sharedRouteContextIdResolvesToThisCountrysDefinitionNotAnothers(@TempDir Path primaryDir) throws Exception {
+        // SG and TH both declare routeContext id "securityContext9.14" in their OWN files. TH's file lives in
+        // routes/aa/ so it is scanned first and would win the id map — but SG's <routeContextRef> must still
+        // resolve to SG's own definition, so TH's older R6.0 route never enters SG's scope via the ref.
+        Files.writeString(primaryDir.resolve("SG.xml"), wildcardBootstrap("routes/security-sg-9.14.xml", "securityContext9.14"));
+        Files.writeString(primaryDir.resolve("TH.xml"), wildcardBootstrap("routes/aa/security-th-9.14.xml", "securityContext9.14"));
+        Files.createDirectories(primaryDir.resolve("routes/aa"));
+        Files.writeString(primaryDir.resolve("routes/aa/security-th-9.14.xml"),
+                routeCtx("securityContext9.14", "R6.0_authCodeValidate", "{{baseUrl}}/th/auth/code/validate"));
+        Files.writeString(primaryDir.resolve("routes/security-sg-9.14.xml"),
+                routeCtx("securityContext9.14", "R9.14_authCodeValidate", "{{baseUrl}}/sg/auth/code/validate"));
+        Files.createDirectories(primaryDir.resolve("sg"));
+        Files.writeString(primaryDir.resolve("sg/PublicApiController.java"), """
+                package com.uob.sg;
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                @RequestMapping("/services/sg")
+                public class PublicApiController {
+                    @PostMapping("/public/security/auth/code/validate")
+                    public Object authCodeValidate(Object b){ return null; }
+                }
+                """);
+
+        VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
+
+        ApiDiff authCode = report.getApis().stream()
+                .filter(a -> "authCodeValidate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("authCodeValidate not in the SG diff"));
+        assertThat(authCode.targetRoute()).isEqualTo("R9.14_authCodeValidate");
+        assertThat(authCode.lowerRoute()).isNotEqualTo("R6.0_authCodeValidate");
+        assertThat(authCode.lowerVersion()).isNotEqualTo("6.0");
+        assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
+    }
+
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------
 
     private static String routeCtxBean(String id, String routeId, String bean) {

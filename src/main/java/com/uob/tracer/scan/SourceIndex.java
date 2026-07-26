@@ -26,8 +26,12 @@ public class SourceIndex {
     private final List<java.nio.file.Path> allFiles;
     private final List<String> warnings;
 
-    /** routeContext id → the file that defines it. */
-    private final Map<String, FileInfo> contextIdToFile = new LinkedHashMap<>();
+    /**
+     * routeContext id → every file that defines it. Usually one, but multiple countries commonly declare the
+     * SAME id (e.g. {@code securityContext9.14}) in their own per-country files; a {@code routeContextRef}
+     * must then resolve to the file belonging to the country being scoped, not whichever was scanned first.
+     */
+    private final Map<String, List<FileInfo>> contextIdToFiles = new LinkedHashMap<>();
     /**
      * bootstrap (country) name → its file(s). Case-insensitive (the UI-typed country ↔ the
      * filename/profile). A country usually has one bootstrap ({@code SG.xml}), but a
@@ -106,7 +110,7 @@ public class SourceIndex {
     private void index() {
         for (FileInfo f : files) {
             for (String ctx : f.metadata().definedContexts()) {
-                contextIdToFile.putIfAbsent(ctx, f);
+                contextIdToFiles.computeIfAbsent(ctx, k -> new ArrayList<>()).add(f);
             }
             // A filename bootstrap (SG.xml/MY.xml) counts only if it actually brings routes. An empty
             // <camelContext> shell — a repo whose real routes load via application.yml
@@ -361,11 +365,13 @@ public class SourceIndex {
                 queue.addAll(preferCountry(targets, country));
             }
             for (String ref : f.metadata().contextRefs()) {
-                FileInfo target = contextIdToFile.get(ref);
-                if (target == null) {
+                List<FileInfo> defs = contextIdToFiles.get(ref);
+                if (defs == null || defs.isEmpty()) {
                     scopeWarnings.add("Unresolved <routeContextRef ref=\"" + ref + "\"> in " + f.relPath());
                 } else {
-                    queue.add(target);
+                    // The same id is often declared per-country; resolve to THIS country's definition (or a
+                    // neutral shared one), never another country's — otherwise its routes leak into the scope.
+                    queue.addAll(preferCountry(defs, country));
                 }
             }
         }

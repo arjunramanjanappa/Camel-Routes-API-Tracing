@@ -250,11 +250,12 @@ class CrossCountryDependencyScopeTest {
         assertThat(authCode.routes()).noneMatch(r -> r.contains("R6.0"));
     }
 
-    @Test
-    void sharedRouteContextIdResolvesToThisCountrysDefinitionNotAnothers(@TempDir Path primaryDir) throws Exception {
-        // SG and TH both declare routeContext id "securityContext9.14" in their OWN files. TH's file lives in
-        // routes/aa/ so it is scanned first and would win the id map — but SG's <routeContextRef> must still
-        // resolve to SG's own definition, so TH's older R6.0 route never enters SG's scope via the ref.
+    /**
+     * SG and TH both declare routeContext id "securityContext9.14" in their OWN files. TH's file lives in
+     * routes/aa/ so it is scanned first and would win the id map — SG's {@code <routeContextRef>} must still
+     * resolve to SG's own definition. Shared by the diff / catalog / impact-index guards below.
+     */
+    private void sharedCtxIdScenario(Path primaryDir) throws Exception {
         Files.writeString(primaryDir.resolve("SG.xml"), wildcardBootstrap("routes/security-sg-9.14.xml", "securityContext9.14"));
         Files.writeString(primaryDir.resolve("TH.xml"), wildcardBootstrap("routes/aa/security-th-9.14.xml", "securityContext9.14"));
         Files.createDirectories(primaryDir.resolve("routes/aa"));
@@ -273,6 +274,12 @@ class CrossCountryDependencyScopeTest {
                     public Object authCodeValidate(Object b){ return null; }
                 }
                 """);
+    }
+
+    @Test
+    void sharedRouteContextIdResolvesToThisCountrysDefinitionNotAnothers(@TempDir Path primaryDir) throws Exception {
+        // Release Impact: TH's R6.0 must not become the predecessor of SG's new R9.14 via the shared ref.
+        sharedCtxIdScenario(primaryDir);
 
         VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
                 new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
@@ -284,6 +291,38 @@ class CrossCountryDependencyScopeTest {
         assertThat(authCode.lowerRoute()).isNotEqualTo("R6.0_authCodeValidate");
         assertThat(authCode.lowerVersion()).isNotEqualTo("6.0");
         assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
+    }
+
+    @Test
+    void sharedRouteContextIdThVersionIsAbsentFromSgCatalog(@TempDir Path primaryDir) throws Exception {
+        // Release Scope: the catalog must not surface TH's 6.0 / R6.0 pulled through the shared ctx id.
+        sharedCtxIdScenario(primaryDir);
+
+        CatalogResponse cat = (CatalogResponse) new RouteTraceService(primaryDir.toString()).analyze(
+                new TraceRequest(null, null, null, null, "SG", null, null, null, null, null));
+
+        assertThat(cat.getVersionsFound()).doesNotContain("6.0");
+        List<String> routes = cat.getGroups().stream()
+                .flatMap(g -> g.traces().stream())
+                .map(TraceResponse::getResolvedRoute)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        assertThat(routes).noneMatch(r -> r.contains("R6.0"));
+    }
+
+    @Test
+    void sharedRouteContextIdThRouteIsAbsentFromSgImpactIndex(@TempDir Path primaryDir) throws Exception {
+        // Release Test: the impact-index must resolve to SG's own R9.14, never TH's R6.0 via the shared ctx id.
+        sharedCtxIdScenario(primaryDir);
+
+        ImpactIndex idx = new RouteTraceService(primaryDir.toString()).impactIndex(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
+
+        ApiImpact authCode = idx.getApis().stream()
+                .filter(a -> "authCodeValidate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("authCodeValidate not in the SG impact-index"));
+        assertThat(authCode.resolvedRoute()).isEqualTo("R9.14_authCodeValidate");
+        assertThat(authCode.routes()).noneMatch(r -> r.contains("R6.0"));
     }
 
     @Test

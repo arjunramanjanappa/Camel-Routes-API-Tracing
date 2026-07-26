@@ -190,10 +190,7 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
       {catalogs.length > 1 && (
         <ModuleSummary results={catalogs} activeId={activeId} onSelect={selectModule}
                        statsOf={statsOf} unversionedOf={(r) => !!asCatalog(r.result)?.unversioned}
-                       rollup={scopeRollup}
-                       onExport={exportPdf} exportDisabled={exporting || !catalogs.length}
-                       exportLabel={exporting ? 'PDF…' : '⤓ Export PDF'}
-                       exportTitle="One PDF covering every module for this release" />
+                       rollup={scopeRollup} />
       )}
       {scopeCat && (
         <div className="export-bar">

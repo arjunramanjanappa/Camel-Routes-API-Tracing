@@ -704,9 +704,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         <div style={{ padding: '0 18px' }}>
           <ModuleSummary results={reports} activeId={activeId} onSelect={selectModule}
                          statsOf={statsOf} unversionedOf={(r) => !!r.result?.snapshot}
-                         rollup={impactRollup}
-                         onExport={exportPdf}
-                         exportTitle="One PDF covering every module — changed + new APIs to test" />
+                         rollup={impactRollup} />
         </div>
       )}
 

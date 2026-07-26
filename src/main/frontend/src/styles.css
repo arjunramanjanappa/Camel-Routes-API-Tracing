@@ -776,6 +776,8 @@ tr.lsub code { background: transparent; }
 /* --- Release code-change (app version): violet, distinct from amber "changed" and blue "payload" --- */
 .diff-badge.code { background: #ede9fe; color: #6d28d9; }
 [data-theme="dark"] .diff-badge.code { background: #2e1065; color: #c4b5fd; }
+.diff-badge.shared { background: #fef3c7; color: #92400e; }
+[data-theme="dark"] .diff-badge.shared { background: #3f2d0a; color: #fcd34d; }
 .diff-card.code { border-left-color: #7c3aed; }
 .chg.code { background: #ede9fe; color: #6d28d9; }
 [data-theme="dark"] .chg.code { background: #2e1065; color: #c4b5fd; }

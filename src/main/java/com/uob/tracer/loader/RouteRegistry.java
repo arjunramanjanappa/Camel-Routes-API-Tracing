@@ -41,6 +41,12 @@ public class RouteRegistry {
      * predecessor of an SG API). Identity set: excluded from operation/version enumeration only.
      */
     private final Set<RouteModel> ambient = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    /**
+     * Shared/common routes: routes from a file that carries no country of its own (a common file reused across
+     * every country), as opposed to a country-specific file. Used only to annotate a diff whose immediate-lower
+     * baseline is such a shared route — it does not affect scoping or version enumeration.
+     */
+    private final Set<RouteModel> shared = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     /** application.properties (+ other source properties): resolves {@code {{key}}} in route names. */
     private final Map<String, String> properties;
 
@@ -95,9 +101,20 @@ public class RouteRegistry {
      * routes are added first (before ambient), so on a name clash the country's own route wins the index.
      */
     public void add(RouteModel route, boolean ambient) {
+        add(route, ambient, false);
+    }
+
+    /**
+     * Add a route, optionally marking it {@code ambient} (see above) and/or {@code shared} (from a common,
+     * country-agnostic file). {@code shared} is metadata only — it does not change lookup or enumeration.
+     */
+    public void add(RouteModel route, boolean ambient, boolean shared) {
         all.add(route);
         if (ambient) {
             this.ambient.add(route);
+        }
+        if (shared) {
+            this.shared.add(route);
         }
         if (route.fromName() != null) {
             byFromName.putIfAbsent(resolveName(route.fromName()), route);
@@ -105,6 +122,11 @@ public class RouteRegistry {
         if (route.routeId() != null) {
             byRouteId.putIfAbsent(resolveName(route.routeId()), route);
         }
+    }
+
+    /** True when a route comes from a shared/common (country-agnostic) file — for baseline annotation only. */
+    public boolean isShared(RouteModel route) {
+        return route != null && shared.contains(route);
     }
 
     /**

@@ -324,10 +324,17 @@ public class SourceIndex {
         // closure (imported/ref'd) is a full country route and stays non-ambient.
         Set<FileInfo> ambientFiles = new java.util.LinkedHashSet<>(dependencyFiles);
         ambientFiles.removeAll(closure);
+        Set<String> knownCountries = new HashSet<>();
+        for (String c : countryToFiles.keySet()) {
+            knownCountries.add(c.toLowerCase(java.util.Locale.ROOT));
+        }
         int routeCount = 0;
         for (FileInfo f : closure) {                 // country routes first — they win any name clash
+            // A closure file with no country of its own is a shared/common file — mark its routes so a diff
+            // whose baseline resolves to one can tell the reviewer the predecessor is a shared route.
+            boolean sharedFile = !knownCountries.isEmpty() && fileCountry(f, knownCountries) == null;
             for (RouteModel r : f.routes()) {
-                registry.add(r);
+                registry.add(r, false, sharedFile);
                 routeCount++;
             }
         }
@@ -439,6 +446,16 @@ public class SourceIndex {
             }
         }
         return ownOrNeutral.isEmpty() ? candidates : ownOrNeutral;
+    }
+
+    /** The country a file belongs to — a path segment, else a name token — or null when it is shared/common. */
+    private static String fileCountry(FileInfo f, Set<String> knownCountriesLower) {
+        String seg = countrySegment(f, knownCountriesLower);
+        if (seg != null) {
+            return seg;
+        }
+        String[] nt = nameCountryToken(f, knownCountriesLower);
+        return nt != null ? nt[1] : null;
     }
 
     /** The country a file belongs to, from a path segment matching a known country (case-insensitive), else null. */

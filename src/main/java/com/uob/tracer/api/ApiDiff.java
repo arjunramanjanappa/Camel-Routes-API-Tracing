@@ -38,6 +38,10 @@ import java.util.List;
  *                              {@link #RISK_LOW}, derived from the combined change signals (set in a final pass)
  * @param changedVersions       the distinct app/commit versions (as entered) that changed this API's classes, e.g.
  *                              {@code [19.18.0, 19.10.1]} — for the per-version badge; empty when no code change
+ * @param sharedBaseline        true when the immediate-lower (previous) route being compared against is a
+ *                              shared/common route — one with no country of its own, reused across countries/APIs
+ *                              (e.g. this release added a country-specific version over a common route). Lets a
+ *                              reviewer see the baseline is a shared route, not this country's own predecessor.
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -53,7 +57,8 @@ public record ApiDiff(String api, String operation,
                       List<String> changedClasses,
                       List<ImpactedRoute> impactedRoutes,
                       String risk,
-                      List<String> changedVersions) {
+                      List<String> changedVersions,
+                      boolean sharedBaseline) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
@@ -79,7 +84,7 @@ public record ApiDiff(String api, String operation,
                    List<String> authors) {
         this(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                false, List.of(), List.of(), RISK_LOW, List.of());
+                false, List.of(), List.of(), RISK_LOW, List.of(), false);
     }
 
     /** A copy of this diff annotated with the release's shared-class code changes for the flow. */
@@ -87,13 +92,20 @@ public record ApiDiff(String api, String operation,
                                   List<ImpactedRoute> impactedRoutes, List<String> changedVersions) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, sharedBaseline);
     }
 
     /** A copy of this diff with its computed test-priority. */
     public ApiDiff withRisk(String risk) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, sharedBaseline);
+    }
+
+    /** A copy of this diff flagging its immediate-lower baseline as a shared/common route. */
+    public ApiDiff withSharedBaseline(boolean sharedBaseline) {
+        return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
+                routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, sharedBaseline);
     }
 }

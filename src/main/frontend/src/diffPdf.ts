@@ -344,6 +344,10 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   } else {
     r.para(`Resolves to ${a.targetRoute}, compared against ${a.lowerRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
   }
+  if (a.sharedBaseline && status !== 'NEW') {
+    r.para('Previous version is a shared/common route (reused across countries/APIs) — confirm the team meant to build on the shared route.',
+      M, CONTENT_W, 'normal', 8.5, PAL.amber.text, 11);
+  }
 
   // Merged test-log evidence for this API (executed / passed / failed), when a log was uploaded.
   const tt = testedTag(log);

@@ -172,6 +172,9 @@ export interface ApiDiff {
   risk?: 'High' | 'Medium' | 'Low';
   /** Distinct app/commit version(s) that changed this API's classes, e.g. `['19.18.0','19.10.1']`. */
   changedVersions?: string[];
+  /** True when the immediate-lower baseline resolves to a shared/common route (reused across countries/APIs),
+   *  not this country's own predecessor — so the reviewer knows the comparison is against a shared route. */
+  sharedBaseline?: boolean;
 }
 
 /** A route to re-test for a shared-class change, tagged by its relation to the release. */

@@ -286,6 +286,44 @@ class CrossCountryDependencyScopeTest {
         assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
     }
 
+    @Test
+    void baselineResolvingToASharedCommonRouteIsFlagged(@TempDir Path primaryDir) throws Exception {
+        // SG imports its own 9.14 route AND a shared common route that carries an older R6.0 of the SAME api
+        // (the teams reused the method name in common instead of a distinct name). The diff's baseline is that
+        // shared route — legitimately in scope — so it must be flagged sharedBaseline for the reviewer.
+        Files.writeString(primaryDir.resolve("SG.xml"),
+                "<beans xmlns=\"http://www.springframework.org/schema/beans\">"
+                        + "<import resource=\"classpath:routes/security-sg-9.14.xml\"/>"
+                        + "<import resource=\"classpath:routes/common-security.xml\"/>"
+                        + "<camelContext id=\"camelContext\" xmlns=\"http://camel.apache.org/schema/spring\"/></beans>");
+        Files.createDirectories(primaryDir.resolve("routes"));
+        Files.writeString(primaryDir.resolve("routes/security-sg-9.14.xml"),
+                routeCtx("sgCtx", "R9.14_authCodeValidate", "{{baseUrl}}/sg/auth/code/validate"));
+        Files.writeString(primaryDir.resolve("routes/common-security.xml"),
+                routeCtx("commonCtx", "R6.0_authCodeValidate", "{{baseUrl}}/common/auth/code/validate"));
+        Files.createDirectories(primaryDir.resolve("sg"));
+        Files.writeString(primaryDir.resolve("sg/PublicApiController.java"), """
+                package com.uob.sg;
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                @RequestMapping("/services/sg")
+                public class PublicApiController {
+                    @PostMapping("/public/security/auth/code/validate")
+                    public Object authCodeValidate(Object b){ return null; }
+                }
+                """);
+
+        VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
+
+        ApiDiff authCode = report.getApis().stream()
+                .filter(a -> "authCodeValidate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("authCodeValidate not in the SG diff"));
+        // The 6.0 baseline is a real, in-scope shared/common route — kept, and flagged as shared.
+        assertThat(authCode.lowerRoute()).isEqualTo("R6.0_authCodeValidate");
+        assertThat(authCode.sharedBaseline()).isTrue();
+    }
+
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------
 
     private static String routeCtxBean(String id, String routeId, String bean) {

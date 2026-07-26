@@ -167,6 +167,50 @@ class CrossCountryDependencyScopeTest {
         assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
     }
 
+    /** A country bootstrap that wildcard-imports a set of route files and refs its own security context. */
+    private static String wildcardBootstrap(String importRes, String ctxRef) {
+        return "<beans xmlns=\"http://www.springframework.org/schema/beans\">"
+                + "<import resource=\"classpath:" + importRes + "\"/>"
+                + "<camelContext id=\"camelContext\" xmlns=\"http://camel.apache.org/schema/spring\">"
+                + "<routeContextRef ref=\"" + ctxRef + "\"/></camelContext></beans>";
+    }
+
+    @Test
+    void anotherCountrysSameNamedSecurityFileDoesNotLeakViaWildcardImport(@TempDir Path primaryDir) throws Exception {
+        // SG and TH bootstraps each wildcard-import every security-*.xml. The country lives only in the FILE
+        // NAME (security-sg-9.14.xml vs security-th-9.14.xml), not a directory segment, so SG's wildcard also
+        // matches TH's file. TH's older R6.0 route must not become the predecessor of SG's new R9.14.
+        Files.writeString(primaryDir.resolve("SG.xml"), wildcardBootstrap("routes/security-*.xml", "sgSecurityContext"));
+        Files.writeString(primaryDir.resolve("TH.xml"), wildcardBootstrap("routes/security-*.xml", "thSecurityContext"));
+        Files.createDirectories(primaryDir.resolve("routes"));
+        Files.writeString(primaryDir.resolve("routes/security-sg-9.14.xml"),
+                routeCtx("sgSecurityContext", "R9.14_authCodeValidate", "{{baseUrl}}/sg/auth/code/validate"));
+        Files.writeString(primaryDir.resolve("routes/security-th-9.14.xml"),
+                routeCtx("thSecurityContext", "R6.0_authCodeValidate", "{{baseUrl}}/th/auth/code/validate"));
+        Files.createDirectories(primaryDir.resolve("sg"));
+        Files.writeString(primaryDir.resolve("sg/PublicApiController.java"), """
+                package com.uob.sg;
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                @RequestMapping("/services/sg")
+                public class PublicApiController {
+                    @PostMapping("/public/security/auth/code/validate")
+                    public Object authCodeValidate(Object b){ return null; }
+                }
+                """);
+
+        VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
+
+        ApiDiff authCode = report.getApis().stream()
+                .filter(a -> "authCodeValidate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("authCodeValidate not in the SG diff"));
+        assertThat(authCode.targetRoute()).isEqualTo("R9.14_authCodeValidate");
+        assertThat(authCode.lowerRoute()).isNotEqualTo("R6.0_authCodeValidate");
+        assertThat(authCode.lowerVersion()).isNotEqualTo("6.0");
+        assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
+    }
+
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------
 
     private static String routeCtxBean(String id, String routeId, String bean) {

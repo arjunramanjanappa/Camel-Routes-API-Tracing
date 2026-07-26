@@ -373,10 +373,16 @@ public class SourceIndex {
     }
 
     /**
-     * When an import suffix-matched files under several countries' dirs, keep only those belonging to the
-     * country being scoped (or to no country at all — a genuinely shared file). If none belong to this
-     * country the list is returned untouched, so a legitimately country-agnostic import is never dropped.
+     * When an import suffix/wildcard-matched files that belong to several countries, keep only those for the
+     * country being scoped (or those with no country at all — a genuinely shared file). If none belong to
+     * this country the list is returned untouched, so a legitimately country-agnostic import is never dropped.
      * A single match is returned as-is (nothing to disambiguate).
+     *
+     * <p>A file's country is taken from a path segment ({@code sg/authCode.xml}) OR — for a flat {@code routes/}
+     * dir where the country is only in the file name ({@code security-sg-9.14.xml} vs {@code security-th-9.14.xml})
+     * — from a name token, but ONLY when a sibling candidate is the same file differing solely by that token
+     * (proving the wildcard partitions by country). A lone {@code id-mapping.xml} keeps its country-like token
+     * "id" untrusted, so it is never mistaken for the ID country and dropped.
      */
     private List<FileInfo> preferCountry(List<FileInfo> candidates, String country) {
         if (candidates.size() <= 1 || country == null) {
@@ -390,10 +396,39 @@ public class SourceIndex {
             return candidates;
         }
         String want = country.toLowerCase(java.util.Locale.ROOT);
+
+        // Start from the strong signal: a country directory segment.
+        Map<FileInfo, String> countryOf = new java.util.IdentityHashMap<>();
+        for (FileInfo f : candidates) {
+            countryOf.put(f, countrySegment(f, known));
+        }
+        // Add the weaker file-name signal, trusted only within a group of country-variant siblings: files whose
+        // name is identical once the country token is blanked, carrying at least two DIFFERENT country tokens.
+        Map<String, List<FileInfo>> byVariant = new java.util.LinkedHashMap<>();
+        Map<FileInfo, String> nameToken = new java.util.IdentityHashMap<>();
+        for (FileInfo f : candidates) {
+            String[] nt = nameCountryToken(f, known);   // [normalisedName, token] or null
+            if (nt != null) {
+                nameToken.put(f, nt[1]);
+                byVariant.computeIfAbsent(nt[0], k -> new ArrayList<>()).add(f);
+            }
+        }
+        for (List<FileInfo> group : byVariant.values()) {
+            Set<String> toks = new HashSet<>();
+            for (FileInfo f : group) {
+                toks.add(nameToken.get(f));
+            }
+            if (group.size() > 1 && toks.size() > 1) {           // a genuine per-country partition
+                for (FileInfo f : group) {
+                    countryOf.putIfAbsent(f, nameToken.get(f));   // fills only when no dir segment set it
+                }
+            }
+        }
+
         List<FileInfo> ownOrNeutral = new ArrayList<>();
         for (FileInfo f : candidates) {
-            String seg = countrySegment(f, known);
-            if (seg == null || seg.equals(want)) {   // neutral (shared) or this country's own
+            String c = countryOf.get(f);
+            if (c == null || c.equals(want)) {   // neutral (shared) or this country's own
                 ownOrNeutral.add(f);
             }
         }
@@ -406,6 +441,24 @@ public class SourceIndex {
             String p = part.toLowerCase(java.util.Locale.ROOT);
             if (knownCountriesLower.contains(p)) {
                 return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * If the file's base name carries a known-country token (delimited by {@code -}, {@code _} or {@code .}),
+     * return {@code [normalisedName, token]} where the token is blanked to {@code *} — so country-variants of
+     * one logical file share a normalised name. Returns null when the name holds no country token.
+     */
+    private static String[] nameCountryToken(FileInfo f, Set<String> knownCountriesLower) {
+        String path = f.relPath().replace('\\', '/');
+        String base = path.substring(path.lastIndexOf('/') + 1).toLowerCase(java.util.Locale.ROOT);
+        String[] toks = base.split("[^a-z0-9]+");
+        for (int i = 0; i < toks.length; i++) {
+            if (knownCountriesLower.contains(toks[i])) {
+                String norm = base.replaceFirst("(?<![a-z0-9])" + java.util.regex.Pattern.quote(toks[i]) + "(?![a-z0-9])", "*");
+                return new String[] { norm, toks[i] };
             }
         }
         return null;

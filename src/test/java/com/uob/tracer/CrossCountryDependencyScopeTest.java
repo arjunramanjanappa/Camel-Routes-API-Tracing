@@ -1,7 +1,11 @@
 package com.uob.tracer;
 
 import com.uob.tracer.api.ApiDiff;
+import com.uob.tracer.api.ApiImpact;
+import com.uob.tracer.api.CatalogResponse;
+import com.uob.tracer.api.ImpactIndex;
 import com.uob.tracer.api.TraceRequest;
+import com.uob.tracer.api.TraceResponse;
 import com.uob.tracer.api.VersionDiffReport;
 import com.uob.tracer.service.RouteTraceService;
 import org.junit.jupiter.api.Test;
@@ -81,6 +85,40 @@ class CrossCountryDependencyScopeTest {
         assertThat(validate.lowerVersion()).isNotEqualTo("6.0");
         // With no in-scope lower version, it's a NEW API for SG (nothing below 9.14 in SG's own scope).
         assertThat(validate.status()).isEqualTo(ApiDiff.NEW);
+    }
+
+    // ---------- Release Scope (catalog) + Release Test (impact-index) must not surface the TH dependency version ----------
+
+    @Test
+    void sgCatalogDoesNotSurfaceTheThDependencyVersion(@TempDir Path primaryDir, @TempDir Path depDir) throws Exception {
+        RouteTraceService service = new RouteTraceService(primary(primaryDir).toString());
+        List<String> deps = List.of("local:" + dependency(depDir));
+
+        CatalogResponse cat = (CatalogResponse) service.analyze(
+                new TraceRequest(null, null, null, null, "SG", null, null, deps, null, null));
+
+        assertThat(cat.getVersionsFound()).doesNotContain("6.0");
+        List<String> routes = cat.getGroups().stream()
+                .flatMap(g -> g.traces().stream())
+                .map(TraceResponse::getResolvedRoute)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        assertThat(routes).noneMatch(r -> r.contains("R6.0"));
+    }
+
+    @Test
+    void sgImpactIndexResolvesToItsOwnRouteNotTheThDependency(@TempDir Path primaryDir, @TempDir Path depDir) throws Exception {
+        RouteTraceService service = new RouteTraceService(primary(primaryDir).toString());
+        List<String> deps = List.of("local:" + dependency(depDir));
+
+        ImpactIndex idx = service.impactIndex(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, deps, null, null));
+
+        ApiImpact validate = idx.getApis().stream()
+                .filter(a -> "validate".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("validate not in the SG impact-index"));
+        assertThat(validate.resolvedRoute()).isEqualTo("R9.14_validate");
+        assertThat(validate.routes()).noneMatch(r -> r.contains("R6.0"));
     }
 
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------

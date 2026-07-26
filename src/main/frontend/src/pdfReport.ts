@@ -114,7 +114,7 @@ export class ReportDoc {
     this.text('release intelligence', startX + logo + gap, 'normal', 8, PAL.muted, M + 25);
     this.y = Math.round(PAGE.h * 0.34);
     this.text(title, M, 'bold', 34, PAL.ink); this.y += 46;
-    this.text(subtitle, M, 'normal', 15, PAL.accent); this.y += 26;
+    if (subtitle) { this.text(subtitle, M, 'normal', 15, PAL.accent); this.y += 26; }
     metaLines.forEach((m) => { this.text(m, M, 'normal', 10.5, PAL.muted); this.y += 17; });
     this.doc.addPage(); this.y = M;
   }

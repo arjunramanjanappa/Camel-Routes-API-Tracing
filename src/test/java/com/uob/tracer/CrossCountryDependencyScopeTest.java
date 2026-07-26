@@ -121,6 +121,52 @@ class CrossCountryDependencyScopeTest {
         assertThat(validate.routes()).noneMatch(r -> r.contains("R6.0"));
     }
 
+    // ---------- same-source cross-country: another country's same-named route file must not leak via a loose import ----------
+
+    /** A country bootstrap that pulls its routes via {@code <import resource="classpath:RES">}. */
+    private static String importingBootstrap(String resource) {
+        return "<beans xmlns=\"http://www.springframework.org/schema/beans\">"
+                + "<import resource=\"classpath:" + resource + "\"/>"
+                + "<camelContext id=\"camelContext\" xmlns=\"http://camel.apache.org/schema/spring\"/></beans>";
+    }
+
+    @Test
+    void anotherCountrysSameNamedRouteFileIsNotPulledIntoThisCountrysClosure(@TempDir Path primaryDir) throws Exception {
+        // SG.xml imports the UNQUALIFIED resource authCode.xml — at runtime the sg classpath entry wins.
+        // Each country ships its own authCode.xml under its own dir; only SG's carries the new 9.14 route,
+        // MY's carries an older R6.0 route. MY's file is NOT a dependency and NOT imported by SG.
+        Files.writeString(primaryDir.resolve("SG.xml"), importingBootstrap("authCode.xml"));
+        Files.createDirectories(primaryDir.resolve("sg"));
+        Files.writeString(primaryDir.resolve("sg/authCode.xml"),
+                routeCtx("sgAuthContext", "R9.14_authCode", "{{baseUrl}}/sg/auth/code/validate"));
+        // MY is its own country bootstrap (also imports the unqualified authCode.xml) and ships the older
+        // R6.0 route under its own dir — the very file that must NOT bleed into the SG scope.
+        Files.writeString(primaryDir.resolve("MY.xml"), importingBootstrap("authCode.xml"));
+        Files.createDirectories(primaryDir.resolve("my"));
+        Files.writeString(primaryDir.resolve("my/authCode.xml"),
+                routeCtx("myAuthContext", "R6.0_authCode", "{{baseUrl}}/my/auth/code/validate"));
+        Files.writeString(primaryDir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @CommandHandler @PostMapping("/authCode") public Object authCode(Object b){ return null; }
+                }
+                """);
+
+        VersionDiffReport report = new RouteTraceService(primaryDir.toString()).versionDiff(
+                new TraceRequest(null, "9.14", null, null, "SG", null, null, null, null, null));
+
+        ApiDiff authCode = report.getApis().stream()
+                .filter(a -> "authCode".equals(a.operation()))
+                .findFirst().orElseThrow(() -> new AssertionError("authCode API not in the SG diff"));
+
+        // SG's own scope has only R9.14_authCode; MY's R6.0 must not become its predecessor.
+        assertThat(authCode.targetRoute()).isEqualTo("R9.14_authCode");
+        assertThat(authCode.lowerRoute()).isNotEqualTo("R6.0_authCode");
+        assertThat(authCode.lowerVersion()).isNotEqualTo("6.0");
+        assertThat(authCode.status()).isEqualTo(ApiDiff.NEW);
+    }
+
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------
 
     private static String routeCtxBean(String id, String routeId, String bean) {

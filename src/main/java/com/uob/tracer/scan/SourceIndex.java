@@ -309,7 +309,7 @@ public class SourceIndex {
                     : "Unknown country '" + country + "'. Available bootstraps: " + countries());
             return registry;
         }
-        Set<FileInfo> closure = closureOf(starts, scopeWarnings);
+        Set<FileInfo> closure = closureOf(starts, country, scopeWarnings);
         // Dependency files are country- and version-agnostic shared/core routes (host resolution), not
         // country bootstraps — so they are ALWAYS in scope, even when the country bootstrap reaches them via
         // direct: rather than an <import>, so a host defined in a dependency resolves regardless of country.
@@ -341,7 +341,7 @@ public class SourceIndex {
     }
 
     /** Transitive set of files reachable from the bootstrap file(s) via imports + context refs. */
-    private Set<FileInfo> closureOf(java.util.Collection<FileInfo> starts, List<String> scopeWarnings) {
+    private Set<FileInfo> closureOf(java.util.Collection<FileInfo> starts, String country, List<String> scopeWarnings) {
         Set<FileInfo> visited = new HashSet<>();
         Deque<FileInfo> queue = new ArrayDeque<>(starts);
         while (!queue.isEmpty()) {
@@ -354,7 +354,11 @@ public class SourceIndex {
                 if (targets.isEmpty()) {
                     scopeWarnings.add("Unresolved <import> in " + f.relPath() + ": " + imp);
                 }
-                queue.addAll(targets);
+                // A bare/relative import (e.g. classpath:authCode.xml) can suffix-match the SAME file name
+                // under several countries' dirs (sg/authCode.xml AND my/authCode.xml). At runtime only this
+                // country's classpath entry wins; emulate that by dropping candidates that live under a
+                // DIFFERENT country's subtree, so another country's versioned route never enters this scope.
+                queue.addAll(preferCountry(targets, country));
             }
             for (String ref : f.metadata().contextRefs()) {
                 FileInfo target = contextIdToFile.get(ref);
@@ -366,6 +370,45 @@ public class SourceIndex {
             }
         }
         return visited;
+    }
+
+    /**
+     * When an import suffix-matched files under several countries' dirs, keep only those belonging to the
+     * country being scoped (or to no country at all — a genuinely shared file). If none belong to this
+     * country the list is returned untouched, so a legitimately country-agnostic import is never dropped.
+     * A single match is returned as-is (nothing to disambiguate).
+     */
+    private List<FileInfo> preferCountry(List<FileInfo> candidates, String country) {
+        if (candidates.size() <= 1 || country == null) {
+            return candidates;
+        }
+        Set<String> known = new HashSet<>();
+        for (String c : countryToFiles.keySet()) {
+            known.add(c.toLowerCase(java.util.Locale.ROOT));
+        }
+        if (known.isEmpty()) {
+            return candidates;
+        }
+        String want = country.toLowerCase(java.util.Locale.ROOT);
+        List<FileInfo> ownOrNeutral = new ArrayList<>();
+        for (FileInfo f : candidates) {
+            String seg = countrySegment(f, known);
+            if (seg == null || seg.equals(want)) {   // neutral (shared) or this country's own
+                ownOrNeutral.add(f);
+            }
+        }
+        return ownOrNeutral.isEmpty() ? candidates : ownOrNeutral;
+    }
+
+    /** The country a file belongs to, from a path segment matching a known country (case-insensitive), else null. */
+    private static String countrySegment(FileInfo f, Set<String> knownCountriesLower) {
+        for (String part : f.relPath().replace('\\', '/').split("/")) {
+            String p = part.toLowerCase(java.util.Locale.ROOT);
+            if (knownCountriesLower.contains(p)) {
+                return p;
+            }
+        }
+        return null;
     }
 
     /**

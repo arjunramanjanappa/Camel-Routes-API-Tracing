@@ -93,12 +93,14 @@ function testedTally(report: VersionDiffReport, log?: Record<string, ApiLogResul
 /** Why this API needs testing — compact reasons for the checklist/tooltip. */
 function riskReasons(a: ApiDiff): string[] {
   const why: string[] = [];
-  if (a.codeChanged) why.push('shared Java class changed');
+  // BAU-impact model: only a payload/contract change or a BAU class change is High; a backend service-version
+  // bump is Medium (new route only); everything else is scoped to the new version — Low, no BAU impact.
+  if (a.codeChanged) why.push('BAU Java class changed');
   if (a.payloadChange?.removedKeys?.length) why.push('payload field removed (backward-incompatible)');
   if (a.payloadChange?.addedKeys?.length) why.push('payload field added');
-  if (a.backendVersionChanges?.length) why.push('backend service version bumped');
-  if (a.status === 'NEW') why.push('new API');
-  else if (a.status === 'CHANGED' && !why.length) why.push('flow changed');
+  if (why.length) return why;
+  if (a.backendVersionChanges?.length) { why.push('backend service version bumped (new route only)'); return why; }
+  if (a.status === 'NEW' || a.status === 'CHANGED') why.push('scoped to the new version — no BAU impact');
   return why;
 }
 

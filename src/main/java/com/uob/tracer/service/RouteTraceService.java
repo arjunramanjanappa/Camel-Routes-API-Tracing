@@ -563,19 +563,23 @@ public class RouteTraceService {
     }
 
     /**
-     * Test-priority from the combined change signals. HIGH when the change can break existing behaviour or
-     * ripple beyond this API — a shared-class code change, a removed payload field (backward-incompatible),
-     * or a backend service-version bump. MEDIUM for a New/Changed flow or added payload fields. LOW otherwise
-     * (a version bump with no behavioural change, or an N/A snapshot with nothing touched).
+     * Test-priority under a BAU-impact model: risk is about whether a change can break EXISTING (BAU)
+     * behaviour, not how much new work a release adds.
+     * <ul>
+     *   <li>HIGH — a payload/contract change, or a modified BAU {@code @Component} Java class: these reach
+     *       existing consumers / older versions.</li>
+     *   <li>MEDIUM — only a backend service-version bump; that is scoped to the new route.</li>
+     *   <li>LOW — everything else. Route/flow diffs only ever occur between different version-specific routes
+     *       (R9.14 vs R9.10 — a physically shared route compared to itself is identical), so added routes /
+     *       new classes / a restructured flow are all scoped to the new version and cannot touch BAU. A NEW
+     *       API with no such signal is likewise new-app work, not a BAU risk.</li>
+     * </ul>
      */
     private static String riskOf(ApiDiff a) {
-        if (a.codeChanged() || removesPayloadField(a)
-                || (a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty())) {
+        if (a.payloadChange() != null || a.codeChanged()) {
             return ApiDiff.RISK_HIGH;
         }
-        PayloadChange pc = a.payloadChange();
-        boolean addedKeys = pc != null && pc.addedKeys() != null && !pc.addedKeys().isEmpty();
-        if (ApiDiff.CHANGED.equals(a.status()) || ApiDiff.NEW.equals(a.status()) || addedKeys) {
+        if (a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty()) {
             return ApiDiff.RISK_MEDIUM;
         }
         return ApiDiff.RISK_LOW;

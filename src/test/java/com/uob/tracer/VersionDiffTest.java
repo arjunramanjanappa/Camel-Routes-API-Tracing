@@ -70,7 +70,8 @@ class VersionDiffTest {
         assertThat(limit.status()).isEqualTo(ApiDiff.NEW);
         assertThat(limit.lowerRoute()).isNull();
         assertThat(limit.lowerVersion()).isNull();
-        assertThat(limit.risk()).isEqualTo(ApiDiff.RISK_MEDIUM);   // new, but no High signal on its own
+        // A new API with no payload/BAU-class signal is new-app work — it cannot impact BAU, so it is Low.
+        assertThat(limit.risk()).isEqualTo(ApiDiff.RISK_LOW);
         assertThat(report.getNewCount()).isGreaterThanOrEqualTo(3);
     }
 
@@ -110,8 +111,28 @@ class VersionDiffTest {
         assertThat(bump.backendVersionChanges().get(0).backend()).contains("/svc/bump");
         assertThat(bump.backendVersionChanges().get(0).fromVersion()).isEqualTo("2.2");
         assertThat(bump.backendVersionChanges().get(0).toVersion()).isEqualTo("2.3");
-        assertThat(bump.risk()).isEqualTo(ApiDiff.RISK_HIGH);   // a backend service-version bump is High-risk
+        // This fixture's 9.4→9.5 templates also restructure the payload keys (operation → ServiceContext/
+        // channelId), so it is High on the payload change — not a "backend bump only" case (that is Medium,
+        // covered by pureBackendVersionBumpIsMediumRisk).
+        assertThat(bump.payloadChange()).isNotNull();
+        assertThat(bump.risk()).isEqualTo(ApiDiff.RISK_HIGH);
         assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void pureBackendVersionBumpIsMediumRisk() {
+        // Only the backend serviceVersionNumber the request template carries changes (2.2 → 2.3); the payload
+        // keys are identical and no BAU class is touched. That is scoped to the new route, so risk is Medium.
+        RouteTraceService svc = new RouteTraceService("src/test/resources/svc-bump-clean");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.5", null, null));
+
+        ApiDiff bump = diffFor(report, "bumpApi");
+        assertThat(bump.status()).isEqualTo(ApiDiff.CHANGED);
+        assertThat(bump.backendVersionChanges()).hasSize(1);
+        assertThat(bump.payloadChange()).isNull();   // same keys, only the version value differs
+        assertThat(bump.codeChanged()).isFalse();
+        assertThat(bump.risk()).isEqualTo(ApiDiff.RISK_MEDIUM);
+        assertThat(report.getHighRiskCount()).isZero();
     }
 
     @Test

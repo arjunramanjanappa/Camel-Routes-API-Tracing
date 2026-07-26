@@ -1039,3 +1039,8 @@ button.impact-api.linkish:hover { color: #1e40af; }
 .sumv-feat-row td { background: #f6f8fb; padding: 7px 14px !important; }
 .sumv-feat-row .sumv-feat-cnt { margin-left: 8px; }
 [data-theme="dark"] .sumv-feat-row td { background: #0b1526; }
+/* Route-version sub-headers inside a Release Impact status group */
+.diff-ver-head { display: flex; align-items: center; gap: 8px; margin: 14px 2px 6px; font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--accent-num, #1d4ed8); }
+.diff-ver-head:first-child { margin-top: 2px; }
+.diff-ver-cnt { font-size: 11px; font-weight: 700; color: #5b6b82; background: #f1f5f9; border-radius: 999px; padding: 0 8px; }
+[data-theme="dark"] .diff-ver-cnt { background: #131f38; color: #93a3ba; }

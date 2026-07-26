@@ -1,5 +1,6 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
+import { versionLabel } from './feature';
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
 // release". Unchanged APIs are still counted in the summary table, just not enumerated.
@@ -26,6 +27,29 @@ function routeVerPdf(routePath: string[]): string {
 /** A row's log result, looked up by version + api in a module's per-version map. */
 function logAt(logByVer: Record<string, Record<string, ApiLogResult>> | undefined, version: string | null | undefined, api?: string | null): ApiLogResult | undefined {
   return api ? logByVer?.[normVerPdf(version)]?.[api] : undefined;
+}
+
+/** Sort route versions descending (9.14 > 9.12 > 9.10), with BAU/BASE last. */
+function cmpVerDesc(a: string, b: string): number {
+  const na = normVerPdf(a), nb = normVerPdf(b);
+  if (na === nb) return 0;
+  if (na === 'BASE') return 1;
+  if (nb === 'BASE') return -1;
+  const pa = na.split('.').map(Number), pb = nb.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pb[i] || 0) - (pa[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+/** Group a status bucket's APIs by their route version, highest version first (BAU last). */
+function groupByVersionPdf(apis: ApiDiff[]): { ver: string; apis: ApiDiff[] }[] {
+  const map = new Map<string, ApiDiff[]>();
+  for (const a of apis) {
+    const v = normVerPdf(a.targetVersion);
+    (map.get(v) || map.set(v, []).get(v)!).push(a);
+  }
+  return [...map.keys()].sort(cmpVerDesc).map((ver) => ({ ver, apis: map.get(ver)! }));
 }
 
 /** A short tested-status label for the PDF (mirrors the UI badge), or null when no log covers this API. */
@@ -155,7 +179,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
       const grouped: Record<'CHANGED' | 'NEW', ApiDiff[]> = { CHANGED: [], NEW: [] };
       rep.apis.forEach((a) => {
         if (a.status === 'SNAPSHOT') return;
-        const eff = a.status === 'NEW' && a.codeChanged ? 'CHANGED' : a.status;
+        const eff = (a.status === 'NEW' || a.status === 'UNCHANGED') && a.codeChanged ? 'CHANGED' : a.status;
         if (eff === 'CHANGED') grouped.CHANGED.push(a);
         else if (eff === 'NEW') grouped.NEW.push(a);
         // UNCHANGED is not listed (BAU, no flow change — deliberately no code-change noise).
@@ -191,7 +215,13 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
           if (!list.length) continue;
           const meta = sectionMeta(status);
           r.groupHead(meta.title, list.length, meta.ramp);
-          list.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, a.status as DiffStatus, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
+          // Within each status bucket, group by route version (9.14 → 9.12 → BAU) for readability.
+          const byVer = groupByVersionPdf(list);
+          const showVerHeads = byVer.length > 1;
+          byVer.forEach((g) => {
+            if (showVerHeads) r.para(`${versionLabel(g.ver)}  (${g.apis.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
+            g.apis.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
+          });
         }
       }
     }

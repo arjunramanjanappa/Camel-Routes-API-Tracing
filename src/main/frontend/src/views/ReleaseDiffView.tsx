@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { fetchVersionDiff, analyzeLogMulti } from '../api';
+import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import { exportDiffSummaryPdf } from '../diffSummaryPdf';
@@ -29,6 +30,23 @@ const DIFF_MESSAGES = [
 
 function statusLabel(s: DiffStatus): string {
   return s === 'NEW' ? 'New' : s === 'CHANGED' ? 'Changed' : 'No change';
+}
+
+/** Sort route versions descending (9.14 > 9.12 > 9.10), with BASE / BAU last. */
+function cmpVerDesc(a: string, b: string): number {
+  const na = a === 'BASE' || a === 'N/A';
+  const nb = b === 'BASE' || b === 'N/A';
+  if (na || nb) return na === nb ? 0 : na ? 1 : -1;
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const d = (pb[i] || 0) - (pa[i] || 0); if (d) return d; }
+  return 0;
+}
+/** Group cards by the route version they resolve to (BAU for base), highest version first — for readability. */
+function groupByVersion(apis: ApiDiff[]): { ver: string; apis: ApiDiff[] }[] {
+  const m = new Map<string, ApiDiff[]>();
+  for (const d of apis) { const v = d.targetVersion && d.targetVersion !== 'N/A' ? d.targetVersion : 'BASE'; if (!m.has(v)) m.set(v, []); m.get(v)!.push(d); }
+  return [...m.keys()].sort(cmpVerDesc).map((ver) => ({ ver, apis: m.get(ver)! }));
 }
 
 type Risk = 'High' | 'Medium' | 'Low';
@@ -867,15 +885,20 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               </div>
             ) : (
               <div className="diff-list">
-                {visible.map((d) => (
-                  <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
-                               routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
-                               remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)}
-                               open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
-                               onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
-                               onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}
-                               onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
-                ))}
+                {(() => { const groups = groupByVersion(visible); const showHeads = groups.length > 1; return groups.map((g) => (
+                  <Fragment key={g.ver}>
+                    {showHeads && <div className="diff-ver-head"><span>{versionLabel(g.ver)}</span><span className="diff-ver-cnt">{g.apis.length}</span></div>}
+                    {g.apis.map((d) => (
+                      <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
+                                   routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
+                                   remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)}
+                                   open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
+                                   onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
+                                   onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}
+                                   onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
+                    ))}
+                  </Fragment>
+                )); })()}
               </div>
             )}
           </div>

@@ -425,17 +425,17 @@ public class LogAnalysisService {
         backendUniverse.addAll(beTargets);
         for (String backend : beTargets) {
             String changeVer = expectedVersions.get(backend);
+            List<String> change = splitList(changeVer);
             List<String> bau = bauVersions(fullBackendVersions.get(backend), changeVer);
-            if (bau.isEmpty()) {
-                // One behaviour → a single row, matched as before.
-                backendResults.add(correlateBackend(backend, txns, version, changeVer, backendUniverse, hosturls, secure, false, false));
+            if (change.size() + bau.size() <= 1) {
+                boolean isBau = change.isEmpty() && !bau.isEmpty();
+                String ver = !change.isEmpty() ? change.get(0) : (!bau.isEmpty() ? bau.get(0) : changeVer);
+                backendResults.add(correlateBackend(backend, txns, version, ver, backendUniverse, hosturls, secure, false, isBau));
             } else {
-                // The same backend has more than one service-version behaviour → verified change row(s) plus a
-                // labelled, version-strict BAU row per reused version.
-                if (changeVer != null) {
-                    for (String cv : changeVer.split(" / ")) {
-                        backendResults.add(correlateBackend(backend, txns, version, cv.trim(), backendUniverse, hosturls, secure, true, false));
-                    }
+                // Several service-version behaviours on the same backend → one version-strict row each: a
+                // verified row per release version, a labelled BAU row per reused version.
+                for (String cv : change) {
+                    backendResults.add(correlateBackend(backend, txns, version, cv, backendUniverse, hosturls, secure, true, false));
                 }
                 for (String bv : bau) {
                     backendResults.add(correlateBackend(backend, txns, version, bv, backendUniverse, hosturls, secure, true, true));
@@ -1486,21 +1486,37 @@ public class LogAnalysisService {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
             String changeVer = changeVersions == null ? null : changeVersions.get(tb);
+            List<String> change = splitList(changeVer);   // release-version flows — each must be tested
             List<String> bau = bauVersions(fullVersions == null ? null : fullVersions.get(tb), changeVer);
-            if (bau.isEmpty()) {
-                // One behaviour (the change, or a version-less backend) → a single row, matched as before.
-                out.add(backendRow(t, tb, changeVer, tracedBackends, hosturls, secure, false, false));
+            if (change.size() + bau.size() <= 1) {
+                // A single service-version behaviour (or none) → one row, matched as before.
+                boolean isBau = change.isEmpty() && !bau.isEmpty();
+                String ver = !change.isEmpty() ? change.get(0) : (!bau.isEmpty() ? bau.get(0) : changeVer);
+                out.add(backendRow(t, tb, ver, tracedBackends, hosturls, secure, false, isBau));
             } else {
-                // The SAME backend has more than one service-version behaviour → one row per version. The
-                // release change is verified; each BAU reuse is a separate, version-strict row labelled BAU.
-                if (changeVer != null) {
-                    for (String cv : changeVer.split(" / ")) {
-                        out.add(backendRow(t, tb, cv.trim(), tracedBackends, hosturls, secure, true, false));
-                    }
+                // The SAME backend has several service-version behaviours → one version-strict row each. Every
+                // release-version flow is verified individually; each BAU reuse is a separate row labelled BAU.
+                for (String cv : change) {
+                    out.add(backendRow(t, tb, cv, tracedBackends, hosturls, secure, true, false));
                 }
                 for (String bv : bau) {
                     out.add(backendRow(t, tb, bv, tracedBackends, hosturls, secure, true, true));
                 }
+            }
+        }
+        return out;
+    }
+
+    /** Split a " / "-joined version list into trimmed, non-empty parts. */
+    private static List<String> splitList(String v) {
+        if (v == null || v.isBlank()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String s : v.split(" / ")) {
+            String t = s.trim();
+            if (!t.isEmpty()) {
+                out.add(t);
             }
         }
         return out;

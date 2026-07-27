@@ -351,6 +351,25 @@ class LogAnalysisServiceTest {
         assertThat(api(csvReport, V2).status()).isEqualTo(LogStatus.SUCCESS);   // SPL markers actually matched
     }
 
+    @Test
+    void splResponseCode200ReadsAsSuccess() throws IOException {
+        // Some SPL modules log success as a BUSINESS "responseCode": "200" instead of all-zeros — on both the
+        // SPLHostMessage backend and the SPLMessage front-end response. We read the business responseCode (not
+        // the HTTP status), so both 200s must verify as SUCCESS.
+        String log =
+            "2026-06-11 18.43.45.102 [t] INFO [SPLMessage][MTY][s][u][9.4][C1][Android][]-/mty-banking-01/services/sg/payment/v2/fund/submit -Request - {\"serviceRequest\":{}}\n"
+          + "2026-06-11 18.43.45.318 [t] INFO [SPLHostMessage][MTY][s][u][9.4][C1][Android][230ms]-/mty-banking-01/bfs/ft/own/submit -[Response] - {\"serviceResponse\":{\"responseCode\":\"200\",\"responseDescription\":\"OK\"}}\n"
+          + "2026-06-11 18.43.45.502 [t] INFO [SPLMessage][MTY][s][u][9.4][C1][Android][500ms]-/mty-banking-01/services/sg/payment/v2/fund/submit -Response - {\"serviceResponse\":{\"responseCode\":\"200\",\"responseDescription\":\"OK\"}}\n";
+
+        LogAnalysisReport r = analyzeText(log, "9.4", "SPL");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
     private void assertSameVerdict(LogAnalysisReport raw, LogAnalysisReport csv) {
         assertThat(csv.transactions()).isEqualTo(raw.transactions());
         assertThat(csv.matchedLines()).isEqualTo(raw.matchedLines());

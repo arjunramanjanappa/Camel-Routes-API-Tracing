@@ -1028,21 +1028,26 @@ public class LogAnalysisService {
         return out;
     }
 
-    /** Front-end success: an all-zeros business responseCode (both apps and the secure flavour). */
+    /**
+     * Front-end success: an all-zeros business responseCode OR a business responseCode of "200" — some SPL
+     * modules log success as {@code "responseCode": "200"} instead of all-zeros. This reads the BUSINESS
+     * responseCode field only (not the HTTP status, per the design). Applies to both apps and the secure flavour.
+     */
     private static boolean isSuccessCode(String code) {
-        return code != null && ALL_ZEROS.matcher(code).matches();
+        return code != null && (ALL_ZEROS.matcher(code).matches() || "200".equals(code.trim()));
     }
 
     /**
-     * Backend success. Mighty/SPL backends log an all-zeros business responseCode. The SPL-Secure
-     * backend is a downstream HTTP call whose responseCode is "200" for OK — anything else (an
-     * all-zeros value included) is an error.
+     * Backend success. Mighty/SPL backends log an all-zeros business responseCode, or "200" for the modules
+     * that use that as their success code. The SPL-Secure backend is a downstream HTTP call whose responseCode
+     * is "200" for OK — anything else (an all-zeros value included) is an error.
      */
     private static boolean isBackendSuccess(String code, boolean secure) {
         if (code == null) {
             return false;
         }
-        return secure ? "200".equals(code.trim()) : ALL_ZEROS.matcher(code).matches();
+        String c = code.trim();
+        return secure ? "200".equals(c) : (ALL_ZEROS.matcher(code).matches() || "200".equals(c));
     }
 
     // --- transaction assembly ---

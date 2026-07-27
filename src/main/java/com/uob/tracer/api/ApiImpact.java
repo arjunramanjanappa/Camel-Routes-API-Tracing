@@ -21,10 +21,13 @@ import java.util.Map;
  * @param changeBackendVersions backend URL → service version, but only from routes at THIS release version
  *                              (the release's own change) — excludes lower/BAU routes reusing the same backend,
  *                              so release-test verification checks the change and ignores unchanged BAU calls
+ * @param unconditionalBackends backends reached with no choice-branch condition (they always run) — a
+ *                              release-version one never seen in the log is a real coverage gap; a
+ *                              conditional/branch backend's absence is expected, not a gap
  */
 public record ApiImpact(String api, String operation, String command,
                         String resolvedRoute, String resolvedVersion, boolean baseFallback,
                         List<String> routes, List<String> backends, List<String> hosts,
                         Map<String, String> backendVersions, Map<String, String> backendHosturls,
-                        Map<String, String> changeBackendVersions) {
+                        Map<String, String> changeBackendVersions, List<String> unconditionalBackends) {
 }

@@ -40,6 +40,12 @@ public class TraceResponse {
      * call — so release-test verification checks the change's version and ignores BAU reuse of the same URL.
      */
     private final java.util.Map<String, String> changeBackendVersions = new java.util.LinkedHashMap<>();
+    /**
+     * Backends reached WITHOUT any choice-branch condition — they always run, so a release-version one that
+     * is never seen in the log is a real coverage gap. A backend reached only inside a {@code <choice>} branch
+     * is NOT here (only one branch runs per transaction, so its absence is expected, not a gap).
+     */
+    private final java.util.Set<String> unconditionalBackends = new java.util.LinkedHashSet<>();
     /** Backend api value → its "hosturl" property (the path the host logs in MightyHostMessage). */
     private final java.util.Map<String, String> backendHosturls = new java.util.LinkedHashMap<>();
     /** Distinct request-body template uris referenced in this flow (for the payload-change diff). */
@@ -94,6 +100,7 @@ public class TraceResponse {
     public List<String> getBackendApis() { return backendApis; }
     public java.util.Map<String, String> getBackendVersions() { return backendVersions; }
     public java.util.Map<String, String> getChangeBackendVersions() { return changeBackendVersions; }
+    public java.util.Set<String> getUnconditionalBackends() { return unconditionalBackends; }
     public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public java.util.Set<String> getTemplateUris() { return templateUris; }
     public List<String> getWarnings() { return warnings; }

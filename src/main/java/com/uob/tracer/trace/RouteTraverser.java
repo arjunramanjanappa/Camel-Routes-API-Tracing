@@ -534,6 +534,9 @@ public class RouteTraverser {
             backendsSeen.add(value);
             response.getBackendApis().add(value);
         }
+        if (branch == null || branch.isBlank()) {
+            response.getUnconditionalBackends().add(value);   // reached with no choice condition → always runs
+        }
         if (hosturl != null && !hosturl.isBlank()) {
             // The api is the backend identity (shown in the graph); the hosturl is what
             // the host actually logs (MightyHostMessage), so the log analysis matches on it.

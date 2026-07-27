@@ -289,7 +289,7 @@ public class RouteTraceService {
                     resolved.routeName(), resolved.version(), resolved.baseFallback(),
                     businessRoutes, List.copyOf(r.getBackendApis()), apiHosts,
                     Map.copyOf(r.getBackendVersions()), Map.copyOf(r.getBackendHosturls()),
-                    Map.copyOf(r.getChangeBackendVersions())));
+                    Map.copyOf(r.getChangeBackendVersions()), List.copyOf(r.getUnconditionalBackends())));
 
             routes.addAll(businessRoutes);
             backends.addAll(r.getBackendApis());

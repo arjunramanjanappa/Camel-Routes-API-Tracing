@@ -1184,14 +1184,14 @@ public class LogAnalysisService {
         // so the report can show which errors recur and how often — for investigation.
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (Txn t : forVersion) {
-            Eval e = evaluate(t, api.backends(), api.changeBackendVersions(), api.backendVersions(), hosturls, secure);
+            Eval e = evaluate(t, api.backends(), api.changeBackendVersions(), api.backendVersions(), api.unconditionalBackends(), hosturls, secure);
             if (e.status() == LogStatus.SUCCESS) {
                 success++;
             } else {
                 failuresByCode.merge(failureKey(e.status(), t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
             }
         }
-        Eval eval = evaluate(latest, api.backends(), api.changeBackendVersions(), api.backendVersions(), hosturls, secure);
+        Eval eval = evaluate(latest, api.backends(), api.changeBackendVersions(), api.backendVersions(), api.unconditionalBackends(), hosturls, secure);
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
@@ -1438,7 +1438,8 @@ public class LogAnalysisService {
     }
 
     private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> changeVersions,
-                          Map<String, String> fullVersions, Map<String, String> hosturls, boolean secure) {
+                          Map<String, String> fullVersions, Collection<String> unconditional,
+                          Map<String, String> hosturls, boolean secure) {
         List<BackendCallResult> backends = backendResults(t, tracedBackends, changeVersions, fullVersions, hosturls, secure);
         // Front end is the source of truth for the end-to-end verdict.
         if (t.feResp() == null) {
@@ -1457,16 +1458,31 @@ public class LogAnalysisService {
                     "Front-end responseCode " + code
                             + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."), backends);
         }
-        // Front end OK — check the backends it was traced to call. Only an observed
-        // backend that failed (or was called at the wrong service version) downgrades
-        // the verdict; a traced backend that never appears is usually a choice branch
-        // that wasn't taken, so it is reported for info but does not flag PARTIAL.
+        // Front end OK — check the backends it was traced to call. An observed backend that failed or was
+        // called at the wrong service version downgrades the verdict. A missing service VERSION of a backend
+        // also downgrades when that flow always runs: the backend WAS observed at another version (so it ran),
+        // this release version is unconditional (no choice branch), yet its call is absent — a real coverage
+        // gap (e.g. /getStatus tested at 4.0 but not the required 2.0). A backend that never appears at ANY
+        // version (a path/branch not exercised) stays tolerant, and BAU reuse is always exempt.
+        Set<String> observedBackends = new java.util.HashSet<>();
+        for (BackendCallResult b : backends) {
+            if (b.status() != LogStatus.NOT_TESTED) {
+                observedBackends.add(b.backend());
+            }
+        }
         List<String> issues = new ArrayList<>();
         for (BackendCallResult b : backends) {
             if (b.bau()) {
                 continue;   // BAU reuse — a different, unchanged behaviour; never fails this release's verdict
             }
-            if (b.status() != LogStatus.SUCCESS && b.status() != LogStatus.NOT_TESTED) {
+            if (b.status() == LogStatus.NOT_TESTED) {
+                boolean alwaysRuns = unconditional != null && unconditional.contains(b.backend());
+                if (alwaysRuns && observedBackends.contains(b.backend())) {
+                    issues.add("release flow not tested: " + b.backend()
+                            + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : ""));
+                }
+                // else: entirely absent (path/branch not exercised) — reported for info, no downgrade.
+            } else if (b.status() != LogStatus.SUCCESS) {
                 issues.add(b.status().name().toLowerCase() + " backend: " + b.backend());
             } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
                 issues.add("wrong service version on " + b.backend()

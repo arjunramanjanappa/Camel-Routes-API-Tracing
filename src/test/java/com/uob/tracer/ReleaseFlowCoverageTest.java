@@ -62,5 +62,26 @@ class ReleaseFlowCoverageTest {
             assertThat(b.bau()).isFalse();
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
         });
+
+        // /getStatus runs (seen at 4.0) but its required 2.0 release flow is unconditional and NOT tested →
+        // the API is NOT a clean SUCCESS: it is PARTIAL with a clear "release flow not tested" reason.
+        assertThat(apiA.status()).isEqualTo(LogStatus.PARTIAL);
+        assertThat(apiA.note()).contains("release flow not tested").contains("2.0");
+    }
+
+    @Test
+    void whenAllReleaseFlowsAreTestedTheApiIsSuccess() throws IOException {
+        // Same as above but the log ALSO exercises /getStatus at 2.0 — now every release flow is covered.
+        String log =
+            "2026-06-11 18.43.45.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][]-/services/sg/status -Request - {\"serviceRequest\":{}}\n"
+          + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][230ms]-/getStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.0\"}}\n"
+          + "2026-06-11 18.43.45.319 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][225ms]-/getStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"2.0\"}}\n"
+          + "2026-06-11 18.43.45.320 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][240ms]-/fetchStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.1\"}}\n"
+          + "2026-06-11 18.43.45.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][500ms]-/services/sg/status -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+
+        ApiLogResult apiA = analyze(log).apis().stream()
+                .filter(a -> "apiA".equals(a.operation()))
+                .findFirst().orElseThrow();
+        assertThat(apiA.status()).isEqualTo(LogStatus.SUCCESS);
     }
 }

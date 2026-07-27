@@ -18,8 +18,10 @@ function resultRamp(s: LogStatus): { label: string; ramp: Ramp } {
 }
 function remarkOf(a: ApiLogResult): string {
   if (a.status === 'SUCCESS') return '-';
-  if (a.status === 'NOT_TESTED') return a.note || 'No matching transaction in the log';
-  return a.responseDescription || a.responseCode || a.note || (a.attempts > 0 ? `${a.failureCount}/${a.attempts} failed` : '-');
+  // The note is purpose-built to explain the verdict — a coverage gap ("change flow not tested"), a failed
+  // flow, an FE error, or a timeout. Prefer it: the FE responseDescription can read "Success" on a
+  // PARTIAL/FAILED whose real cause is a backend flow, which would be misleading in a manager summary.
+  return a.note || a.responseDescription || a.responseCode || (a.attempts > 0 ? `${a.failureCount}/${a.attempts} failed` : '-');
 }
 function pillCell(label: string, ramp: Ramp) { return { pill: { label, fill: ramp.fill, text: ramp.text, stripe: ramp.bar } }; }
 

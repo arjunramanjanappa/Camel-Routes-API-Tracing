@@ -450,6 +450,48 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
 const ALL_STATUSES: DiffStatus[] = ['CHANGED', 'NEW', 'UNCHANGED'];
 const GROUP_LABEL: Record<DiffStatus, string> = { CHANGED: 'Changed', NEW: 'New', UNCHANGED: 'Unchanged' };
 
+/**
+ * Commit/App version(s) entered as removable chips instead of a raw comma-separated string. The wire value
+ * stays a comma-separated string (what the backend expects) — this only changes the entry UX. Type a token
+ * and press Enter or comma to add it; Backspace on an empty field removes the last; pressing Enter on an
+ * empty field submits (so "type versions, hit Enter" still triggers the compare).
+ */
+function VersionChips({ value, onChange, onSubmit }: { value: string; onChange: (v: string) => void; onSubmit?: () => void }) {
+  const [draft, setDraft] = useState('');
+  const chips = value.split(',').map((s) => s.trim()).filter(Boolean);
+  const setChips = (next: string[]) => onChange(next.join(', '));
+  const commit = (raw: string) => {
+    const tok = raw.trim();
+    if (!tok) return;
+    if (!chips.includes(tok)) setChips([...chips, tok]);
+    setDraft('');
+  };
+  return (
+    <div className="chip-input" onClick={(e) => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}>
+      {chips.map((c, i) => (
+        <span key={c + i} className="chip-tag">{c}
+          <button type="button" className="chip-x" aria-label={`Remove ${c}`}
+                  onClick={(e) => { e.stopPropagation(); setChips(chips.filter((_, j) => j !== i)); }}>×</button>
+        </span>
+      ))}
+      <input className="chip-field" value={draft} placeholder={chips.length ? '' : '19.14.0'}
+             onChange={(e) => {
+               const v = e.target.value;
+               if (v.includes(',')) {   // typed/pasted several at once — add all in one update
+                 const merged = [...chips];
+                 for (const t of v.split(',').map((s) => s.trim()).filter(Boolean)) if (!merged.includes(t)) merged.push(t);
+                 setChips(merged); setDraft('');
+               } else setDraft(v);
+             }}
+             onKeyDown={(e) => {
+               if (e.key === 'Enter') { e.preventDefault(); if (draft.trim()) commit(draft); else onSubmit?.(); }
+               else if (e.key === 'Backspace' && !draft && chips.length) setChips(chips.slice(0, -1));
+             }}
+             onBlur={() => commit(draft)} />
+    </div>
+  );
+}
+
 export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = 'detailed' }: { app?: string; colorMode?: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app || 'Mighty');
   const [modulesOpen, setModulesOpen] = useState(true);
@@ -689,19 +731,19 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
           <div style={{ width: 200 }}>
             <label>API Version <span style={{ color: '#dc2626' }}>*</span></label>
             <input list="diffVersionList" value={version} placeholder="9.18 or N/A (latest / base)" onChange={(e) => setVersion(e.target.value)}
-                   onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
+                   onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim() && appVersion.trim()) load(); }} />
             <datalist id="diffVersionList">
               <option value="N/A" label="latest version of each API (or its default)" />
             </datalist>
           </div>
-          <div style={{ width: 200 }}>
-            <label title="The exact version token(s) in your commit messages, e.g. 19.18.0. Matched literally (19.10 ≠ 19.10.0). List several, comma-separated, to catch every Jira that touched shared code — e.g. 19.10, 19.10.1, 19.18.0.">Commit/App version(s) <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
-            <input value={appVersion} placeholder="19.10, 19.10.1, 19.18.0" onChange={(e) => setAppVersion(e.target.value)}
-                   onKeyDown={(e) => { if (e.key === 'Enter' && country.trim() && anyValid && version.trim()) load(); }} />
+          <div style={{ width: 260 }}>
+            <label title="The exact version token(s) from your commit messages, e.g. 19.14.0. Matched literally (19.10 ≠ 19.10.0). Add every Jira/commit version that touched shared code so BAU class changes are detected — this is what makes the Changed count reflect the true release scope.">Commit/App version(s) <span style={{ color: '#dc2626' }}>*</span></label>
+            <VersionChips value={appVersion} onChange={setAppVersion}
+                          onSubmit={() => { if (country.trim() && anyValid && version.trim() && appVersion.trim()) load(); }} />
           </div>
           <button className="trace" style={{ width: 150, marginTop: 0, alignSelf: 'flex-end' }}
-                  disabled={loading || !country.trim() || !anyValid || !version.trim()} onClick={load}
-                  title={!anyValid ? 'Add at least one module source' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : ''}>
+                  disabled={loading || !country.trim() || !anyValid || !version.trim() || !appVersion.trim()} onClick={load}
+                  title={!anyValid ? 'Add at least one module source' : !country.trim() ? 'Enter a country first' : !version.trim() ? 'Enter a client release version (or N/A)' : !appVersion.trim() ? 'Enter the commit/app version(s) — required so BAU code changes are detected' : ''}>
             {loading ? 'Comparing…' : 'Compare modules'}
           </button>
         </div>
@@ -736,7 +778,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
       )}
 
       {!loading && report && viewMode === 'summary' && (
-        <div className="impact-body" style={{ padding: '0 18px 20px' }}>
+        <div className="impact-body" style={{ display: 'block', padding: '0 18px 20px' }}>
           <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
           <CodeChangeSummary report={report} />
           <div className="testlog-bar" style={{ marginTop: 10 }}>

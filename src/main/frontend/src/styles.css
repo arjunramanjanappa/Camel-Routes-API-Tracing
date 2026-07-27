@@ -778,6 +778,21 @@ tr.lsub code { background: transparent; }
 [data-theme="dark"] .diff-badge.code { background: #2e1065; color: #c4b5fd; }
 .diff-badge.shared { background: #fef3c7; color: #92400e; }
 [data-theme="dark"] .diff-badge.shared { background: #3f2d0a; color: #fcd34d; }
+
+/* Commit/App version(s) chip input — versions entered as removable tags rather than a raw comma string. */
+.chip-input { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 34px;
+  padding: 4px 6px; border: 1px solid #cfd8e3; border-radius: 8px; background: #fff; cursor: text; }
+.chip-input:focus-within { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+.chip-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; font-size: 12.5px;
+  font-weight: 600; color: #1d4ed8; background: #e8f0fe; border-radius: 999px; white-space: nowrap; }
+.chip-x { border: 0; background: transparent; color: #1d4ed8; font-size: 15px; line-height: 1; cursor: pointer;
+  padding: 0 2px; border-radius: 999px; }
+.chip-x:hover { background: #c7dbfd; }
+.chip-field { flex: 1; min-width: 70px; border: 0; outline: 0; background: transparent; font: inherit; padding: 2px; }
+[data-theme="dark"] .chip-input { border-color: #2a3a55; background: #0f1a30; }
+[data-theme="dark"] .chip-tag { color: #bfdbfe; background: #14264a; }
+[data-theme="dark"] .chip-x { color: #bfdbfe; }
+[data-theme="dark"] .chip-x:hover { background: #1e3a63; }
 .diff-card.code { border-left-color: #7c3aed; }
 .chg.code { background: #ede9fe; color: #6d28d9; }
 [data-theme="dark"] .chg.code { background: #2e1065; color: #c4b5fd; }

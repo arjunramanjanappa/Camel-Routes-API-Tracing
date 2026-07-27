@@ -97,7 +97,7 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
   r.titlePage('Release Impact — Summary', '',
     [
       `${app ? app + ' · ' : ''}Release ${ver}${country ? ' · ' + country : ''}`,
-      appVersion ? `Commit version(s): ${appVersion}` : '',
+      appVersion ? `Commit/App version(s): ${appVersion}` : '',
       'Generated ' + generatedStamp(),
     ].filter(Boolean));
 

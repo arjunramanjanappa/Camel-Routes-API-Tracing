@@ -12,6 +12,9 @@ package com.uob.tracer.api;
  * @param expectedServiceVersion service version the tracer expects for this backend (may be "2.2 / 3.3")
  * @param loggedServiceVersion   service version actually seen in the host-message payload
  * @param serviceVersionOk       true if logged matches an expected version, false if mismatch, null if unknown
+ * @param bau                    true when this row is a BAU reuse of the backend at a lower/unchanged service
+ *                               version (a different behaviour than the release change) — shown labelled BAU
+ *                               and never counted toward the API's pass/fail (nothing changed there to verify)
  */
 public record BackendCallResult(
         String backend,
@@ -22,5 +25,6 @@ public record BackendCallResult(
         String responseDescription,
         String expectedServiceVersion,
         String loggedServiceVersion,
-        Boolean serviceVersionOk) {
+        Boolean serviceVersionOk,
+        boolean bau) {
 }

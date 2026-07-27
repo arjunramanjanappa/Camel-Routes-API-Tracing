@@ -126,15 +126,19 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'details'}</button>}</td>
       </tr>
       {isOpen && a.backends.map((b, i) => (
-        <tr key={i} className="lsub">
-          <td><Badge s={b.status} /></td>
+        <tr key={i} className={'lsub' + (b.bau ? ' bau' : '')}>
+          <td>{b.bau
+            ? <span className="bau-pill" title="BAU reuse of this backend at a lower/unchanged service version — not part of this release's change, so not verified">BAU</span>
+            : <Badge s={b.status} />}</td>
           <td colSpan={2}>
             <code>{b.backend}</code>
-            <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : ' not observed'}</span>
-            {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.serviceVersionOk} />
+            <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : (b.bau ? ' unchanged 8.x route' : ' not observed')}</span>
+            {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} />
           </td>
           <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
-          <td colSpan={2}>{b.responseCode || ''}{b.responseDescription ? ' · ' + b.responseDescription : ''}</td>
+          <td colSpan={2}>{b.bau
+            ? (b.status === 'NOT_TESTED' ? 'BAU – no logs found' : 'BAU – ' + (b.responseCode || '—') + (b.responseDescription ? ' · ' + b.responseDescription : ''))
+            : (b.responseCode || '') + (b.responseDescription ? ' · ' + b.responseDescription : '')}</td>
         </tr>
       ))}
       {isOpen && hasFailures(a.failuresByCode) && (

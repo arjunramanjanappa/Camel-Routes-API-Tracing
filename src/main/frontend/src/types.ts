@@ -237,6 +237,9 @@ export interface BackendCallResult {
   expectedServiceVersion?: string | null;
   loggedServiceVersion?: string | null;
   serviceVersionOk?: boolean | null;
+  /** True when this row is a BAU reuse of the backend at a lower/unchanged service version — a different
+   *  behaviour than the release change. Shown labelled BAU and never counted toward the API's pass/fail. */
+  bau?: boolean;
 }
 
 export interface ApiLogResult {

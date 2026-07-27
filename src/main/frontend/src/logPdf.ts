@@ -238,6 +238,14 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
     r.text('Backend', M, 'bold', 9, PAL.ink); r.y += 13;
     (a.backends).forEach((b: BackendCallResult) => {
       const bm = ST[b.status];
+      if (b.bau) {
+        // BAU reuse at a lower/unchanged service version — labelled, never a pass/fail.
+        const bauLine = `${backendPath(b.backend)}  -  BAU`
+          + (b.expectedServiceVersion ? ` (svc ${b.expectedServiceVersion})` : '')
+          + (b.status === 'NOT_TESTED' ? ' - no logs found' : ` - ${b.responseCode || bm.label}`);
+        r.para('- ' + bauLine, M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
+        return;
+      }
       const line = `${backendPath(b.backend)}  -  ${bm.label}`
         + (b.responseCode ? ` (code ${b.responseCode})` : '')
         + (b.latencyMs != null ? `, ${b.latencyMs} ms` : '')

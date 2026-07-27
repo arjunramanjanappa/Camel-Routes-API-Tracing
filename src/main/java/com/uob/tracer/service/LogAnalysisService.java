@@ -1165,14 +1165,14 @@ public class LogAnalysisService {
         // so the report can show which errors recur and how often — for investigation.
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (Txn t : forVersion) {
-            Eval e = evaluate(t, api.backends(), api.changeBackendVersions(), hosturls, secure);
+            Eval e = evaluate(t, api.backends(), api.changeBackendVersions(), api.backendVersions(), hosturls, secure);
             if (e.status() == LogStatus.SUCCESS) {
                 success++;
             } else {
                 failuresByCode.merge(failureKey(e.status(), t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
             }
         }
-        Eval eval = evaluate(latest, api.backends(), api.changeBackendVersions(), hosturls, secure);
+        Eval eval = evaluate(latest, api.backends(), api.changeBackendVersions(), api.backendVersions(), hosturls, secure);
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
@@ -1325,6 +1325,17 @@ public class LogAnalysisService {
      */
     private BackendCall pickCall(List<BackendCall> calls, String tracedBackend, String expectedVersion,
                                  Collection<String> candidates, Map<String, String> hosturls) {
+        return pickCall(calls, tracedBackend, expectedVersion, candidates, hosturls, false);
+    }
+
+    /**
+     * {@code strictVersion}: when a backend has more than one service-version behaviour (a release change AND
+     * a BAU reuse of the same URL), each row must match ITS version — so a 2.0 (BAU) call is never mistaken for
+     * the 4.0 (change) row. Strict rows return null (→ not tested / no logs) rather than falling back to a
+     * path-only match at the wrong version.
+     */
+    private BackendCall pickCall(List<BackendCall> calls, String tracedBackend, String expectedVersion,
+                                 Collection<String> candidates, Map<String, String> hosturls, boolean strictVersion) {
         String matchKey = matchPath(tracedBackend, hosturls);
         BackendCall pathMatch = null;
         for (BackendCall c : calls) {
@@ -1337,7 +1348,7 @@ public class LogAnalysisService {
             if (expectedVersion != null && Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
                 return c;   // URL and svc both match — the precise call
             }
-            if (pathMatch == null) {
+            if (pathMatch == null && !strictVersion) {
                 pathMatch = c;
             }
         }
@@ -1396,9 +1407,9 @@ public class LogAnalysisService {
         return s;
     }
 
-    private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions,
-                          Map<String, String> hosturls, boolean secure) {
-        List<BackendCallResult> backends = backendResults(t, tracedBackends, expectedVersions, hosturls, secure);
+    private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> changeVersions,
+                          Map<String, String> fullVersions, Map<String, String> hosturls, boolean secure) {
+        List<BackendCallResult> backends = backendResults(t, tracedBackends, changeVersions, fullVersions, hosturls, secure);
         // Front end is the source of truth for the end-to-end verdict.
         if (t.feResp() == null) {
             return new Eval(LogStatus.TIMEOUT,
@@ -1422,6 +1433,9 @@ public class LogAnalysisService {
         // that wasn't taken, so it is reported for info but does not flag PARTIAL.
         List<String> issues = new ArrayList<>();
         for (BackendCallResult b : backends) {
+            if (b.bau()) {
+                continue;   // BAU reuse — a different, unchanged behaviour; never fails this release's verdict
+            }
             if (b.status() != LogStatus.SUCCESS && b.status() != LogStatus.NOT_TESTED) {
                 issues.add(b.status().name().toLowerCase() + " backend: " + b.backend());
             } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
@@ -1436,31 +1450,72 @@ public class LogAnalysisService {
         return new Eval(LogStatus.SUCCESS, null, backends);
     }
 
-    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends, Map<String, String> expectedVersions,
+    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends,
+                                                   Map<String, String> changeVersions, Map<String, String> fullVersions,
                                                    Map<String, String> hosturls, boolean secure) {
         List<BackendCallResult> out = new ArrayList<>();
         for (String tb : tracedBackends) {
-            String expected = expectedVersions == null ? null : expectedVersions.get(tb);
-            BackendCall hit = pickCall(t.calls(), tb, expected, tracedBackends, hosturls);
-            if (hit == null) {
-                out.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null));
-                continue;
+            String changeVer = changeVersions == null ? null : changeVersions.get(tb);
+            List<String> bau = bauVersions(fullVersions == null ? null : fullVersions.get(tb), changeVer);
+            if (bau.isEmpty()) {
+                // One behaviour (the change, or a version-less backend) → a single row, matched as before.
+                out.add(backendRow(t, tb, changeVer, tracedBackends, hosturls, secure, false, false));
+            } else {
+                // The SAME backend has more than one service-version behaviour → one row per version. The
+                // release change is verified; each BAU reuse is a separate, version-strict row labelled BAU.
+                if (changeVer != null) {
+                    for (String cv : changeVer.split(" / ")) {
+                        out.add(backendRow(t, tb, cv.trim(), tracedBackends, hosturls, secure, true, false));
+                    }
+                }
+                for (String bv : bau) {
+                    out.add(backendRow(t, tb, bv, tracedBackends, hosturls, secure, true, true));
+                }
             }
-            LogStatus st = !hit.hasResponse() ? LogStatus.TIMEOUT
-                    : hit.code() == null ? LogStatus.INDETERMINATE
-                    : isBackendSuccess(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
-            boolean timedOut = st == LogStatus.TIMEOUT;
-            // A response present but with no readable responseCode (unexpected payload format) is
-            // INDETERMINATE — surface a clear reason instead of a blank row.
-            String desc = timedOut ? null : hit.desc();
-            if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
-                desc = UNRECOGNISED_RESPONSE;
-            }
-            out.add(new BackendCallResult(tb, hit.path(), st,
-                    timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), desc,
-                    expected, hit.serviceVersion(), versionOk(expected, hit.serviceVersion())));
         }
         return out;
+    }
+
+    /** Versions present in the full footprint ("4.0 / 2.0") but NOT in the release change ("4.0") → BAU ("2.0"). */
+    private static List<String> bauVersions(String allVer, String changeVer) {
+        if (allVer == null || allVer.isBlank()) {
+            return List.of();
+        }
+        java.util.Set<String> change = new java.util.HashSet<>();
+        if (changeVer != null) {
+            for (String c : changeVer.split(" / ")) {
+                change.add(c.trim());
+            }
+        }
+        List<String> out = new ArrayList<>();
+        for (String v : allVer.split(" / ")) {
+            String tv = v.trim();
+            if (!tv.isEmpty() && !change.contains(tv)) {
+                out.add(tv);
+            }
+        }
+        return out;
+    }
+
+    /** One backend row for a specific expected service version (strict match when the URL has several versions). */
+    private BackendCallResult backendRow(Txn t, String tb, String expected, List<String> tracedBackends,
+                                         Map<String, String> hosturls, boolean secure, boolean strict, boolean bau) {
+        BackendCall hit = pickCall(t.calls(), tb, expected, tracedBackends, hosturls, strict);
+        if (hit == null) {
+            // Not observed. For a BAU row this is fine — "BAU – no logs found" — and never fails the release.
+            return new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null, bau);
+        }
+        LogStatus st = !hit.hasResponse() ? LogStatus.TIMEOUT
+                : hit.code() == null ? LogStatus.INDETERMINATE
+                : isBackendSuccess(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
+        boolean timedOut = st == LogStatus.TIMEOUT;
+        String desc = timedOut ? null : hit.desc();
+        if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
+            desc = UNRECOGNISED_RESPONSE;
+        }
+        return new BackendCallResult(tb, hit.path(), st,
+                timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), desc,
+                expected, hit.serviceVersion(), versionOk(expected, hit.serviceVersion()), bau);
     }
 
     // --- internal records ---

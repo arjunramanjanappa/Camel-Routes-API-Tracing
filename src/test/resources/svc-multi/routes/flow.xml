@@ -25,11 +25,11 @@
         <to uri="direct:callUFWDGE"/>
     </route>
 
-    <!-- RouteD: the SAME /getStatus backend as RouteB, but at serviceVersionNumber 2.0 (still a 9.14 flow). -->
+    <!-- RouteD: a DISTINCT backend /putStatus at serviceVersionNumber 2.0 (still a 9.14 release flow). -->
     <route id="R9.14_routeD">
         <from uri="direct:R9.14_routeD"/>
         <to uri="framework:META-INF/templates/rc2/precapture.ftl"/>
-        <setProperty name="api"><simple>/getStatus</simple></setProperty>
+        <setProperty name="api"><simple>/putStatus</simple></setProperty>
         <to uri="direct:callUFWDGE"/>
     </route>
 

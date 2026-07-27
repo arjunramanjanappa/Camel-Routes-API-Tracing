@@ -1459,29 +1459,21 @@ public class LogAnalysisService {
                             + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."), backends);
         }
         // Front end OK — check the backends it was traced to call. An observed backend that failed or was
-        // called at the wrong service version downgrades the verdict. A missing service VERSION of a backend
-        // also downgrades when that flow always runs: the backend WAS observed at another version (so it ran),
-        // this release version is unconditional (no choice branch), yet its call is absent — a real coverage
-        // gap (e.g. /getStatus tested at 4.0 but not the required 2.0). A backend that never appears at ANY
-        // version (a path/branch not exercised) stays tolerant, and BAU reuse is always exempt.
-        Set<String> observedBackends = new java.util.HashSet<>();
-        for (BackendCallResult b : backends) {
-            if (b.status() != LogStatus.NOT_TESTED) {
-                observedBackends.add(b.backend());
-            }
-        }
+        // called at the wrong service version downgrades the verdict. A release-version flow that ALWAYS runs
+        // (unconditional — the whole path to it has no <choice>) but was never observed is a real coverage gap
+        // and also downgrades. A backend reached only inside a choice branch is exempt when absent (its branch
+        // wasn't taken), and BAU reuse is always exempt.
         List<String> issues = new ArrayList<>();
         for (BackendCallResult b : backends) {
             if (b.bau()) {
                 continue;   // BAU reuse — a different, unchanged behaviour; never fails this release's verdict
             }
             if (b.status() == LogStatus.NOT_TESTED) {
-                boolean alwaysRuns = unconditional != null && unconditional.contains(b.backend());
-                if (alwaysRuns && observedBackends.contains(b.backend())) {
+                if (unconditional != null && unconditional.contains(b.backend())) {
                     issues.add("release flow not tested: " + b.backend()
                             + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : ""));
                 }
-                // else: entirely absent (path/branch not exercised) — reported for info, no downgrade.
+                // else: only runs inside a choice branch that wasn't taken — reported for info, no downgrade.
             } else if (b.status() != LogStatus.SUCCESS) {
                 issues.add(b.status().name().toLowerCase() + " backend: " + b.backend());
             } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {

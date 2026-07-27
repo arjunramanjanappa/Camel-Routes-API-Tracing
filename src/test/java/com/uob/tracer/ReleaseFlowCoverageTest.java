@@ -14,74 +14,53 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * All three child flows are at the RELEASE version (9.14): R9.14_routeB → /getStatus 4.0, R9.14_routeC →
- * /fetchStatus 4.1 AND /getStatus 2.0. So /getStatus is called at TWO release versions (4.0 and 2.0) — neither
- * is BAU, both must be tested. They must appear as SEPARATE version-strict rows (not one collapsed row).
+ * Three distinct RELEASE-version (9.14) child flows: R9.14_routeB → /getStatus 4.0, R9.14_routeC →
+ * /fetchStatus 4.1, R9.14_routeD → /putStatus 2.0. All are unconditional (no {@code <choice>} on the path),
+ * so all three MUST be tested. If /putStatus is never in the log the API is PARTIAL, not a clean SUCCESS.
  */
 class ReleaseFlowCoverageTest {
 
     private final RouteTraceService svc = new RouteTraceService("src/test/resources/svc-multi");
 
-    private LogAnalysisReport analyze(String log) throws IOException {
+    private static final String FE_REQ =
+        "2026-06-11 18.43.45.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][]-/services/sg/status -Request - {\"serviceRequest\":{}}\n";
+    private static final String BE_GET =
+        "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][230ms]-/getStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.0\"}}\n";
+    private static final String BE_FETCH =
+        "2026-06-11 18.43.45.320 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][240ms]-/fetchStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.1\"}}\n";
+    private static final String BE_PUT =
+        "2026-06-11 18.43.45.322 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][250ms]-/putStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"2.0\"}}\n";
+    private static final String FE_RESP =
+        "2026-06-11 18.43.45.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][500ms]-/services/sg/status -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+
+    private ApiLogResult analyze(String log) throws IOException {
         try (ByteArrayInputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
-            return new LogAnalysisService(svc).analyze(in, "log.log", "9.14", null,
+            LogAnalysisReport rep = new LogAnalysisService(svc).analyze(in, "log.log", "9.14", null,
                     "src/test/resources/svc-multi", null, null, true, "Mighty");
+            return rep.apis().stream().filter(a -> "apiA".equals(a.operation()))
+                    .findFirst().orElseThrow(() -> new AssertionError("apiA not in the report"));
         }
     }
 
     @Test
-    void twoReleaseVersionsOfTheSameBackendAreSeparateRowsAndTheUntestedOneShows() throws IOException {
-        // Log exercises /getStatus 4.0 and /fetchStatus 4.1, but NOT /getStatus 2.0.
-        String log =
-            "2026-06-11 18.43.45.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][]-/services/sg/status -Request - {\"serviceRequest\":{}}\n"
-          + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][230ms]-/getStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.0\"}}\n"
-          + "2026-06-11 18.43.45.320 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][240ms]-/fetchStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.1\"}}\n"
-          + "2026-06-11 18.43.45.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][500ms]-/services/sg/status -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+    void anUntestedUnconditionalReleaseBackendMakesTheApiPartial() throws IOException {
+        // /getStatus 4.0 and /fetchStatus 4.1 tested; /putStatus 2.0 (a distinct 9.14 backend) is NOT in the log.
+        ApiLogResult apiA = analyze(FE_REQ + BE_GET + BE_FETCH + FE_RESP);
 
-        ApiLogResult apiA = analyze(log).apis().stream()
-                .filter(a -> "apiA".equals(a.operation()))
-                .findFirst().orElseThrow(() -> new AssertionError("apiA not in the report"));
-
-        // /getStatus 4.0 — a release flow, verified, passed.
         assertThat(apiA.backends()).anySatisfy(b -> {
-            assertThat(b.backend()).contains("/getStatus");
-            assertThat(b.expectedServiceVersion()).isEqualTo("4.0");
-            assertThat(b.bau()).isFalse();
-            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
-        });
-        // /getStatus 2.0 — a SEPARATE release flow (NOT BAU), not observed in the log → Not Tested.
-        assertThat(apiA.backends()).anySatisfy(b -> {
-            assertThat(b.backend()).contains("/getStatus");
-            assertThat(b.expectedServiceVersion()).isEqualTo("2.0");
+            assertThat(b.backend()).contains("/putStatus");
             assertThat(b.bau()).isFalse();
             assertThat(b.status()).isEqualTo(LogStatus.NOT_TESTED);
         });
-        // /fetchStatus 4.1 — verified.
-        assertThat(apiA.backends()).anySatisfy(b -> {
-            assertThat(b.backend()).contains("/fetchStatus");
-            assertThat(b.bau()).isFalse();
-            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
-        });
-
-        // /getStatus runs (seen at 4.0) but its required 2.0 release flow is unconditional and NOT tested →
-        // the API is NOT a clean SUCCESS: it is PARTIAL with a clear "release flow not tested" reason.
+        // A required release flow was never tested → the API is PARTIAL with a clear reason.
         assertThat(apiA.status()).isEqualTo(LogStatus.PARTIAL);
-        assertThat(apiA.note()).contains("release flow not tested").contains("2.0");
+        assertThat(apiA.note()).contains("release flow not tested").contains("/putStatus");
     }
 
     @Test
-    void whenAllReleaseFlowsAreTestedTheApiIsSuccess() throws IOException {
-        // Same as above but the log ALSO exercises /getStatus at 2.0 — now every release flow is covered.
-        String log =
-            "2026-06-11 18.43.45.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][]-/services/sg/status -Request - {\"serviceRequest\":{}}\n"
-          + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][230ms]-/getStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.0\"}}\n"
-          + "2026-06-11 18.43.45.319 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][225ms]-/getStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"2.0\"}}\n"
-          + "2026-06-11 18.43.45.320 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][240ms]-/fetchStatus -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"4.1\"}}\n"
-          + "2026-06-11 18.43.45.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][500ms]-/services/sg/status -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
-
-        ApiLogResult apiA = analyze(log).apis().stream()
-                .filter(a -> "apiA".equals(a.operation()))
-                .findFirst().orElseThrow();
+    void whenAllThreeReleaseFlowsAreTestedTheApiIsSuccess() throws IOException {
+        // Now the log also exercises /putStatus 2.0 — every release flow covered.
+        ApiLogResult apiA = analyze(FE_REQ + BE_GET + BE_FETCH + BE_PUT + FE_RESP);
         assertThat(apiA.status()).isEqualTo(LogStatus.SUCCESS);
     }
 }

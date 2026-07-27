@@ -80,6 +80,9 @@ public class RouteTraverser {
     private String currentServiceVersion;
     /** The version of the route that carried {@link #currentServiceVersion}'s template — for change-vs-BAU. */
     private String svcVersionRouteVersion;
+    /** How many {@code <choice>} branches deep the current path is — {@code >0} means everything reached now
+     *  (including sub-routes) is conditional, so a not-observed backend there is not a coverage gap. */
+    private int branchDepth;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
     /** Resolved (existing) route from the most recent DEST_ROUTE-style setProperty — the dynamic toD target. */
     private String currentDestRoute;
@@ -474,9 +477,11 @@ public class RouteTraverser {
         String savedHosturl = currentHosturl;
         String savedDestRoute = currentDestRoute;   // each branch sets its own DEST_ROUTE → its own toD target
         String savedDestMissing = currentDestMissing;
+        branchDepth++;   // everything reached inside a choice branch (incl. sub-routes) is conditional
         try {
             return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
         } finally {
+            branchDepth--;
             currentServiceVersion = savedServiceVersion;
             currentHosturl = savedHosturl;
             currentDestRoute = savedDestRoute;
@@ -534,8 +539,8 @@ public class RouteTraverser {
             backendsSeen.add(value);
             response.getBackendApis().add(value);
         }
-        if (branch == null || branch.isBlank()) {
-            response.getUnconditionalBackends().add(value);   // reached with no choice condition → always runs
+        if (branchDepth == 0 && (branch == null || branch.isBlank())) {
+            response.getUnconditionalBackends().add(value);   // no choice on the whole path → always runs
         }
         if (hosturl != null && !hosturl.isBlank()) {
             // The api is the backend identity (shown in the graph); the hosturl is what

@@ -5,6 +5,7 @@ import com.uob.tracer.api.BackendCallResult;
 import com.uob.tracer.api.BackendLogResult;
 import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.LogStatus;
+import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.service.LogAnalysisService;
 import com.uob.tracer.service.RouteTraceService;
 import org.junit.jupiter.api.Test;
@@ -52,6 +53,32 @@ class LogAnalysisServiceTest {
 
     private ApiLogResult api(LogAnalysisReport r, String apiPath) {
         return r.apis().stream().filter(a -> a.api().equals(apiPath)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void analyzeModulesParsesTheUploadOnceAcrossFlavours() throws IOException {
+        // Two modules of DIFFERENT flavours (Mighty + SPL) go through analyzeModules, which parses the upload
+        // ONCE and buckets records per flavour in a single read. The Mighty module must get exactly the same
+        // per-API verdicts as the trusted single-flavour analyze; the SPL module (this Mighty log carries no
+        // SPLMessage lines) sees no transactions — proving the single-pass per-flavour bucketing is correct.
+        LogAnalysisReport baseline = analyze("analysis-e2e.log", "9.4");
+
+        LogAnalysisService.LogSource src =
+                () -> Files.newInputStream(Path.of("src/test/resources/sample-logs/analysis-e2e.log"));
+        List<LogAnalysisService.ModuleSpec> specs = List.of(
+                new LogAnalysisService.ModuleSpec("mighty", FW, null, null, "Mighty"),
+                new LogAnalysisService.ModuleSpec("spl", FW, null, null, "SPL"));
+        List<ModuleLogReport> reports = service.analyzeModules(src, "analysis-e2e.log", "9.4", null, specs, List.of());
+
+        ModuleLogReport mighty = reports.stream().filter(m -> m.name().equals("mighty")).findFirst().orElseThrow();
+        ModuleLogReport spl = reports.stream().filter(m -> m.name().equals("spl")).findFirst().orElseThrow();
+
+        // Same APIs + verdicts as the single-flavour path — the shared single-pass parse changed nothing.
+        assertThat(mighty.report().apis().stream().map(a -> a.api() + "=" + a.status()).sorted().toList())
+                .isEqualTo(baseline.apis().stream().map(a -> a.api() + "=" + a.status()).sorted().toList());
+        assertThat(mighty.report().transactions()).isEqualTo(baseline.transactions());
+        // The SPL flavour matched none of this Mighty log's lines.
+        assertThat(spl.report().transactions()).isZero();
     }
 
     @Test

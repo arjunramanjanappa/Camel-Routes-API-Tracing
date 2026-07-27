@@ -256,7 +256,11 @@ public class LogAnalysisService {
                     + "). Check the file is the raw output log or a Splunk export of the query.");
         }
 
-        // Group into transactions by correlation id (FE + BE share the id).
+        return new Parsed(toTxns(lines), detected, counters[0], lines.size(), counters[1], warnings);
+    }
+
+    /** Group parsed lines into correlation-id transactions (FE + BE share the id). */
+    private List<Txn> toTxns(List<LogLine> lines) {
         Map<String, List<LogLine>> byCorr = new LinkedHashMap<>();
         for (LogLine l : lines) {
             byCorr.computeIfAbsent(l.correlationId(), k -> new ArrayList<>()).add(l);
@@ -265,7 +269,114 @@ public class LogAnalysisService {
         for (List<LogLine> group : byCorr.values()) {
             txns.add(buildTxn(group));
         }
-        return new Parsed(txns, detected, counters[0], lines.size(), counters[1], warnings);
+        return txns;
+    }
+
+    /**
+     * Parse the upload ONCE into a {@link Parsed} per flavour, bucketing each record into every flavour in a
+     * single read. A mixed Mighty + SPL upload is therefore decoded and scanned once, not once per flavour —
+     * each line's cheap marker pre-filter still routes it to only the flavour(s) it belongs to, so no extra
+     * regex work is done. Keyed by the caller's flavour key ({@code app|secure}).
+     */
+    private Map<String, Parsed> parseLogAll(InputStream raw, String filename, Map<String, Markers> flavours)
+            throws IOException {
+        InputStream in = (filename != null && filename.toLowerCase().endsWith(".gz"))
+                ? new GZIPInputStream(raw) : raw;
+        Map<String, List<LogLine>> linesByKey = new LinkedHashMap<>();
+        Map<String, int[]> countersByKey = new LinkedHashMap<>();   // [0]=records scanned, [1]=marked-but-unparsed
+        for (String k : flavours.keySet()) {
+            linesByKey.put(k, new ArrayList<>());
+            countersByKey.put(k, new int[2]);
+        }
+        List<String> warnings = new ArrayList<>();
+        String detected = "RAW_LOG";
+
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String firstNonBlank = null;
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (!line.isBlank()) { firstNonBlank = line; break; }
+                for (int[] c : countersByKey.values()) { c[0]++; }
+            }
+            if (firstNonBlank != null && !firstNonBlank.isEmpty() && firstNonBlank.charAt(0) == 0xFEFF) {
+                firstNonBlank = firstNonBlank.substring(1);
+            }
+            if (firstNonBlank == null) {
+                detected = "EMPTY";
+            } else {
+                detected = detectFormatAny(firstNonBlank, flavours.values());
+                switch (detected) {
+                    case "SPLUNK_CSV" -> {
+                        int rawIdx = csvRawIndex(firstNonBlank);
+                        StringBuilder rec = new StringBuilder();
+                        while ((line = r.readLine()) != null) {
+                            if (rec.length() > 0) { rec.append('\n'); }
+                            rec.append(line);
+                            if (countChar(rec, '"') % 2 == 0) {
+                                for (var e : flavours.entrySet()) {
+                                    emitCsvRecord(rec.toString(), rawIdx, linesByKey.get(e.getKey()), countersByKey.get(e.getKey()), e.getValue());
+                                }
+                                rec.setLength(0);
+                            }
+                        }
+                        if (rec.length() > 0) {
+                            for (var e : flavours.entrySet()) {
+                                emitCsvRecord(rec.toString(), rawIdx, linesByKey.get(e.getKey()), countersByKey.get(e.getKey()), e.getValue());
+                            }
+                        }
+                    }
+                    case "SPLUNK_JSON" -> {
+                        StringBuilder sb = new StringBuilder(firstNonBlank);
+                        while ((line = r.readLine()) != null) { sb.append('\n').append(line); }
+                        for (String event : extractJsonRaw(sb.toString(), warnings)) {
+                            for (var e : flavours.entrySet()) {
+                                countersByKey.get(e.getKey())[0]++;
+                                ingest(event, linesByKey.get(e.getKey()), countersByKey.get(e.getKey()), e.getValue());
+                            }
+                        }
+                    }
+                    default -> {
+                        ingestAll(firstNonBlank, flavours, linesByKey, countersByKey);
+                        while ((line = r.readLine()) != null) {
+                            ingestAll(line, flavours, linesByKey, countersByKey);
+                        }
+                    }
+                }
+            }
+        }
+
+        Map<String, Parsed> out = new LinkedHashMap<>();
+        for (var e : flavours.entrySet()) {
+            String k = e.getKey();
+            List<LogLine> lines = linesByKey.get(k);
+            int[] c = countersByKey.get(k);
+            List<String> w = new ArrayList<>(warnings);
+            if (lines.isEmpty()) {
+                w.add("No log events found for this application (detected " + detected
+                        + "). Check the file is the raw output log or a Splunk export of the query.");
+            }
+            out.put(k, new Parsed(toTxns(lines), detected, c[0], lines.size(), c[1], w));
+        }
+        return out;
+    }
+
+    /** Feed one raw log line to every flavour (each does its own cheap marker pre-filter). */
+    private void ingestAll(String line, Map<String, Markers> flavours,
+                           Map<String, List<LogLine>> linesByKey, Map<String, int[]> countersByKey) {
+        for (var e : flavours.entrySet()) {
+            countersByKey.get(e.getKey())[0]++;
+            ingest(line, linesByKey.get(e.getKey()), countersByKey.get(e.getKey()), e.getValue());
+        }
+    }
+
+    /** Format is a property of the file, not the flavour: return the first non-RAW detection, else RAW_LOG. */
+    private String detectFormatAny(String firstNonBlank, java.util.Collection<Markers> flavours) {
+        for (Markers m : flavours) {
+            String d = detectFormat(firstNonBlank, m);
+            if (!"RAW_LOG".equals(d)) { return d; }
+            if (m.present(firstNonBlank)) { return "RAW_LOG"; }
+        }
+        return "RAW_LOG";
     }
 
     /**
@@ -345,21 +456,24 @@ public class LogAnalysisService {
                 resolved.add(new Resolved(m, null, null, false, msg(e)));
             }
         }
-        // 2. Parse ONCE per distinct flavour (app|secure), reusing that parse across its modules.
-        Map<String, Parsed> byFlavour = new LinkedHashMap<>();
-        Map<String, String> flavourError = new LinkedHashMap<>();
+        // 2. Parse the upload ONCE for ALL distinct flavours (app|secure) in a single read — a mixed
+        //    Mighty + SPL upload is decoded and scanned once, not once per flavour.
+        Map<String, Markers> flavourMarkers = new LinkedHashMap<>();
         for (Resolved r : resolved) {
             if (r.idx() == null) {
                 continue;
             }
-            String key = r.app() + "|" + r.secure();
-            if (byFlavour.containsKey(key) || flavourError.containsKey(key)) {
-                continue;
-            }
+            flavourMarkers.putIfAbsent(r.app() + "|" + r.secure(), markersFor(r.app(), r.secure()));
+        }
+        Map<String, Parsed> byFlavour = new LinkedHashMap<>();
+        Map<String, String> flavourError = new LinkedHashMap<>();
+        if (!flavourMarkers.isEmpty()) {
             try (InputStream in = source.open()) {
-                byFlavour.put(key, parseLog(in, filename, markersFor(r.app(), r.secure()), r.app()));
+                byFlavour = parseLogAll(in, filename, flavourMarkers);
             } catch (Exception e) {
-                flavourError.put(key, msg(e));
+                for (String key : flavourMarkers.keySet()) {
+                    flavourError.put(key, msg(e));   // a whole-parse failure (e.g. bad gzip) fails every flavour
+                }
             }
         }
         // 3. Correlate each module against its flavour's parsed log (cheap, in-memory).

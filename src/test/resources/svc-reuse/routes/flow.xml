@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Entry: R9.14_apiA fans out to two 9.14 change routes AND a BAU 9.8 route. -->
+    <route id="R9.14_apiA">
+        <from uri="direct:R9.14_apiA"/>
+        <to uri="direct:R9.14_routeB"/>
+        <to uri="direct:R9.14_routeC"/>
+        <to uri="direct:R9.8_routeC"/>
+    </route>
+
+    <!-- 9.14 change: /getStatus at serviceVersionNumber 4.0. -->
+    <route id="R9.14_routeB">
+        <from uri="direct:R9.14_routeB"/>
+        <to uri="framework:META-INF/templates/routeB/precapture.ftl"/>
+        <setProperty name="api"><simple>/getStatus</simple></setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <!-- 9.14 change: /fetchStatus at serviceVersionNumber 4.1. -->
+    <route id="R9.14_routeC">
+        <from uri="direct:R9.14_routeC"/>
+        <to uri="framework:META-INF/templates/routeC/precapture.ftl"/>
+        <setProperty name="api"><simple>/fetchStatus</simple></setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <!-- BAU (9.8 is BAU for 9.14): SAME /getStatus backend as R9.14_routeB, but serviceVersionNumber 2.0. -->
+    <route id="R9.8_routeC">
+        <from uri="direct:R9.8_routeC"/>
+        <to uri="framework:META-INF/templates/routeC8/precapture.ftl"/>
+        <setProperty name="api"><simple>/getStatus</simple></setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <route id="callUFWDGE">
+        <from uri="direct:callUFWDGE"/>
+        <to uri="https://host/ufw/dispatch"/>
+    </route>
+
+</routes>

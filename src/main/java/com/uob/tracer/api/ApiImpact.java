@@ -18,9 +18,13 @@ import java.util.Map;
  * @param hosts           the host (CamelHttpUri) route ids it uses
  * @param backendVersions backend URL → service version number (from its framework template)
  * @param backendHosturls backend api → its "hosturl" property (the path logged by the host)
+ * @param changeBackendVersions backend URL → service version, but only from routes at THIS release version
+ *                              (the release's own change) — excludes lower/BAU routes reusing the same backend,
+ *                              so release-test verification checks the change and ignores unchanged BAU calls
  */
 public record ApiImpact(String api, String operation, String command,
                         String resolvedRoute, String resolvedVersion, boolean baseFallback,
                         List<String> routes, List<String> backends, List<String> hosts,
-                        Map<String, String> backendVersions, Map<String, String> backendHosturls) {
+                        Map<String, String> backendVersions, Map<String, String> backendHosturls,
+                        Map<String, String> changeBackendVersions) {
 }

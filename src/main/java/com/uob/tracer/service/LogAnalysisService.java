@@ -395,7 +395,9 @@ public class LogAnalysisService {
         Map<String, String> expectedVersions = new LinkedHashMap<>();
         Map<String, String> hosturls = new LinkedHashMap<>();
         for (ApiImpact api : idx.getApis()) {
-            api.backendVersions().forEach((url, ver) ->
+            // Expected service version = the release's OWN change (routes at this version), NOT lower/BAU routes
+            // reusing the same backend — those are unchanged and not verified.
+            api.changeBackendVersions().forEach((url, ver) ->
                     expectedVersions.merge(url, ver, LogAnalysisService::joinVersions));
             api.backendHosturls().forEach(hosturls::putIfAbsent);
         }
@@ -1163,14 +1165,14 @@ public class LogAnalysisService {
         // so the report can show which errors recur and how often — for investigation.
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (Txn t : forVersion) {
-            Eval e = evaluate(t, api.backends(), api.backendVersions(), hosturls, secure);
+            Eval e = evaluate(t, api.backends(), api.changeBackendVersions(), hosturls, secure);
             if (e.status() == LogStatus.SUCCESS) {
                 success++;
             } else {
                 failuresByCode.merge(failureKey(e.status(), t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
             }
         }
-        Eval eval = evaluate(latest, api.backends(), api.backendVersions(), hosturls, secure);
+        Eval eval = evaluate(latest, api.backends(), api.changeBackendVersions(), hosturls, secure);
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;

@@ -78,6 +78,8 @@ public class RouteTraverser {
     private final String requestClientVersion;
     /** Service version from the most recent template {@code <to>}, applied to the next backend. */
     private String currentServiceVersion;
+    /** The version of the route that carried {@link #currentServiceVersion}'s template — for change-vs-BAU. */
+    private String svcVersionRouteVersion;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
     /** Resolved (existing) route from the most recent DEST_ROUTE-style setProperty — the dynamic toD target. */
     private String currentDestRoute;
@@ -160,7 +162,7 @@ public class RouteTraverser {
             List<PendingApi> collected = new ArrayList<>(inherited);
             if (firstVisit) {
                 response.getFlow().add(identity);
-                collected.addAll(collectApis(route.elements(), null));
+                collected.addAll(collectApis(route.elements(), null, routeVersion(nodeId)));
             }
             attach(collected, nodeId, true);                 // backends fan INTO the host barrel
             return nodeId;
@@ -180,7 +182,7 @@ public class RouteTraverser {
     /** @param into true to draw backend → node (into a host barrel); false for node → backend. */
     private void attach(List<PendingApi> apis, String nodeId, boolean into) {
         for (PendingApi p : apis) {
-            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl());
+            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl(), p.svcRouteVersion());
         }
     }
 
@@ -205,9 +207,9 @@ public class RouteTraverser {
             response.getFlow().add(identity);
         }
         List<PendingApi> all = new ArrayList<>(inherited);
-        all.addAll(collectApis(route.elements(), null));   // the host's own api, if it sets one
+        all.addAll(collectApis(route.elements(), null, routeVersion(instanceId)));   // the host's own api, if it sets one
         for (PendingApi p : all) {
-            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl());   // host instance → backend
+            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl(), p.svcRouteVersion());   // host instance → backend
         }
     }
 
@@ -244,25 +246,25 @@ public class RouteTraverser {
      * traversing its routing — a host's internal logic (its choice on the URI
      * protocol / camelHttpUri) is not expanded onto the graph.
      */
-    private List<PendingApi> collectApis(List<RouteElement> elements, String branch) {
+    private List<PendingApi> collectApis(List<RouteElement> elements, String branch, String routeVer) {
         List<PendingApi> out = new ArrayList<>();
         for (RouteElement el : elements) {
             if (el instanceof ToElement to && isTemplateUri(to.uri())) {
-                applyTemplateVersion(to.uri(), out);
+                applyTemplateVersion(to.uri(), out, routeVer);
             } else if (el instanceof SetPropertyElement sp) {
                 if (isHosturl(sp)) {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
-                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
+                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion));
                     currentServiceVersion = null;   // consumed
                 }
             } else if (el instanceof ChoiceElement choice) {
                 for (WhenElement when : choice.whens()) {
-                    out.addAll(collectApis(when.children(), branchLabel(when.predicate())));
+                    out.addAll(collectApis(when.children(), branchLabel(when.predicate()), routeVer));
                 }
-                out.addAll(collectApis(choice.otherwise(), "OTHERWISE"));
+                out.addAll(collectApis(choice.otherwise(), "OTHERWISE", routeVer));
             } else if (el instanceof ContainerElement container) {
-                out.addAll(collectApis(container.children(), branch));
+                out.addAll(collectApis(container.children(), branch, routeVer));
             }
             // ToElement / RecipientListElement intentionally not traversed for hosts
         }
@@ -288,7 +290,7 @@ public class RouteTraverser {
                 if (isTemplateUri(to.uri())) {
                     // framework template carries the backend service version — applies to the
                     // next setProperty api, or back-fills one set just before it (template after).
-                    applyTemplateVersion(to.uri(), active);
+                    applyTemplateVersion(to.uri(), active, routeVersion(currentNodeId));
                 } else {
                     handleTo(to.uri(), currentNodeId, branch, active, forward);
                 }
@@ -298,7 +300,7 @@ public class RouteTraverser {
                 if (isHosturl(sp)) {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
-                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl));
+                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion));
                     currentServiceVersion = null;   // consumed — a later api needs its own template to get a version
                 } else {
                     // A DEST_ROUTE-style base name (e.g. acceptcoreinfo): remember the route it resolves
@@ -385,7 +387,7 @@ public class RouteTraverser {
                 visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl); // external call is itself a backend
+            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl, svcVersionRouteVersion); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
     }
@@ -487,17 +489,18 @@ public class RouteTraverser {
      * {@code currentServiceVersion}; an api set just BEFORE it (template-after-setProperty,
      * e.g. inside choice branches with the template after the choice) is back-filled.
      */
-    private void applyTemplateVersion(String uri, List<PendingApi> pending) {
+    private void applyTemplateVersion(String uri, List<PendingApi> pending, String routeVer) {
         response.getTemplateUris().add(uri);   // remember every request-body template, for the payload diff
         String sv = templateVersion.apply(uri);
         currentServiceVersion = sv;
+        svcVersionRouteVersion = routeVer;     // the route this template lives in — change vs BAU
         if (sv == null) {
             return;
         }
         for (int i = 0; i < pending.size(); i++) {
             PendingApi p = pending.get(i);
             if (p.serviceVersion() == null) {
-                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl()));
+                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl(), routeVer));
             }
         }
     }
@@ -519,7 +522,7 @@ public class RouteTraverser {
     }
 
     private void addBackend(String value, String routeNodeId, String branch, boolean into,
-                            String serviceVersion, String hosturl) {
+                            String serviceVersion, String hosturl, String svcRouteVersion) {
         String nodeId = "backend:" + value;
         graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
         if (into) {
@@ -539,16 +542,27 @@ public class RouteTraverser {
         if (serviceVersion != null && !serviceVersion.isBlank()) {
             // A backend URL may be called with several versions (different branches /
             // templates) — accumulate the distinct ones, e.g. "2.2 / 3.3".
-            String joined = response.getBackendVersions().merge(value, serviceVersion, (existing, add) -> {
-                for (String v : existing.split(" / ")) {
-                    if (v.equals(add)) {
-                        return existing;
-                    }
-                }
-                return existing + " / " + add;
-            });
+            String joined = response.getBackendVersions().merge(value, serviceVersion, RouteTraverser::joinDistinct);
             graph.setBackendServiceVersion(nodeId, joined);
+            // Record the version separately UNLESS the template's OWN route is an explicit lower/BAU version
+            // (e.g. R8.8_apiC when analysing 9.14) reusing the same backend — those are unchanged and not
+            // verified. Base/shared routes (no version) and the release's own version ARE the change.
+            boolean bauReuse = requestClientVersion != null && !requestClientVersion.isBlank()
+                    && svcRouteVersion != null && !svcRouteVersion.equals(requestClientVersion);
+            if (!bauReuse) {
+                response.getChangeBackendVersions().merge(value, serviceVersion, RouteTraverser::joinDistinct);
+            }
         }
+    }
+
+    /** Merge two " / "-joined version lists, keeping distinct values (e.g. "2.2" + "3.3" → "2.2 / 3.3"). */
+    private static String joinDistinct(String existing, String add) {
+        for (String v : existing.split(" / ")) {
+            if (v.equals(add)) {
+                return existing;
+            }
+        }
+        return existing + " / " + add;
     }
 
     /**
@@ -632,7 +646,9 @@ public class RouteTraverser {
         return last;
     }
 
-    /** A deferred backend api value, tagged with the branch condition that set it. */
-    private record PendingApi(String value, String branch, String serviceVersion, String hosturl) {
+    /** A deferred backend api value, tagged with the branch condition that set it and the version of the
+     *  route whose template supplied its service version (for change-vs-BAU attribution). */
+    private record PendingApi(String value, String branch, String serviceVersion, String hosturl,
+                              String svcRouteVersion) {
     }
 }

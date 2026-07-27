@@ -34,6 +34,12 @@ public class TraceResponse {
     private final List<String> backendApis = new ArrayList<>();
     /** Backend URL → service version number, read from the preceding framework template. */
     private final java.util.Map<String, String> backendVersions = new java.util.LinkedHashMap<>();
+    /**
+     * Backend URL → service version number, but ONLY from routes at the analysed release version (the
+     * release's own change). A backend also called by a lower/BAU route is NOT recorded here for that BAU
+     * call — so release-test verification checks the change's version and ignores BAU reuse of the same URL.
+     */
+    private final java.util.Map<String, String> changeBackendVersions = new java.util.LinkedHashMap<>();
     /** Backend api value → its "hosturl" property (the path the host logs in MightyHostMessage). */
     private final java.util.Map<String, String> backendHosturls = new java.util.LinkedHashMap<>();
     /** Distinct request-body template uris referenced in this flow (for the payload-change diff). */
@@ -87,6 +93,7 @@ public class TraceResponse {
     public List<String> getFlow() { return flow; }
     public List<String> getBackendApis() { return backendApis; }
     public java.util.Map<String, String> getBackendVersions() { return backendVersions; }
+    public java.util.Map<String, String> getChangeBackendVersions() { return changeBackendVersions; }
     public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public java.util.Set<String> getTemplateUris() { return templateUris; }
     public List<String> getWarnings() { return warnings; }

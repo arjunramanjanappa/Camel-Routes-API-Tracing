@@ -678,6 +678,31 @@ tr.lsub.bau td, tr.lrow.bau td { opacity: .8; }
 [data-theme="dark"] .rd-chip.high { background: #2a1215; border-color: #7f1d1d; } [data-theme="dark"] .rd-chip.high b { color: #fca5a5; }
 [data-theme="dark"] .rd-chip.code b { color: #c4b5fd; }
 [data-theme="dark"] .rd-chip.bc b { color: #fbbf24; }
+.rd-chip.muted { font-style: italic; }
+.rd-chip.flows-ok { background: #ecfdf5; border-color: #bbf7d0; } .rd-chip.flows-ok b { color: #15803d; }
+.rd-chip.flows-gap { background: #fffbeb; border-color: #fde68a; } .rd-chip.flows-gap b { color: #b45309; }
+[data-theme="dark"] .rd-chip.flows-ok { background: #052e1c; border-color: #14532d; } [data-theme="dark"] .rd-chip.flows-ok b { color: #86efac; }
+[data-theme="dark"] .rd-chip.flows-gap { background: #2a1d05; border-color: #713f12; } [data-theme="dark"] .rd-chip.flows-gap b { color: #fbbf24; }
+
+/* Close-the-loop banner + per-API flow-coverage rows (impacted flows still to test). */
+.closeloop { display: flex; align-items: center; gap: 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 8px 13px; margin: 0 0 12px; font-size: 12.5px; color: #854d0e; }
+.closeloop-icon { font-size: 14px; }
+[data-theme="dark"] .closeloop { background: #241a06; border-color: #6b4d12; color: #fcd34d; }
+.flowcov { margin: 8px 0 2px; border-top: 1px dashed #e2e8f0; padding-top: 8px; }
+[data-theme="dark"] .flowcov { border-top-color: #2a3648; }
+.flowcov-head { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #64748b; margin-bottom: 6px; }
+.flowcov-bar { display: inline-flex; width: 70px; height: 7px; border-radius: 3px; overflow: hidden; background: #e5e7eb; }
+.flowcov-bar span { background: #16a34a; height: 100%; }
+[data-theme="dark"] .flowcov-bar { background: #334155; }
+.flowcov-count { font-weight: 600; }
+.flowcov-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
+.flowcov-stat { font-size: 10.5px; font-weight: 700; white-space: nowrap; width: 78px; flex: none; }
+.flowcov-row.nt .flowcov-stat { color: #b45309; }
+.flowcov-row.fail .flowcov-stat { color: #b91c1c; text-transform: capitalize; }
+.flowcov-route { color: #475569; font-size: 11px; font-weight: 600; white-space: nowrap; }
+[data-theme="dark"] .flowcov-route { color: #cbd5e1; }
+.flowcov-cta { margin-left: auto; font-size: 10px; color: #854d0e; background: #fef3c7; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+[data-theme="dark"] .flowcov-cta { background: #3a2c10; color: #f0c675; }
 
 /* Backward-compatibility badge — payload field removed OR shared-code change (older version needs regression). */
 .bc-badge { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: #ffedd5; color: #9a3412; letter-spacing: .02em; }

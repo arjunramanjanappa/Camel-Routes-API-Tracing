@@ -1,6 +1,7 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
 import { versionLabel } from './feature';
+import { backendPath } from './spl';
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
 // release". Unchanged APIs are still counted in the summary table, just not enumerated.
@@ -354,6 +355,22 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   if (tt && log) {
     r.para(`Test log: ${tt.label}${log.tested ? ` — executed ${log.attempts}x, ${log.successCount} passed, ${log.failureCount} failed` : ''}.`,
       M, CONTENT_W, 'bold', 9, tt.ramp.text, 12);
+    // Flow-level gaps: which of this API's change flows are still untested (or failed) — the close-the-loop list.
+    if (log.tested) {
+      const flows = (log.backends || []).filter((b) => !b.bau);
+      const tested = flows.filter((b) => b.status === 'SUCCESS').length;
+      const gaps = flows.filter((b) => b.status !== 'SUCCESS');
+      if (gaps.length) {
+        r.para(`Impacted flows: ${tested}/${flows.length} tested — ${gaps.length} still to run:`, M + 4, CONTENT_W - 4, 'bold', 8.5, PAL.amber.text, 12);
+        gaps.forEach((b) => {
+          const nt = b.status === 'NOT_TESTED';
+          const route = b.flowRoute ? `${b.flowRoute} -> ` : '';
+          const svc = b.expectedServiceVersion ? ` (svc ${b.expectedServiceVersion})` : '';
+          r.para(`- ${nt ? 'not tested' : b.status.toLowerCase()}: ${route}${backendPath(b.backend)}${svc}`,
+            M + 8, CONTENT_W - 8, 'normal', 8.5, nt ? PAL.amber.text : PAL.red.text, 11);
+        });
+      }
+    }
   }
 
   const summarize = (label: string, names: string[], col: typeof PAL.amber.text) => {

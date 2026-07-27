@@ -4,6 +4,7 @@ import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import { exportDiffSummaryPdf } from '../diffSummaryPdf';
+import { backendPath } from '../spl';
 import ImpactSummary from '../components/ImpactSummary';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
@@ -88,6 +89,63 @@ function testedTally(report: VersionDiffReport, log?: Record<string, ApiLogResul
     if (l?.tested) { covered++; if (l.status === 'SUCCESS') passed++; }
   }
   return { covered, passed, toTest: toTestApis.length };
+}
+
+/** Non-BAU change flows of an API's correlated log result (the flows that must be tested). */
+function changeFlowsOf(l?: ApiLogResult) {
+  return (l?.backends || []).filter((b) => !b.bau);
+}
+
+/** Across the to-test APIs: how many change flows are covered vs still not tested (from the merged log). */
+function flowTally(report: VersionDiffReport, log?: Record<string, ApiLogResult>): { tested: number; untested: number; apisWithGaps: number } {
+  if (!log) return { tested: 0, untested: 0, apisWithGaps: 0 };
+  const toTestApis = report.apis.filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT');
+  let tested = 0, untested = 0, apisWithGaps = 0;
+  for (const a of toTestApis) {
+    const flows = changeFlowsOf(log[a.api]);
+    let gap = false;
+    for (const b of flows) {
+      if (b.status === 'SUCCESS') tested++;
+      else if (b.status === 'NOT_TESTED') { untested++; gap = true; }
+    }
+    if (gap) apisWithGaps++;
+  }
+  return { tested, untested, apisWithGaps };
+}
+
+/**
+ * Flow-level coverage for one impacted API: which of its change flows are still untested (or failed) so the
+ * tester can close the loop. Only shown once a log is correlated (log.tested) AND there is an actionable gap —
+ * a fully-covered API needs nothing beyond its Tested badge. Before a log is attached, nothing renders (the
+ * card shows the neutral 'not checked' state).
+ */
+function FlowCoverage({ log }: { log?: ApiLogResult }) {
+  if (!log || !log.tested) return null;
+  const flows = changeFlowsOf(log);
+  if (!flows.length) return null;
+  const tested = flows.filter((b) => b.status === 'SUCCESS').length;
+  const gaps = flows.filter((b) => b.status !== 'SUCCESS');   // untested + failed change flows — the actionable rows
+  if (!gaps.length) return null;                              // every flow covered → the Tested badge says it all
+  return (
+    <div className="flowcov">
+      <div className="flowcov-head">
+        <span className="flowcov-bar"><span style={{ width: (flows.length ? (100 * tested) / flows.length : 0) + '%' }} /></span>
+        <span className="flowcov-count">{tested}/{flows.length} flows tested</span>
+      </div>
+      {gaps.map((b, i) => {
+        const nt = b.status === 'NOT_TESTED';
+        return (
+          <div key={i} className={'flowcov-row ' + (nt ? 'nt' : 'fail')}>
+            <span className="flowcov-stat">{nt ? '⚠ not tested' : b.status.toLowerCase()}</span>
+            {b.flowRoute && <span className="flowcov-route" title="the release route that owns this flow">{b.flowRoute}</span>}
+            <code>{backendPath(b.backend)}</code>
+            {b.expectedServiceVersion && <span className="muted">svc {b.expectedServiceVersion}</span>}
+            {nt && <span className="flowcov-cta">execute to close</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** Why this API needs testing — compact reasons for the checklist/tooltip. */
@@ -239,14 +297,26 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
   const code = report.codeChangedCount ?? 0;
   if (toTest === 0 && high === 0 && bc === 0) return null;
   const t = testedTally(report, log);
+  const f = flowTally(report, log);
   return (
-    <div className="readiness" role="group" aria-label="Release readiness">
-      <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
-      <span className="rd-chip high" title="High test-priority: shared-class change, removed payload field, or backend version bump"><b>{high}</b> high risk</span>
-      {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
-      <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
-      {log && <span className="rd-chip tested" title="Of the changed/new APIs, how many the uploaded log shows executed & passed"><b>{t.passed}</b>/{t.toTest} tested &amp; passed</span>}
-    </div>
+    <>
+      <div className="readiness" role="group" aria-label="Release readiness">
+        <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
+        <span className="rd-chip high" title="High test-priority: shared-class change, removed payload field, or backend version bump"><b>{high}</b> high risk</span>
+        {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
+        <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
+        {!log && <span className="rd-chip muted" title="Attach a test log to see which impacted flows were exercised">coverage — not checked</span>}
+        {log && <span className="rd-chip tested" title="Of the changed/new APIs, how many the uploaded log shows executed &amp; passed"><b>{t.passed}</b>/{t.toTest} tested &amp; passed</span>}
+        {log && <span className="rd-chip flows-ok" title="Impacted change flows the log shows exercised"><b>{f.tested}</b> flows tested</span>}
+        {log && f.untested > 0 && <span className="rd-chip flows-gap" title="Impacted change flows no transaction covered — still to run"><b>{f.untested}</b> flows not tested</span>}
+      </div>
+      {log && f.untested > 0 && (
+        <div className="closeloop" role="note">
+          <span className="closeloop-icon" aria-hidden="true">◎</span>
+          <span><b>Close the loop:</b> {f.untested} impacted flow{f.untested === 1 ? '' : 's'} across {f.apisWithGaps} API{f.apisWithGaps === 1 ? '' : 's'} {f.untested === 1 ? 'is' : 'are'} not yet tested — expand each to see which route to run.</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -416,6 +486,8 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
       )}
 
       <CodeChangeBlock d={d} onOpenApi={onOpenApi} routeLog={routeLog} />
+
+      <FlowCoverage log={log} />
 
       {editingRemark ? (
         <div className="remark-edit">

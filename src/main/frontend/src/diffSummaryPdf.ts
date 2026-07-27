@@ -87,9 +87,15 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
   rows.sort((x, y) => RANK[riskOf(x.a)] - RANK[riskOf(y.a)]);
 
   let passed = 0, failed = 0, notTested = 0;
+  let flowsTested = 0, flowsUntested = 0;
   if (hasAnyLog) for (const row of rows) {
     if (row.log?.tested) { if (row.log.status === 'SUCCESS') passed++; else failed++; }
     else notTested++;
+    for (const b of (row.log?.backends || [])) {
+      if (b.bau) continue;
+      if (b.status === 'SUCCESS') flowsTested++;
+      else if (b.status === 'NOT_TESTED') flowsUntested++;
+    }
   }
   const verified = passed + failed;
 
@@ -116,6 +122,10 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
   ]);
   if (hasAnyLog) {
     r.paragraph(`Test readiness — ${verified} of ${rows.length} verified: ${passed} passed, ${failed} failed, ${notTested} not tested.`);
+    r.paragraph(`Impacted flows — ${flowsTested} tested`
+      + (flowsUntested > 0
+          ? `, ${flowsUntested} still to run (close the loop before release).`
+          : ` (all covered).`));
   }
 
   // ---- Plain-English key — shown BEFORE the table so the labels are understood first ----

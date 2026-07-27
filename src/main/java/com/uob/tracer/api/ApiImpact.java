@@ -24,10 +24,14 @@ import java.util.Map;
  * @param unconditionalBackends backends reached with no choice-branch condition (they always run) — a
  *                              release-version one never seen in the log is a real coverage gap; a
  *                              conditional/branch backend's absence is expected, not a gap
+ * @param changeFlows   release-version flows to be tested, one per (setting route, backend, service
+ *                      version) — keeps route multiplicity so two routes on the same backend+version
+ *                      are two flows that must each be covered (scenario 6); BAU reuse excluded
  */
 public record ApiImpact(String api, String operation, String command,
                         String resolvedRoute, String resolvedVersion, boolean baseFallback,
                         List<String> routes, List<String> backends, List<String> hosts,
                         Map<String, String> backendVersions, Map<String, String> backendHosturls,
-                        Map<String, String> changeBackendVersions, List<String> unconditionalBackends) {
+                        Map<String, String> changeBackendVersions, List<String> unconditionalBackends,
+                        List<ChangeFlow> changeFlows) {
 }

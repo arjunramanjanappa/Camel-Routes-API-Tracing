@@ -1,5 +1,6 @@
 package com.uob.tracer.trace;
 
+import com.uob.tracer.api.ChangeFlow;
 import com.uob.tracer.api.GraphNode;
 import com.uob.tracer.api.RouteGraph;
 import com.uob.tracer.api.TraceResponse;
@@ -165,7 +166,7 @@ public class RouteTraverser {
             List<PendingApi> collected = new ArrayList<>(inherited);
             if (firstVisit) {
                 response.getFlow().add(identity);
-                collected.addAll(collectApis(route.elements(), null, routeVersion(nodeId)));
+                collected.addAll(collectApis(route.elements(), null, routeVersion(nodeId), identity));
             }
             attach(collected, nodeId, true);                 // backends fan INTO the host barrel
             return nodeId;
@@ -185,7 +186,7 @@ public class RouteTraverser {
     /** @param into true to draw backend → node (into a host barrel); false for node → backend. */
     private void attach(List<PendingApi> apis, String nodeId, boolean into) {
         for (PendingApi p : apis) {
-            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl(), p.svcRouteVersion());
+            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute());
         }
     }
 
@@ -210,9 +211,9 @@ public class RouteTraverser {
             response.getFlow().add(identity);
         }
         List<PendingApi> all = new ArrayList<>(inherited);
-        all.addAll(collectApis(route.elements(), null, routeVersion(instanceId)));   // the host's own api, if it sets one
+        all.addAll(collectApis(route.elements(), null, routeVersion(instanceId), identity));   // the host's own api, if it sets one
         for (PendingApi p : all) {
-            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl(), p.svcRouteVersion());   // host instance → backend
+            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute());   // host instance → backend
         }
     }
 
@@ -249,7 +250,7 @@ public class RouteTraverser {
      * traversing its routing — a host's internal logic (its choice on the URI
      * protocol / camelHttpUri) is not expanded onto the graph.
      */
-    private List<PendingApi> collectApis(List<RouteElement> elements, String branch, String routeVer) {
+    private List<PendingApi> collectApis(List<RouteElement> elements, String branch, String routeVer, String routeId) {
         List<PendingApi> out = new ArrayList<>();
         for (RouteElement el : elements) {
             if (el instanceof ToElement to && isTemplateUri(to.uri())) {
@@ -258,16 +259,16 @@ public class RouteTraverser {
                 if (isHosturl(sp)) {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
-                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion));
+                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeId));
                     currentServiceVersion = null;   // consumed
                 }
             } else if (el instanceof ChoiceElement choice) {
                 for (WhenElement when : choice.whens()) {
-                    out.addAll(collectApis(when.children(), branchLabel(when.predicate()), routeVer));
+                    out.addAll(collectApis(when.children(), branchLabel(when.predicate()), routeVer, routeId));
                 }
-                out.addAll(collectApis(choice.otherwise(), "OTHERWISE", routeVer));
+                out.addAll(collectApis(choice.otherwise(), "OTHERWISE", routeVer, routeId));
             } else if (el instanceof ContainerElement container) {
-                out.addAll(collectApis(container.children(), branch, routeVer));
+                out.addAll(collectApis(container.children(), branch, routeVer, routeId));
             }
             // ToElement / RecipientListElement intentionally not traversed for hosts
         }
@@ -303,7 +304,7 @@ public class RouteTraverser {
                 if (isHosturl(sp)) {
                     currentHosturl = sp.value().trim();
                 } else if (isApi(sp)) {
-                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion));
+                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId)));
                     currentServiceVersion = null;   // consumed — a later api needs its own template to get a version
                 } else {
                     // A DEST_ROUTE-style base name (e.g. acceptcoreinfo): remember the route it resolves
@@ -390,7 +391,7 @@ public class RouteTraverser {
                 visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl, svcVersionRouteVersion); // external call is itself a backend
+            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId)); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
     }
@@ -505,7 +506,7 @@ public class RouteTraverser {
         for (int i = 0; i < pending.size(); i++) {
             PendingApi p = pending.get(i);
             if (p.serviceVersion() == null) {
-                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl(), routeVer));
+                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl(), routeVer, p.flowRoute()));
             }
         }
     }
@@ -527,7 +528,7 @@ public class RouteTraverser {
     }
 
     private void addBackend(String value, String routeNodeId, String branch, boolean into,
-                            String serviceVersion, String hosturl, String svcRouteVersion) {
+                            String serviceVersion, String hosturl, String svcRouteVersion, String flowRoute) {
         String nodeId = "backend:" + value;
         graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
         if (into) {
@@ -547,18 +548,27 @@ public class RouteTraverser {
             // the host actually logs (MightyHostMessage), so the log analysis matches on it.
             response.getBackendHosturls().putIfAbsent(value, hosturl.trim());
         }
+        // Is this reach a lower/BAU version route (e.g. R8.8_apiC when analysing 9.14) reusing the same
+        // backend? Those are unchanged and not verified. Base/shared routes (no route version) and the
+        // release's own version ARE the change.
+        boolean bauReuse = requestClientVersion != null && !requestClientVersion.isBlank()
+                && svcRouteVersion != null && !svcRouteVersion.equals(requestClientVersion);
         if (serviceVersion != null && !serviceVersion.isBlank()) {
             // A backend URL may be called with several versions (different branches /
             // templates) — accumulate the distinct ones, e.g. "2.2 / 3.3".
             String joined = response.getBackendVersions().merge(value, serviceVersion, RouteTraverser::joinDistinct);
             graph.setBackendServiceVersion(nodeId, joined);
-            // Record the version separately UNLESS the template's OWN route is an explicit lower/BAU version
-            // (e.g. R8.8_apiC when analysing 9.14) reusing the same backend — those are unchanged and not
-            // verified. Base/shared routes (no version) and the release's own version ARE the change.
-            boolean bauReuse = requestClientVersion != null && !requestClientVersion.isBlank()
-                    && svcRouteVersion != null && !svcRouteVersion.equals(requestClientVersion);
             if (!bauReuse) {
                 response.getChangeBackendVersions().merge(value, serviceVersion, RouteTraverser::joinDistinct);
+            }
+        }
+        // Record the release-version FLOW keyed by its setting route, so two routes on the same backend
+        // (+version) stay two flows that each must be tested. Deduped per (route, backend, version).
+        if (!bauReuse) {
+            String sv = serviceVersion == null || serviceVersion.isBlank() ? null : serviceVersion.trim();
+            ChangeFlow flow = new ChangeFlow(flowRoute, value, sv);
+            if (!response.getChangeFlows().contains(flow)) {
+                response.getChangeFlows().add(flow);
             }
         }
     }
@@ -654,9 +664,20 @@ public class RouteTraverser {
         return last;
     }
 
-    /** A deferred backend api value, tagged with the branch condition that set it and the version of the
-     *  route whose template supplied its service version (for change-vs-BAU attribution). */
+    /** A deferred backend api value, tagged with the branch condition that set it, the version of the
+     *  route whose template supplied its service version (for change-vs-BAU attribution), and the
+     *  identity of the route that SET the api (the flow's route, so twins on one backend stay distinct). */
     private record PendingApi(String value, String branch, String serviceVersion, String hosturl,
-                              String svcRouteVersion) {
+                              String svcRouteVersion, String flowRoute) {
+    }
+
+    /** A node id ("route:R9.14_x#caller") reduced to the bare route id ("R9.14_x"). */
+    private static String routeIdOf(String nodeId) {
+        if (nodeId == null) {
+            return null;
+        }
+        String s = nodeId.startsWith("route:") ? nodeId.substring(6) : nodeId;
+        int h = s.indexOf('#');
+        return h >= 0 ? s.substring(0, h) : s;
     }
 }

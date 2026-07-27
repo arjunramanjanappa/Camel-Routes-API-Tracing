@@ -1179,27 +1179,247 @@ public class LogAnalysisService {
         }
 
         Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
+
+        // Per-run front-end tally (attempts / passed / failed) across all runs — kept for confidence.
         int success = 0;
-        // Break the failed attempts down by their front-end responseCode (or failure reason),
-        // so the report can show which errors recur and how often — for investigation.
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (Txn t : forVersion) {
-            Eval e = evaluate(t, api.backends(), api.changeBackendVersions(), api.backendVersions(), api.unconditionalBackends(), hosturls, secure);
-            if (e.status() == LogStatus.SUCCESS) {
+            LogStatus fe = feStatus(t);
+            if (fe == LogStatus.SUCCESS) {
                 success++;
             } else {
-                failuresByCode.merge(failureKey(e.status(), t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
+                failuresByCode.merge(failureKey(fe, t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
             }
         }
-        Eval eval = evaluate(latest, api.backends(), api.changeBackendVersions(), api.backendVersions(), api.unconditionalBackends(), hosturls, secure);
+
+        // One row per CHANGE / BAU flow (backend + service version), each resolved across ALL runs to the
+        // latest run that covered it (so a choice branch exercised in an earlier run still counts).
+        List<BackendCallResult> rows = coverageRows(api, forVersion, hosturls, secure);
+
+        // Verdict — driven only by the release CHANGE flows; BAU rows never move it.
+        LogStatus feLatest = feStatus(latest);
+        LogStatus status;
+        String note;
+        if (feLatest != LogStatus.SUCCESS) {
+            status = feLatest;
+            note = feLatest == LogStatus.TIMEOUT
+                    ? "Front-end request logged but no response — timeout or server down."
+                    : feLatest == LogStatus.INDETERMINATE
+                        ? "Front-end " + UNRECOGNISED_RESPONSE
+                          + (latest.feResp() != null && latest.feResp().desc() != null ? " (description: " + latest.feResp().desc() + ")" : "")
+                        : "Front-end responseCode " + (latest.feResp() != null ? latest.feResp().code() : "?")
+                          + (latest.feResp() != null && latest.feResp().desc() != null ? " (" + latest.feResp().desc() + ")." : ".");
+        } else {
+            List<String> failed = new ArrayList<>();
+            List<String> notTested = new ArrayList<>();
+            for (BackendCallResult b : rows) {
+                if (b.bau()) {
+                    continue;   // BAU reuse — never part of the change verdict
+                }
+                if (b.status() == LogStatus.NOT_TESTED) {
+                    notTested.add(flowLabel(b));
+                } else if (b.status() != LogStatus.SUCCESS) {
+                    failed.add(flowLabel(b) + " — " + b.status().name().toLowerCase());
+                } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
+                    failed.add(flowLabel(b) + " — called svc " + b.loggedServiceVersion());
+                }
+            }
+            if (!failed.isEmpty()) {
+                status = LogStatus.FAILED;   // a change backend was exercised but failed / wrong version
+                note = "Change flow failed: " + String.join("; ", failed) + ".";
+            } else if (!notTested.isEmpty()) {
+                status = LogStatus.PARTIAL;  // a required change flow was never exercised in any run
+                note = "Change flow not tested: " + String.join("; ", notTested) + ".";
+            } else {
+                status = LogStatus.SUCCESS;
+                note = null;
+            }
+        }
+
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;
 
         return new ApiLogResult(api.api(), api.operation(), api.resolvedRoute(), version,
-                eval.status(), true, feTook, feCode, feDesc,
+                status, true, feTook, feCode, feDesc,
                 forVersion.size(), success, forVersion.size() - success,
-                latest.ts(), latest.correlationId(), eval.note(), eval.backends(), sortByCountDesc(failuresByCode));
+                latest.ts(), latest.correlationId(), note, rows, sortByCountDesc(failuresByCode));
+    }
+
+    /** Front-end outcome for one transaction (the API's own request/response). */
+    private LogStatus feStatus(Txn t) {
+        if (t.feResp() == null) {
+            return LogStatus.TIMEOUT;
+        }
+        String code = t.feResp().code();
+        if (code == null) {
+            return LogStatus.INDETERMINATE;
+        }
+        return isSuccessCode(code) ? LogStatus.SUCCESS : LogStatus.FAILED;
+    }
+
+    private static String flowLabel(BackendCallResult b) {
+        String route = b.flowRoute() != null && !b.flowRoute().isBlank() ? b.flowRoute() + " → " : "";
+        return route + backendPathPart(b.backend())
+                + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : "");
+    }
+
+    /**
+     * One row per traced FLOW — each release route that calls a backend at a service version, keyed so two
+     * routes on the SAME backend+version stay two flows (both must be covered). Coverage is by MATCHING-CALL
+     * COUNT: a (backend, version) shared by K release flows needs K calls (across choice trace ids, or in one
+     * unconditional trace) — otherwise the uncovered flows show Not Tested. Each flow carries its own failure
+     * distribution (its bar); twins on one indistinguishable backend share a single pooled bar. BAU reuse is a
+     * separate labelled row that never moves the verdict.
+     */
+    private List<BackendCallResult> coverageRows(ApiImpact api, List<Txn> forVersion,
+                                                 Map<String, String> hosturls, boolean secure) {
+        List<BackendCallResult> out = new ArrayList<>();
+        Collection<String> universe = api.backends();
+        // Change flows grouped by backend → service version ("" = no version) → the routes that own that flow.
+        Map<String, Map<String, List<String>>> flowsByBackend = new LinkedHashMap<>();
+        for (com.uob.tracer.api.ChangeFlow f : api.changeFlows()) {
+            flowsByBackend
+                    .computeIfAbsent(f.backend(), k -> new LinkedHashMap<>())
+                    .computeIfAbsent(f.serviceVersion() == null ? "" : f.serviceVersion(), k -> new ArrayList<>())
+                    .add(f.routeId());
+        }
+        for (String tb : api.backends()) {
+            Map<String, List<String>> byVer = flowsByBackend.getOrDefault(tb, Map.of());
+            List<String> bau = bauVersions(api.backendVersions().get(tb), api.changeBackendVersions().get(tb));
+            // Match a specific version strictly only when the URL carries several distinct version behaviours
+            // (to keep them apart); with one version the log line may omit it, so match by URL alone.
+            Set<String> distinct = new java.util.LinkedHashSet<>();
+            byVer.keySet().forEach(v -> { if (!v.isEmpty()) distinct.add(v); });
+            distinct.addAll(bau);
+            boolean strict = distinct.size() > 1;
+            for (var e : byVer.entrySet()) {
+                String ver = e.getKey().isEmpty() ? null : e.getKey();
+                out.addAll(flowRows(tb, ver, e.getValue(), forVersion, universe, hosturls, secure, strict));
+            }
+            if (byVer.isEmpty() && bau.isEmpty()) {
+                out.addAll(flowRows(tb, null, List.of("(flow)"), forVersion, universe, hosturls, secure, false));
+            }
+            for (String bv : bau) {
+                out.add(bauRow(tb, bv, forVersion, universe, hosturls, secure, strict));
+            }
+        }
+        return out;
+    }
+
+    /** All calls matching (backend, version) across every transaction, latest first. */
+    private List<CallHit> flowHits(String tb, String ver, List<Txn> forVersion,
+                                   Collection<String> universe, Map<String, String> hosturls, boolean strict) {
+        List<CallHit> hits = new ArrayList<>();
+        for (Txn t : forVersion) {
+            for (BackendCall c : matchesInTxn(t.calls(), tb, ver, universe, hosturls, strict)) {
+                hits.add(new CallHit(t.ts(), c));
+            }
+        }
+        hits.sort(Comparator.comparing(CallHit::ts).reversed());
+        return hits;
+    }
+
+    /**
+     * K flow rows for one (backend, version) group. K = the number of release routes on it; N = matching calls
+     * seen. The first min(N,K) rows are covered (badged by the latest calls), the rest Not Tested. The pooled
+     * failure distribution rides the first row — for a solo flow that's just its own bar; for twins it's the one
+     * shared bar (we can't attribute an indistinguishable call to route A vs B).
+     */
+    private List<BackendCallResult> flowRows(String tb, String ver, List<String> routeIds, List<Txn> forVersion,
+                                             Collection<String> universe, Map<String, String> hosturls,
+                                             boolean secure, boolean strict) {
+        List<CallHit> hits = flowHits(tb, ver, forVersion, universe, hosturls, strict);
+        int n = hits.size();
+        int passed = 0;
+        Map<String, Integer> failures = new LinkedHashMap<>();
+        for (CallHit h : hits) {
+            LogStatus st = beStatus(h.call(), secure);
+            if (st == LogStatus.SUCCESS) {
+                passed++;
+            } else {
+                failures.merge(failureKey(st, h.call().code()), 1, Integer::sum);
+            }
+        }
+        Map<String, Integer> dist = sortByCountDesc(failures);
+        List<BackendCallResult> rows = new ArrayList<>();
+        int k = routeIds.size();
+        for (int i = 0; i < k; i++) {
+            String route = routeIds.get(i);
+            int a = i == 0 ? n : 0;
+            int p = i == 0 ? passed : 0;
+            int f = i == 0 ? n - passed : 0;
+            Map<String, Integer> fbc = i == 0 ? dist : Map.of();
+            if (i < n) {
+                BackendCall c = hits.get(i).call();   // assign the latest calls to the flow rows
+                LogStatus st = beStatus(c, secure);
+                boolean timedOut = st == LogStatus.TIMEOUT;
+                String desc = timedOut ? null : c.desc();
+                if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
+                    desc = UNRECOGNISED_RESPONSE;
+                }
+                rows.add(new BackendCallResult(tb, c.path(), st,
+                        timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
+                        ver, c.serviceVersion(), versionOk(ver, c.serviceVersion()), false, route, a, p, f, fbc));
+            } else {
+                rows.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null,
+                        ver, null, null, false, route, a, p, f, fbc));
+            }
+        }
+        return rows;
+    }
+
+    /** A single BAU-reuse row (latest call + its distribution), labelled BAU and never in the verdict. */
+    private BackendCallResult bauRow(String tb, String ver, List<Txn> forVersion, Collection<String> universe,
+                                     Map<String, String> hosturls, boolean secure, boolean strict) {
+        List<CallHit> hits = flowHits(tb, ver, forVersion, universe, hosturls, strict);
+        int n = hits.size();
+        if (n == 0) {
+            return new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null,
+                    ver, null, null, true, null, 0, 0, 0, Map.of());
+        }
+        int passed = 0;
+        Map<String, Integer> failures = new LinkedHashMap<>();
+        for (CallHit h : hits) {
+            LogStatus st = beStatus(h.call(), secure);
+            if (st == LogStatus.SUCCESS) {
+                passed++;
+            } else {
+                failures.merge(failureKey(st, h.call().code()), 1, Integer::sum);
+            }
+        }
+        BackendCall c = hits.get(0).call();
+        LogStatus st = beStatus(c, secure);
+        boolean timedOut = st == LogStatus.TIMEOUT;
+        String desc = timedOut ? null : c.desc();
+        if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
+            desc = UNRECOGNISED_RESPONSE;
+        }
+        return new BackendCallResult(tb, c.path(), st, timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
+                ver, c.serviceVersion(), null, true, null, n, passed, n - passed, sortByCountDesc(failures));
+    }
+
+    /** Every call in a transaction matching (backend, version) — all of them (a trace may hit a backend twice). */
+    private List<BackendCall> matchesInTxn(List<BackendCall> calls, String tracedBackend, String expectedVersion,
+                                           Collection<String> candidates, Map<String, String> hosturls, boolean strict) {
+        String matchKey = matchPath(tracedBackend, hosturls);
+        List<BackendCall> out = new ArrayList<>();
+        for (BackendCall c : calls) {
+            if (!backendMatches(matchKey, c.path())) {
+                continue;
+            }
+            if (moreSpecificMatch(candidates, tracedBackend, c.path(), hosturls)) {
+                continue;   // a longer traced backend also ends this path — it owns the call
+            }
+            if (strict) {
+                if (expectedVersion != null && Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
+                    out.add(c);   // strict: only this exact version behaviour
+                }
+            } else {
+                out.add(c);       // single-version URL: match by path, version is info
+            }
+        }
+        return out;
     }
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
@@ -1437,84 +1657,6 @@ public class LogAnalysisService {
         return s;
     }
 
-    private Eval evaluate(Txn t, List<String> tracedBackends, Map<String, String> changeVersions,
-                          Map<String, String> fullVersions, Collection<String> unconditional,
-                          Map<String, String> hosturls, boolean secure) {
-        List<BackendCallResult> backends = backendResults(t, tracedBackends, changeVersions, fullVersions, hosturls, secure);
-        // Front end is the source of truth for the end-to-end verdict.
-        if (t.feResp() == null) {
-            return new Eval(LogStatus.TIMEOUT,
-                    "Front-end request logged but no response — timeout or server down.", backends);
-        }
-        String code = t.feResp().code();
-        if (code == null) {
-            return new Eval(LogStatus.INDETERMINATE,
-                    "Front-end " + UNRECOGNISED_RESPONSE
-                            + (t.feResp().desc() != null ? " (description: " + t.feResp().desc() + ")" : ""),
-                    backends);
-        }
-        if (!isSuccessCode(code)) {
-            return new Eval(LogStatus.FAILED,
-                    "Front-end responseCode " + code
-                            + (t.feResp().desc() != null ? " (" + t.feResp().desc() + ")." : "."), backends);
-        }
-        // Front end OK — check the backends it was traced to call. An observed backend that failed or was
-        // called at the wrong service version downgrades the verdict. A release-version flow that ALWAYS runs
-        // (unconditional — the whole path to it has no <choice>) but was never observed is a real coverage gap
-        // and also downgrades. A backend reached only inside a choice branch is exempt when absent (its branch
-        // wasn't taken), and BAU reuse is always exempt.
-        List<String> issues = new ArrayList<>();
-        for (BackendCallResult b : backends) {
-            if (b.bau()) {
-                continue;   // BAU reuse — a different, unchanged behaviour; never fails this release's verdict
-            }
-            if (b.status() == LogStatus.NOT_TESTED) {
-                if (unconditional != null && unconditional.contains(b.backend())) {
-                    issues.add("release flow not tested: " + b.backend()
-                            + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : ""));
-                }
-                // else: only runs inside a choice branch that wasn't taken — reported for info, no downgrade.
-            } else if (b.status() != LogStatus.SUCCESS) {
-                issues.add(b.status().name().toLowerCase() + " backend: " + b.backend());
-            } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
-                issues.add("wrong service version on " + b.backend()
-                        + " (called " + b.loggedServiceVersion() + ", expected " + b.expectedServiceVersion() + ")");
-            }
-        }
-        if (!issues.isEmpty()) {
-            return new Eval(LogStatus.PARTIAL,
-                    "Front-end succeeded but " + String.join("; ", issues) + ".", backends);
-        }
-        return new Eval(LogStatus.SUCCESS, null, backends);
-    }
-
-    private List<BackendCallResult> backendResults(Txn t, List<String> tracedBackends,
-                                                   Map<String, String> changeVersions, Map<String, String> fullVersions,
-                                                   Map<String, String> hosturls, boolean secure) {
-        List<BackendCallResult> out = new ArrayList<>();
-        for (String tb : tracedBackends) {
-            String changeVer = changeVersions == null ? null : changeVersions.get(tb);
-            List<String> change = splitList(changeVer);   // release-version flows — each must be tested
-            List<String> bau = bauVersions(fullVersions == null ? null : fullVersions.get(tb), changeVer);
-            if (change.size() + bau.size() <= 1) {
-                // A single service-version behaviour (or none) → one row, matched as before.
-                boolean isBau = change.isEmpty() && !bau.isEmpty();
-                String ver = !change.isEmpty() ? change.get(0) : (!bau.isEmpty() ? bau.get(0) : changeVer);
-                out.add(backendRow(t, tb, ver, tracedBackends, hosturls, secure, false, isBau));
-            } else {
-                // The SAME backend has several service-version behaviours → one version-strict row each. Every
-                // release-version flow is verified individually; each BAU reuse is a separate row labelled BAU.
-                for (String cv : change) {
-                    out.add(backendRow(t, tb, cv, tracedBackends, hosturls, secure, true, false));
-                }
-                for (String bv : bau) {
-                    out.add(backendRow(t, tb, bv, tracedBackends, hosturls, secure, true, true));
-                }
-            }
-        }
-        return out;
-    }
-
     /** Split a " / "-joined version list into trimmed, non-empty parts. */
     private static List<String> splitList(String v) {
         if (v == null || v.isBlank()) {
@@ -1551,27 +1693,6 @@ public class LogAnalysisService {
         return out;
     }
 
-    /** One backend row for a specific expected service version (strict match when the URL has several versions). */
-    private BackendCallResult backendRow(Txn t, String tb, String expected, List<String> tracedBackends,
-                                         Map<String, String> hosturls, boolean secure, boolean strict, boolean bau) {
-        BackendCall hit = pickCall(t.calls(), tb, expected, tracedBackends, hosturls, strict);
-        if (hit == null) {
-            // Not observed. For a BAU row this is fine — "BAU – no logs found" — and never fails the release.
-            return new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null, expected, null, null, bau);
-        }
-        LogStatus st = !hit.hasResponse() ? LogStatus.TIMEOUT
-                : hit.code() == null ? LogStatus.INDETERMINATE
-                : isBackendSuccess(hit.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
-        boolean timedOut = st == LogStatus.TIMEOUT;
-        String desc = timedOut ? null : hit.desc();
-        if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
-            desc = UNRECOGNISED_RESPONSE;
-        }
-        return new BackendCallResult(tb, hit.path(), st,
-                timedOut ? null : hit.tookMs(), timedOut ? null : hit.code(), desc,
-                expected, hit.serviceVersion(), versionOk(expected, hit.serviceVersion()), bau);
-    }
-
     // --- internal records ---
 
     private record LogLine(String ts, boolean fe, boolean request, String version,
@@ -1584,6 +1705,10 @@ public class LogAnalysisService {
     }
 
     private record BackendHit(Txn txn, BackendCall call) {
+    }
+
+    /** A backend call observed in a transaction at a timestamp — for flow coverage counting. */
+    private record CallHit(String ts, BackendCall call) {
     }
 
     /**
@@ -1606,6 +1731,4 @@ public class LogAnalysisService {
                        String fePath, LogLine feReq, LogLine feResp, List<BackendCall> calls) {
     }
 
-    private record Eval(LogStatus status, String note, List<BackendCallResult> backends) {
-    }
 }

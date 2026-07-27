@@ -54,7 +54,7 @@ class ReleaseFlowCoverageTest {
         });
         // A required release flow was never tested → the API is PARTIAL with a clear reason.
         assertThat(apiA.status()).isEqualTo(LogStatus.PARTIAL);
-        assertThat(apiA.note()).contains("release flow not tested").contains("/putStatus");
+        assertThat(apiA.note()).contains("Change flow not tested").contains("/putStatus");
     }
 
     @Test

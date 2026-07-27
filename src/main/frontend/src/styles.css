@@ -302,6 +302,18 @@ tr.lsub.bau td, tr.lrow.bau td { opacity: .8; }
 [data-theme="dark"] .att-ok { color: #4ade80; }
 [data-theme="dark"] .att-bad { color: #f87171; }
 
+/* ---- per-flow rows: route label + two-tone pass/fail bar ---- */
+.flow-route { font-weight: 700; color: #475569; font-size: 10.5px; }
+[data-theme="dark"] .flow-route { color: #cbd5e1; }
+.flowbar-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.flowbar-wrap.bau { opacity: .8; }
+.flowbar { display: inline-flex; width: 90px; height: 9px; border-radius: 3px; overflow: hidden; background: #e5e7eb; flex: none; }
+[data-theme="dark"] .flowbar { background: #334155; }
+.flowbar-ok { background: #16a34a; height: 100%; }
+.flowbar-bad { background: #dc2626; height: 100%; }
+.flowbar-lbl { font-size: 10.5px; color: #64748b; white-space: nowrap; }
+[data-theme="dark"] .flowbar-lbl { color: #94a3b8; }
+
 /* ---- multi-module: compact source list + coordinator summary ---- */
 .modules-editor { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .modules-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

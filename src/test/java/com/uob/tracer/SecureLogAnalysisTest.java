@@ -108,8 +108,8 @@ class SecureLogAnalysisTest {
     @Test
     void secureBackendSuccessIs200OnlyAllZerosIsError(@TempDir Path dir) throws Exception {
         // In the secure repo the backend is a downstream HTTP call: only responseCode 200 is a
-        // success — an all-zeros value is an ERROR. So a green front end with an all-zeros backend
-        // is PARTIAL (the happy path with backend 200 is covered by the end-to-end test above).
+        // success — an all-zeros value is an ERROR. The single change flow was exercised and failed,
+        // so the API is FAILED (the happy path with backend 200 is covered by the end-to-end test above).
         writeSecureRepo(dir);
         String log = String.join("\n",
                 "2026-06-11 18.43.45.102 " + CORR + "|" + SPAN + "| [http-1] [INFO ] [SPLAppLog] - /services/get/push - Request - {\"amount\":10}",
@@ -125,7 +125,7 @@ class SecureLogAnalysisTest {
 
         ApiLogResult api = r.apis().stream()
                 .filter(a -> a.api().equals("/services/get/push")).findFirst().orElseThrow();
-        assertThat(api.status()).isEqualTo(LogStatus.PARTIAL);   // FE ok (0000000), backend not 200
+        assertThat(api.status()).isEqualTo(LogStatus.FAILED);   // FE ok (0000000) but the change backend was not 200
         assertThat(api.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/validate");
             assertThat(b.status()).isEqualTo(LogStatus.FAILED);   // all-zeros is not a secure backend success

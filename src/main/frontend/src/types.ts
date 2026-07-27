@@ -240,6 +240,16 @@ export interface BackendCallResult {
   /** True when this row is a BAU reuse of the backend at a lower/unchanged service version — a different
    *  behaviour than the release change. Shown labelled BAU and never counted toward the API's pass/fail. */
   bau?: boolean;
+  /** The release route that owns this flow (e.g. R9.14_routeX) — labels the row so two routes on the same
+   *  backend+version are distinct. null for a BAU / single-URL row. */
+  flowRoute?: string | null;
+  /** Total calls observed to this flow across all transactions (0 → not tested). */
+  attempts?: number;
+  /** Of those, how many succeeded / did not. */
+  passed?: number;
+  failed?: number;
+  /** This flow's failure responseCode → count, most-frequent first (its failure bar breakdown). */
+  failuresByCode?: Record<string, number> | null;
 }
 
 export interface ApiLogResult {

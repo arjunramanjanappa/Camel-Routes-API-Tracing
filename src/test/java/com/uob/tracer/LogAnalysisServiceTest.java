@@ -91,7 +91,9 @@ class LogAnalysisServiceTest {
 
         ApiLogResult v2 = api(r, V2);
         assertThat(v2.tested()).isTrue();
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);   // latest (C1) succeeded
+        // Latest (C1) front-end + its own/submit flow succeeded; the other release branches
+        // (intra / inter / fraud-check) were never exercised, so the API rolls up to PARTIAL.
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);
         assertThat(v2.correlationId()).isEqualTo("C1");
         assertThat(v2.feLatencyMs()).isEqualTo(500);
         // Only the two 9.4 attempts count; the 9.3 one (C3) is excluded.
@@ -142,9 +144,13 @@ class LogAnalysisServiceTest {
 
         ApiLogResult v2 = api(r, V2);
         assertThat(v2.tested()).isTrue();
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.correlationId()).isEqualTo("C9");   // the field right after the version
         assertThat(v2.feLatencyMs()).isEqualTo(500);      // the 500ms-shaped field
+        assertThat(v2.backends()).anySatisfy(b -> {       // the exercised flow parsed and passed
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
     }
 
     @Test
@@ -159,7 +165,7 @@ class LogAnalysisServiceTest {
         assertThat(r.unparsedLines()).isZero();
         ApiLogResult v2 = api(r, V2);
         assertThat(v2.tested()).isTrue();
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.correlationId()).isEqualTo("C9");
         assertThat(v2.feLatencyMs()).isEqualTo(500);
         assertThat(v2.backends()).anySatisfy(b -> {
@@ -179,7 +185,7 @@ class LogAnalysisServiceTest {
         assertThat(r.transactions()).isEqualTo(2);     // two correlation ids; the noise line ignored
 
         ApiLogResult fund = api(r, "/payment/v2/fund/submit");
-        assertThat(fund.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(fund.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit ok; other release branches not tested
         assertThat(fund.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
@@ -187,7 +193,7 @@ class LogAnalysisServiceTest {
         });
 
         ApiLogResult limit = api(r, "/payment/v2/limit/initiate");
-        assertThat(limit.status()).isEqualTo(LogStatus.PARTIAL);   // FE ok but its backend failed
+        assertThat(limit.status()).isEqualTo(LogStatus.FAILED);   // its change backend was exercised and failed
         // limit's traced api is /asv/transaction/limit/initiate, but the host LOGS its
         // hosturl /host-mng/limit/initiate — so the match must be via the hosturl while the
         // displayed backend stays the api value.
@@ -230,7 +236,7 @@ class LogAnalysisServiceTest {
         assertThat(r.matchedLines()).isEqualTo(4);     // FE req/resp + BE req(jwt)/resp(colon)
         assertThat(r.unparsedLines()).isZero();
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
@@ -248,7 +254,7 @@ class LogAnalysisServiceTest {
         assertThat(r.transactions()).isEqualTo(1);
         ApiLogResult v2 = api(r, V2);
         assertThat(v2.tested()).isTrue();
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.correlationId()).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
@@ -302,7 +308,7 @@ class LogAnalysisServiceTest {
         LogAnalysisReport r = analyze("analysis-partial.log", "9.4");
 
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);
+        assertThat(v2.status()).isEqualTo(LogStatus.FAILED);   // a release change flow was exercised and failed (Q1)
         assertThat(v2.responseCode()).matches("0+");   // front end itself was green
         BackendCallResult own = v2.backends().stream()
                 .filter(b -> b.backend().contains("/bfs/ft/own/submit")).findFirst().orElseThrow();
@@ -317,7 +323,7 @@ class LogAnalysisServiceTest {
         assertThat(r.uploadType()).isEqualTo("SPLUNK_CSV");   // auto-detected from the header
         assertThat(r.transactions()).isEqualTo(1);            // _raw extracted from every CSV row
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.feLatencyMs()).isEqualTo(500);
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
@@ -348,7 +354,7 @@ class LogAnalysisServiceTest {
 
         assertThat(csvReport.uploadType()).isEqualTo("SPLUNK_CSV");
         assertSameVerdict(rawReport, csvReport);
-        assertThat(api(csvReport, V2).status()).isEqualTo(LogStatus.SUCCESS);   // SPL markers actually matched
+        assertThat(api(csvReport, V2).status()).isEqualTo(LogStatus.PARTIAL);   // SPL markers matched (own/submit covered)
     }
 
     @Test
@@ -363,7 +369,9 @@ class LogAnalysisServiceTest {
 
         LogAnalysisReport r = analyzeText(log, "9.4", "SPL");
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        // PARTIAL (not FAILED) confirms the FE 200 read as success; the own/submit backend row confirms the
+        // BE 200. The other release branches are untested, so the API rolls up to PARTIAL rather than SUCCESS.
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
@@ -384,7 +392,13 @@ class LogAnalysisServiceTest {
               + "2026-06-11 18.43.45.318 [t] INFO [SPLHostMessage][MTY][s][u][9.4][C1][Android][230ms]-/mty-banking-01/bfs/ft/own/submit -[Response] - {\"serviceResponse\":{\"responseCode\":\"" + beCode + "\"}}\n"
               + "2026-06-11 18.43.45.502 [t] INFO [SPLMessage][MTY][s][u][9.4][C1][Android][500ms]-/mty-banking-01/services/sg/payment/v2/fund/submit -Response - {\"serviceResponse\":{\"responseCode\":\"" + feCode + "\"}}\n";
             LogAnalysisReport r = analyzeText(log, "9.4", "SPL");
-            assertThat(api(r, V2).status()).as("FE=%s BE=%s", feCode, beCode).isEqualTo(LogStatus.SUCCESS);
+            ApiLogResult v2 = api(r, V2);
+            // PARTIAL (not FAILED) proves the FE code read as success; the own/submit row proves the BE code.
+            assertThat(v2.status()).as("FE=%s BE=%s", feCode, beCode).isEqualTo(LogStatus.PARTIAL);
+            assertThat(v2.backends()).as("FE=%s BE=%s", feCode, beCode).anySatisfy(b -> {
+                assertThat(b.backend()).contains("/bfs/ft/own/submit");
+                assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+            });
         }
     }
 
@@ -443,7 +457,7 @@ class LogAnalysisServiceTest {
         assertThat(r.uploadType()).isEqualTo("SPLUNK_CSV");
         assertThat(r.transactions()).isEqualTo(1);
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
@@ -460,7 +474,7 @@ class LogAnalysisServiceTest {
         assertThat(r.uploadType()).isEqualTo("SPLUNK_CSV");
         assertThat(r.transactions()).isEqualTo(1);
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);   // response JSON reassembled across lines
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // response JSON reassembled; own/submit covered
         assertThat(v2.feLatencyMs()).isEqualTo(500);
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
@@ -504,7 +518,7 @@ class LogAnalysisServiceTest {
         LogAnalysisReport r = analyze("analysis-mseg.log", "9.4");
 
         ApiLogResult v2 = api(r, V2);
-        assertThat(v2.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
         assertThat(v2.backends()).anySatisfy(b -> {
             assertThat(b.backend()).contains("/bfs/ft/own/submit");
             assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);   // matched despite the long resolved prefix
@@ -563,7 +577,8 @@ class LogAnalysisServiceTest {
         // The SPL app's lines use SPLMessage / SPLHostMessage — analysed as SPL they
         // resolve; analysed as Mighty (different markers) they are ignored.
         LogAnalysisReport spl = analyze("analysis-spl-app.log", "9.4", "SPL");
-        assertThat(api(spl, V2).status()).isEqualTo(LogStatus.SUCCESS);
+        // Resolved as SPL: own/submit is covered (PARTIAL — the sibling branches were not exercised).
+        assertThat(api(spl, V2).status()).isEqualTo(LogStatus.PARTIAL);
 
         LogAnalysisReport mighty = analyze("analysis-spl-app.log", "9.4", "Mighty");
         assertThat(api(mighty, V2).status()).isEqualTo(LogStatus.NOT_TESTED);
@@ -575,6 +590,6 @@ class LogAnalysisServiceTest {
 
         assertThat(r.uploadType()).isEqualTo("SPLUNK_JSON");
         assertThat(r.transactions()).isEqualTo(1);
-        assertThat(api(r, V2).status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(api(r, V2).status()).isEqualTo(LogStatus.PARTIAL);   // own/submit covered; sibling branches not tested
     }
 }

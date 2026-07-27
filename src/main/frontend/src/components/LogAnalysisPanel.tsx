@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeLog, analyzeLogMulti, type UploadProgress } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
@@ -130,20 +130,33 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'details'}</button>}</td>
       </tr>
       {isOpen && a.backends.map((b, i) => (
-        <tr key={i} className={'lsub' + (b.bau ? ' bau' : '')}>
-          <td>{b.bau
-            ? <span className="bau-pill" title="BAU reuse of this backend at a lower/unchanged service version — not part of this release's change, so not verified">BAU</span>
-            : <Badge s={b.status} />}</td>
-          <td colSpan={2}>
-            <code>{b.backend}</code>
-            <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : (b.bau ? ' unchanged 8.x route' : ' not observed')}</span>
-            {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} />
-          </td>
-          <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
-          <td colSpan={2}>{b.bau
-            ? (b.status === 'NOT_TESTED' ? 'BAU – no logs found' : 'BAU – ' + (b.responseCode || '—') + (b.responseDescription ? ' · ' + b.responseDescription : ''))
-            : (b.responseCode || '') + (b.responseDescription ? ' · ' + b.responseDescription : '')}</td>
-        </tr>
+        <Fragment key={i}>
+          <tr className={'lsub' + (b.bau ? ' bau' : '')}>
+            <td>{b.bau
+              ? <span className="bau-pill" title="BAU reuse of this backend at a lower/unchanged service version — not part of this release's change, so not verified">BAU</span>
+              : <Badge s={b.status} />}</td>
+            <td colSpan={2}>
+              {b.flowRoute && <span className="flow-route" title="the release route that owns this flow">{b.flowRoute} → </span>}
+              <code>{backendPath(b.backend)}</code>
+              <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : (b.bau ? ' unchanged route' : ' not observed')}</span>
+              {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} />
+            </td>
+            <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
+            <td colSpan={2}>{
+              b.status === 'NOT_TESTED'
+                ? (b.bau ? 'BAU – no logs found' : <span className="muted">not tested</span>)
+                : (b.attempts && b.attempts > 0
+                    ? <FlowBar attempts={b.attempts} passed={b.passed || 0} failed={b.failed || 0} bau={b.bau} />
+                    : (b.bau ? 'BAU – ' : '') + (b.responseCode || '') + (b.responseDescription ? ' · ' + b.responseDescription : ''))
+            }</td>
+          </tr>
+          {hasFailures(b.failuresByCode) && (
+            <tr className={'lsub' + (b.bau ? ' bau' : '')}>
+              <td />
+              <td colSpan={5}><FailureBreakdown m={b.failuresByCode} /></td>
+            </tr>
+          )}
+        </Fragment>
       ))}
       {isOpen && hasFailures(a.failuresByCode) && (
         <tr className="lsub"><td colSpan={6}><FailureBreakdown m={a.failuresByCode} /></td></tr>
@@ -177,6 +190,25 @@ function FailureBreakdown({ m }: { m?: Record<string, number> | null }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * A flow's coverage as a two-tone pass/fail bar with an "N calls · F failed" label. Binary by design — the
+ * exact response codes live in the expandable FailureBreakdown below, so the bar never bloats with codes.
+ */
+function FlowBar({ attempts, passed, failed, bau }: { attempts: number; passed: number; failed: number; bau?: boolean }) {
+  const okPct = attempts > 0 ? (100 * passed) / attempts : 0;
+  const badPct = attempts > 0 ? (100 * failed) / attempts : 0;
+  const label = failed > 0 ? `${failed} failed` : 'all ok';
+  return (
+    <div className={'flowbar-wrap' + (bau ? ' bau' : '')} title={`${attempts} call${attempts === 1 ? '' : 's'} · ${passed} ok · ${failed} failed`}>
+      <div className="flowbar">
+        <span className="flowbar-ok" style={{ width: okPct + '%' }} />
+        <span className="flowbar-bad" style={{ width: badPct + '%' }} />
+      </div>
+      <span className="flowbar-lbl">{attempts} call{attempts === 1 ? '' : 's'} · {label}</span>
     </div>
   );
 }

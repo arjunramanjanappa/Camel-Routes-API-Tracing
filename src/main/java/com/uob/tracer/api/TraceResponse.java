@@ -46,6 +46,13 @@ public class TraceResponse {
      * is NOT here (only one branch runs per transaction, so its absence is expected, not a gap).
      */
     private final java.util.Set<String> unconditionalBackends = new java.util.LinkedHashSet<>();
+    /**
+     * Release-version flows to be tested, one per (setting route, backend, service version). Unlike
+     * {@link #changeBackendVersions} (which collapses a backend to one entry) this keeps route
+     * multiplicity: two routes calling the SAME backend at the SAME version are two flows, both of
+     * which a transaction must cover. BAU reuse is excluded.
+     */
+    private final java.util.List<ChangeFlow> changeFlows = new java.util.ArrayList<>();
     /** Backend api value → its "hosturl" property (the path the host logs in MightyHostMessage). */
     private final java.util.Map<String, String> backendHosturls = new java.util.LinkedHashMap<>();
     /** Distinct request-body template uris referenced in this flow (for the payload-change diff). */
@@ -101,6 +108,7 @@ public class TraceResponse {
     public java.util.Map<String, String> getBackendVersions() { return backendVersions; }
     public java.util.Map<String, String> getChangeBackendVersions() { return changeBackendVersions; }
     public java.util.Set<String> getUnconditionalBackends() { return unconditionalBackends; }
+    public java.util.List<ChangeFlow> getChangeFlows() { return changeFlows; }
     public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public java.util.Set<String> getTemplateUris() { return templateUris; }
     public List<String> getWarnings() { return warnings; }

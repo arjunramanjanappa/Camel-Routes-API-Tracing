@@ -238,6 +238,7 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
     r.text('Backend', M, 'bold', 9, PAL.ink); r.y += 13;
     (a.backends).forEach((b: BackendCallResult) => {
       const bm = ST[b.status];
+      const flow = b.flowRoute ? `${b.flowRoute} -> ` : '';
       if (b.bau) {
         // BAU reuse at a lower/unchanged service version — labelled, never a pass/fail.
         const bauLine = `${backendPath(b.backend)}  -  BAU`
@@ -246,11 +247,21 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
         r.para('- ' + bauLine, M + 4, CONTENT_W - 4, 'normal', 9, PAL.amber.text, 12);
         return;
       }
-      const line = `${backendPath(b.backend)}  -  ${bm.label}`
+      // Per-flow coverage: N calls with pass/fail, plus the latest call's code.
+      const cover = b.attempts && b.attempts > 0
+        ? `  (${b.attempts} call${b.attempts === 1 ? '' : 's'}, ${b.failed || 0} failed)`
+        : '';
+      const line = `${flow}${backendPath(b.backend)}  -  ${bm.label}`
+        + cover
         + (b.responseCode ? ` (code ${b.responseCode})` : '')
         + (b.latencyMs != null ? `, ${b.latencyMs} ms` : '')
         + svcText(b);
       r.para('- ' + line, M + 4, CONTENT_W - 4, 'normal', 9, bm.ramp.text, 12);
+      // The flow's failure breakdown, when it has more than one failure mode.
+      const fbc = Object.entries(b.failuresByCode || {}) as [string, number][];
+      if (fbc.length) {
+        r.para('  ' + fbc.map(([c, n]) => `${c} x${n}`).join(', '), M + 12, CONTENT_W - 12, 'normal', 8, PAL.gray.text, 11);
+      }
     });
     r.y += 4;
   }

@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <routes xmlns="http://camel.apache.org/schema/spring">
 
-    <!-- Entry: R9.14_apiA calls three RELEASE-version (9.14) child flows — all must be tested. -->
+    <!-- Entry: R9.14_apiA calls three distinct RELEASE-version (9.14) child routes — all must be tested. -->
     <route id="R9.14_apiA">
         <from uri="direct:R9.14_apiA"/>
         <to uri="direct:R9.14_routeB"/>
         <to uri="direct:R9.14_routeC"/>
+        <to uri="direct:R9.14_routeD"/>
     </route>
 
-    <!-- 9.14 flow: /getStatus at serviceVersionNumber 4.0. -->
+    <!-- RouteB: /getStatus at serviceVersionNumber 4.0. -->
     <route id="R9.14_routeB">
         <from uri="direct:R9.14_routeB"/>
         <to uri="framework:META-INF/templates/rb/precapture.ftl"/>
@@ -16,12 +17,17 @@
         <to uri="direct:callUFWDGE"/>
     </route>
 
-    <!-- 9.14 flow: /fetchStatus at 4.1 AND /getStatus at 2.0 — both are 9.14 release calls. -->
+    <!-- RouteC: /fetchStatus at serviceVersionNumber 4.1. -->
     <route id="R9.14_routeC">
         <from uri="direct:R9.14_routeC"/>
         <to uri="framework:META-INF/templates/rc1/precapture.ftl"/>
         <setProperty name="api"><simple>/fetchStatus</simple></setProperty>
         <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <!-- RouteD: the SAME /getStatus backend as RouteB, but at serviceVersionNumber 2.0 (still a 9.14 flow). -->
+    <route id="R9.14_routeD">
+        <from uri="direct:R9.14_routeD"/>
         <to uri="framework:META-INF/templates/rc2/precapture.ftl"/>
         <setProperty name="api"><simple>/getStatus</simple></setProperty>
         <to uri="direct:callUFWDGE"/>

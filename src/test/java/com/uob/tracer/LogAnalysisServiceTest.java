@@ -370,6 +370,24 @@ class LogAnalysisServiceTest {
         });
     }
 
+    @Test
+    void allFourCombosOfAllZerosAnd200ForFeAndBeReadAsSuccess() throws IOException {
+        // The SPL success contract: FE and BE each signal success with EITHER all-zeros OR "200", in any
+        // combination — FE 200/BE 200, FE 0000000/BE 200, FE 200/BE 00000, FE 0000000/BE 00000. All succeed.
+        String[][] combos = {
+                {"200", "200"}, {"0000000", "200"}, {"200", "00000"}, {"0000000", "00000"},
+        };
+        for (String[] c : combos) {
+            String feCode = c[0], beCode = c[1];
+            String log =
+                "2026-06-11 18.43.45.102 [t] INFO [SPLMessage][MTY][s][u][9.4][C1][Android][]-/mty-banking-01/services/sg/payment/v2/fund/submit -Request - {\"serviceRequest\":{}}\n"
+              + "2026-06-11 18.43.45.318 [t] INFO [SPLHostMessage][MTY][s][u][9.4][C1][Android][230ms]-/mty-banking-01/bfs/ft/own/submit -[Response] - {\"serviceResponse\":{\"responseCode\":\"" + beCode + "\"}}\n"
+              + "2026-06-11 18.43.45.502 [t] INFO [SPLMessage][MTY][s][u][9.4][C1][Android][500ms]-/mty-banking-01/services/sg/payment/v2/fund/submit -Response - {\"serviceResponse\":{\"responseCode\":\"" + feCode + "\"}}\n";
+            LogAnalysisReport r = analyzeText(log, "9.4", "SPL");
+            assertThat(api(r, V2).status()).as("FE=%s BE=%s", feCode, beCode).isEqualTo(LogStatus.SUCCESS);
+        }
+    }
+
     private void assertSameVerdict(LogAnalysisReport raw, LogAnalysisReport csv) {
         assertThat(csv.transactions()).isEqualTo(raw.transactions());
         assertThat(csv.matchedLines()).isEqualTo(raw.matchedLines());

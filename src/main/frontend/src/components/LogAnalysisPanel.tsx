@@ -73,15 +73,19 @@ function Donut({ counts }: { counts: Record<LogStatus, number> }) {
 
 /** One row of the backend-only report. */
 function BackendRow({ b }: { b: BackendLogResult }) {
-  const resultText = b.status === 'NOT_TESTED' || b.status === 'TIMEOUT'
-    ? b.note || '—'
-    : `${b.responseCode || '—'}${b.responseDescription ? ' · ' + b.responseDescription : ''}`;
+  const resultText = b.bau
+    ? (b.note || 'BAU')
+    : b.status === 'NOT_TESTED' || b.status === 'TIMEOUT'
+      ? b.note || '—'
+      : `${b.responseCode || '—'}${b.responseDescription ? ' · ' + b.responseDescription : ''}`;
   return (
-    <tr className={'lrow ' + b.status.toLowerCase()}>
-      <td><Badge s={b.status} /></td>
+    <tr className={'lrow ' + (b.bau ? 'bau' : b.status.toLowerCase())}>
+      <td>{b.bau
+        ? <span className="bau-pill" title="BAU reuse of this backend at a lower/unchanged service version — not part of this release's change, so not verified">BAU</span>
+        : <Badge s={b.status} />}</td>
       <td>
         <code>{backendPath(b.backend)}</code>
-        {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.serviceVersionOk} />
+        {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} />
       </td>
       <td title={b.correlationId ? 'correlation ' + b.correlationId + (b.latestAt ? ' @ ' + b.latestAt : '') : undefined}>
         {resultText}
@@ -426,17 +430,18 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     showReport(p?.report ?? null);
   };
 
-  // Status distribution across BOTH sections (front-end APIs + backends).
+  // Status distribution across BOTH sections (front-end APIs + backends). BAU rows are unchanged reuse —
+  // not part of this release — so they don't count toward the readiness tally.
   const counts = useMemo(() => {
     const c = {} as Record<LogStatus, number>;
     report?.apis.forEach((a) => { c[a.status] = (c[a.status] || 0) + 1; });
-    report?.backends.forEach((b) => { c[b.status] = (c[b.status] || 0) + 1; });
+    report?.backends.forEach((b) => { if (!b.bau) c[b.status] = (c[b.status] || 0) + 1; });
     return c;
   }, [report]);
   const total = (report?.apis.length ?? 0) + (report?.backends.length ?? 0);
   const issuesCount = useMemo(() =>
     (report?.apis.filter((a) => a.status !== 'SUCCESS').length ?? 0)
-    + (report?.backends.filter((b) => b.status !== 'SUCCESS').length ?? 0), [report]);
+    + (report?.backends.filter((b) => !b.bau && b.status !== 'SUCCESS').length ?? 0), [report]);
 
   const keep = (s: LogStatus) => filter === 'ALL' || (filter === 'ISSUES' ? s !== 'SUCCESS' : s === filter);
 

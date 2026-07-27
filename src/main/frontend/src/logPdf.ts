@@ -261,6 +261,16 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
 
 function backendEntry(r: ReportDoc, b: BackendLogResult) {
   r.ensure(56);
+  if (b.bau) {
+    // BAU reuse at a lower/unchanged service version — labelled, not a pass/fail.
+    const bw = r.pill('BAU', M, PAL.amber.fill, PAL.amber.text, 8);
+    const bsvc = b.expectedServiceVersion ? '   ·   svc ' + b.expectedServiceVersion : '';
+    r.text(backendPath(b.backend) + bsvc, M + bw + 8, 'bold', 10, PAL.ink);
+    r.y += 18;
+    if (b.note) r.para(b.note, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
+    r.y += 6;
+    return;
+  }
   const meta = ST[b.status];
   const pw = r.pill(meta.label, M, meta.ramp.fill, meta.ramp.text, 8);
   const svc = svcText(b).trim().replace(/^-\s*/, '');

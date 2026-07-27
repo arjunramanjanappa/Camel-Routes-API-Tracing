@@ -281,6 +281,9 @@ export interface BackendLogResult {
   serviceVersionOk?: boolean | null;
   /** Failed calls grouped by response code / failure reason → count, most-frequent first. */
   failuresByCode?: Record<string, number> | null;
+  /** True when this row is a BAU reuse of the backend at a lower/unchanged service version — labelled BAU,
+   *  never counted toward the release readiness tally. */
+  bau?: boolean;
 }
 
 /** One module's log-verification result in a multi-module release test (backend /log-analysis-multi). */

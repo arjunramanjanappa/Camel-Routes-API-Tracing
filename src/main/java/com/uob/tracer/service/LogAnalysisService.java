@@ -392,13 +392,16 @@ public class LogAnalysisService {
         // Backend URL → expected service version(s), aggregated across the release.
         // And backend api → its "hosturl" (what the host actually logs) — the log path is
         // matched against the hosturl when present, since the api value isn't what's logged.
-        Map<String, String> expectedVersions = new LinkedHashMap<>();
+        Map<String, String> expectedVersions = new LinkedHashMap<>();   // the release change only
+        Map<String, String> fullBackendVersions = new LinkedHashMap<>(); // change + BAU (to split BAU rows out)
         Map<String, String> hosturls = new LinkedHashMap<>();
         for (ApiImpact api : idx.getApis()) {
             // Expected service version = the release's OWN change (routes at this version), NOT lower/BAU routes
-            // reusing the same backend — those are unchanged and not verified.
+            // reusing the same backend — those are unchanged and shown as separate BAU rows.
             api.changeBackendVersions().forEach((url, ver) ->
                     expectedVersions.merge(url, ver, LogAnalysisService::joinVersions));
+            api.backendVersions().forEach((url, ver) ->
+                    fullBackendVersions.merge(url, ver, LogAnalysisService::joinVersions));
             api.backendHosturls().forEach(hosturls::putIfAbsent);
         }
 
@@ -421,7 +424,23 @@ public class LogAnalysisService {
         Set<String> backendUniverse = new java.util.LinkedHashSet<>(idx.getAllBackends());
         backendUniverse.addAll(beTargets);
         for (String backend : beTargets) {
-            backendResults.add(correlateBackend(backend, txns, version, expectedVersions.get(backend), backendUniverse, hosturls, secure));
+            String changeVer = expectedVersions.get(backend);
+            List<String> bau = bauVersions(fullBackendVersions.get(backend), changeVer);
+            if (bau.isEmpty()) {
+                // One behaviour → a single row, matched as before.
+                backendResults.add(correlateBackend(backend, txns, version, changeVer, backendUniverse, hosturls, secure, false, false));
+            } else {
+                // The same backend has more than one service-version behaviour → verified change row(s) plus a
+                // labelled, version-strict BAU row per reused version.
+                if (changeVer != null) {
+                    for (String cv : changeVer.split(" / ")) {
+                        backendResults.add(correlateBackend(backend, txns, version, cv.trim(), backendUniverse, hosturls, secure, true, false));
+                    }
+                }
+                for (String bv : bau) {
+                    backendResults.add(correlateBackend(backend, txns, version, bv, backendUniverse, hosturls, secure, true, true));
+                }
+            }
         }
 
         return new LogAnalysisReport(parsed.detected(), version, idx.getCountry(),
@@ -1185,7 +1204,8 @@ public class LogAnalysisService {
 
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
     private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion,
-                                              Collection<String> candidates, Map<String, String> hosturls, boolean secure) {
+                                              Collection<String> candidates, Map<String, String> hosturls, boolean secure,
+                                              boolean strict, boolean bau) {
         // N/A means "every release in scope" — don't restrict the host lines by a concrete version.
         boolean versionScoped = version != null && !version.isBlank() && !VersionResolver.isLatest(version);
         List<BackendHit> hits = new ArrayList<>();
@@ -1193,8 +1213,9 @@ public class LogAnalysisService {
         boolean anyPathMatch = false;
         for (Txn t : txns) {
             // Match by URL AND service version together (prefer the svc-matching call),
-            // letting "longest match wins" keep /bfs/… and /bp/bfs/… apart.
-            BackendCall c = pickCall(t.calls(), backend, expectedVersion, candidates, hosturls);
+            // letting "longest match wins" keep /bfs/… and /bp/bfs/… apart. When strict (a backend with
+            // several service-version behaviours), match this row's version only — never a different one.
+            BackendCall c = pickCall(t.calls(), backend, expectedVersion, candidates, hosturls, strict);
             if (c == null) {
                 continue;
             }
@@ -1216,8 +1237,13 @@ public class LogAnalysisService {
             } else {
                 note = "No backend call observed — never tested.";
             }
+            if (bau) {
+                note = "BAU – no logs found"
+                        + (expectedVersion != null ? " for service version " + expectedVersion : "")
+                        + " (unchanged route — not part of this release).";
+            }
             return new BackendLogResult(backend, LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note,
-                    expectedVersion, null, null, Map.of());
+                    expectedVersion, null, null, Map.of(), bau);
         }
 
         BackendHit latest = hits.stream().max(Comparator.comparing(h -> h.txn().ts())).orElseThrow();
@@ -1241,14 +1267,18 @@ public class LogAnalysisService {
             default -> "Backend responseCode " + latest.call().code()
                     + (latest.call().desc() != null ? " (" + latest.call().desc() + ")." : ".");
         };
-        if (Boolean.FALSE.equals(svcOk)) {
+        if (bau) {
+            note = "BAU – " + (latest.call().code() != null ? latest.call().code() : status.name())
+                    + (latest.call().desc() != null ? " (" + latest.call().desc() + ")" : "")
+                    + " (unchanged route — not part of this release).";
+        } else if (Boolean.FALSE.equals(svcOk)) {
             note = (note == null ? "" : note + " ") + "Service version mismatch: called " + logged
                     + ", expected " + expectedVersion + ".";
         }
         return new BackendLogResult(backend, status, true, latest.call().tookMs(),
                 latest.call().code(), latest.call().desc(),
                 hits.size(), success, hits.size() - success, latest.txn().ts(), latest.txn().correlationId(), note,
-                expectedVersion, logged, svcOk, sortByCountDesc(failuresByCode));
+                expectedVersion, logged, bau ? null : svcOk, sortByCountDesc(failuresByCode), bau);
     }
 
     /** true if the logged version is one of the expected (possibly "2.2 / 3.3"); null if either is absent. */

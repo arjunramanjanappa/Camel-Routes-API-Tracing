@@ -296,7 +296,7 @@ tr.lsub code { background: transparent; }
 /* BAU reuse of a backend at a lower/unchanged service version — labelled, not a pass/fail. */
 .bau-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; background: #fef3c7; color: #92400e; white-space: nowrap; }
 [data-theme="dark"] .bau-pill { background: #3f2d0a; color: #fcd34d; }
-tr.lsub.bau td { opacity: .8; }
+tr.lsub.bau td, tr.lrow.bau td { opacity: .8; }
 .att-ok { color: #16a34a; font-weight: 700; }
 .att-bad { color: #dc2626; font-weight: 700; }
 [data-theme="dark"] .att-ok { color: #4ade80; }

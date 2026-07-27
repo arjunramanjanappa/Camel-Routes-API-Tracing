@@ -84,5 +84,20 @@ class BauBackendVersionScopeTest {
         });
         // The BAU no-log row must NOT drag the API's verdict down.
         assertThat(apiA.status()).isEqualTo(LogStatus.SUCCESS);
+
+        // The release-wide Backends section splits the same way: a verified 4.0 /getStatus row and a BAU 2.0 row.
+        assertThat(rep.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/getStatus");
+            assertThat(b.expectedServiceVersion()).isEqualTo("4.0");
+            assertThat(b.bau()).isFalse();
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+        assertThat(rep.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/getStatus");
+            assertThat(b.expectedServiceVersion()).isEqualTo("2.0");
+            assertThat(b.bau()).isTrue();
+            assertThat(b.status()).isEqualTo(LogStatus.NOT_TESTED);
+            assertThat(b.note()).contains("BAU");
+        });
     }
 }

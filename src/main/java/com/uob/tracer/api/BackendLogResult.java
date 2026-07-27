@@ -40,5 +40,6 @@ public record BackendLogResult(
         String expectedServiceVersion,
         String loggedServiceVersion,
         Boolean serviceVersionOk,
-        java.util.Map<String, Integer> failuresByCode) {
+        java.util.Map<String, Integer> failuresByCode,
+        boolean bau) {
 }

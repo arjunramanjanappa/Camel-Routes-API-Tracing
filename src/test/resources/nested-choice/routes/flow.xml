@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <route id="R9.14_getRouteStatus">
+        <from uri="direct:R9.14_getRouteStatus"/>
+        <to uri="direct:R9.14_callMyInfo"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[flavour]} == 'FETCH'</simple>
+                <to uri="direct:R9.14_callFetch"/>
+            </when>
+            <otherwise>
+                <to uri="direct:R9.14_callGet"/>
+            </otherwise>
+        </choice>
+    </route>
+
+    <!-- Unconditional: always runs. -->
+    <route id="R9.14_callMyInfo">
+        <from uri="direct:R9.14_callMyInfo"/>
+        <setProperty name="api"><simple>/myinfo</simple></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <!-- Choice branch: itself branches again (nested choice). -->
+    <route id="R9.14_callFetch">
+        <from uri="direct:R9.14_callFetch"/>
+        <choice>
+            <when>
+                <simple>${exchangeProperty[sub]} == 'A'</simple>
+                <to uri="direct:R9.14_callFetchSub"/>
+            </when>
+            <otherwise>
+                <to uri="direct:R9.14_callGetSub"/>
+            </otherwise>
+        </choice>
+    </route>
+
+    <route id="R9.14_callFetchSub">
+        <from uri="direct:R9.14_callFetchSub"/>
+        <setProperty name="api"><simple>/fetchsub</simple></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <route id="R9.14_callGetSub">
+        <from uri="direct:R9.14_callGetSub"/>
+        <setProperty name="api"><simple>/getsub</simple></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <!-- Other choice branch. -->
+    <route id="R9.14_callGet">
+        <from uri="direct:R9.14_callGet"/>
+        <setProperty name="api"><simple>/getbe</simple></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <route id="callHost">
+        <from uri="direct:callHost"/>
+        <to uri="https://host/dispatch"/>
+    </route>
+
+</routes>

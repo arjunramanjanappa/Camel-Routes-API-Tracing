@@ -447,11 +447,6 @@ public class RouteTraceService {
             // alarm — only the target flow's gaps are actionable for THIS release.
             ApiDiff diff = buildApiDiff(op, targetResolved, effTarget, lowerResolved, lowerLabel,
                     targetTrace, lowerTrace, bodies, locations, templateKeys);
-            // If the baseline (immediate-lower) resolves to a shared/common route rather than this country's
-            // own predecessor, flag it so reviewers know the comparison is against a reused shared route.
-            if (registry.isShared(registry.lookup(lowerResolved.routeName()))) {
-                diff = diff.withSharedBaseline(true);
-            }
             report.getApis().add(diff);
             if (ApiDiff.CHANGED.equals(diff.status())) {
                 changed++;

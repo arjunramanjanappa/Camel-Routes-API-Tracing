@@ -326,10 +326,10 @@ class CrossCountryDependencyScopeTest {
     }
 
     @Test
-    void baselineResolvingToASharedCommonRouteIsFlagged(@TempDir Path primaryDir) throws Exception {
+    void baselineResolvesToASharedCommonRoute(@TempDir Path primaryDir) throws Exception {
         // SG imports its own 9.14 route AND a shared common route that carries an older R6.0 of the SAME api
         // (the teams reused the method name in common instead of a distinct name). The diff's baseline is that
-        // shared route — legitimately in scope — so it must be flagged sharedBaseline for the reviewer.
+        // shared route — legitimately in scope (a common route belongs to every country).
         Files.writeString(primaryDir.resolve("SG.xml"),
                 "<beans xmlns=\"http://www.springframework.org/schema/beans\">"
                         + "<import resource=\"classpath:routes/security-sg-9.14.xml\"/>"
@@ -358,9 +358,8 @@ class CrossCountryDependencyScopeTest {
         ApiDiff authCode = report.getApis().stream()
                 .filter(a -> "authCodeValidate".equals(a.operation()))
                 .findFirst().orElseThrow(() -> new AssertionError("authCodeValidate not in the SG diff"));
-        // The 6.0 baseline is a real, in-scope shared/common route — kept, and flagged as shared.
+        // The 6.0 baseline is a real, in-scope shared/common route — kept as the comparison baseline.
         assertThat(authCode.lowerRoute()).isEqualTo("R6.0_authCodeValidate");
-        assertThat(authCode.sharedBaseline()).isTrue();
     }
 
     // ---------- code-change scoping: a class changed only in another country's routes must not flag here ----------

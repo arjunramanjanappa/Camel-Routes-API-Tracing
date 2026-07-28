@@ -407,9 +407,6 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
           {needsBC(d) && <span className="bc-badge" title={'Backward compatibility required — ' + bcReason(d)}>BC</span>}
           {tested && <span className={'tested-badge ' + tested.cls} title={tested.title}>{tested.label}</span>}
-          {d.sharedBaseline && (
-            <span className="diff-badge shared" title="The previous version this is compared against is a shared/common route (reused across countries/APIs), not this country's own predecessor — confirm the team meant to build on the shared route.">Shared baseline</span>
-          )}
           <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
       </div>
@@ -427,7 +424,6 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
             <span className="tag route">{d.targetRoute}</span>
             <span className="diff-arrow">⟵</span>
             <span className="tag route lower">{d.lowerRoute}</span>
-            {d.sharedBaseline && <span className="muted"> · previous version is a shared/common route</span>}
             {d.status === 'UNCHANGED' && <span className="muted"> · version bumped, identical flow</span>}
           </>
         )}

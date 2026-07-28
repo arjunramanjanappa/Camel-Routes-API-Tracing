@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- R9.14_apiH sets the serviceVersionNumber header to 2.8, then calls a header-driven template. -->
+    <route id="R9.14_apiH">
+        <from uri="direct:R9.14_apiH"/>
+        <setHeader name="serviceVersionNumber">
+            <constant>2.8</constant>
+        </setHeader>
+        <to uri="velocity:META-INF/templates/hdr/test.vm"/>
+        <setProperty name="api">
+            <simple>/hdrbackend</simple>
+        </setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <route id="callHost">
+        <from uri="direct:callHost"/>
+        <to uri="https://host/dispatch"/>
+    </route>
+
+</routes>

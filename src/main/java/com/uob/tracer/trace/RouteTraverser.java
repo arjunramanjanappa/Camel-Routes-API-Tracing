@@ -60,8 +60,8 @@ public class RouteTraverser {
     // consistently across the catalog's per-API traversers (each walks the caller body the same way).
     private final java.util.Map<String, Integer> callerHostSeq = new java.util.HashMap<>();
 
-    /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (or null). */
-    private final java.util.function.Function<String, String> templateVersion;
+    /** Resolves a framework template {@code <to>} uri to its serviceVersionNumber (+ whether header-driven). */
+    private final java.util.function.Function<String, TemplateSvc> templateVersion;
     /**
      * Resolves a base route name + client version (e.g. {@code acceptcoreinfo} at {@code 9.14}) to
      * the actual route it runs (e.g. {@code R9.14_acceptcoreinfo}), or null when it doesn't resolve
@@ -79,6 +79,10 @@ public class RouteTraverser {
     private final String requestClientVersion;
     /** Service version from the most recent template {@code <to>}, applied to the next backend. */
     private String currentServiceVersion;
+    /** Value of a route-level {@code <setHeader name="serviceVersionNumber">} constant — what a header-driven
+     *  template actually emits (wins over the template's #else fallback). Persists across direct: hops like a
+     *  real exchange header; overwritten only by a later setHeader. */
+    private String currentHeaderServiceVersion;
     /** The version of the route that carried {@link #currentServiceVersion}'s template — for change-vs-BAU. */
     private String svcVersionRouteVersion;
     /** How many {@code <choice>} branches deep the current path is — {@code >0} means everything reached now
@@ -96,14 +100,14 @@ public class RouteTraverser {
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
-                          java.util.function.Function<String, String> templateVersion) {
+                          java.util.function.Function<String, TemplateSvc> templateVersion) {
         this(registry, graph, response, transferType, operationRouteName, templateVersion,
                 (base, version) -> null, null);
     }
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
-                          java.util.function.Function<String, String> templateVersion,
+                          java.util.function.Function<String, TemplateSvc> templateVersion,
                           java.util.function.BiFunction<String, String, String> destRouteResolver,
                           String requestClientVersion) {
         this.registry = registry;
@@ -111,7 +115,7 @@ public class RouteTraverser {
         this.response = response;
         this.transferType = (transferType == null || transferType.isBlank()) ? null : transferType.trim();
         this.operationRouteName = operationRouteName;
-        this.templateVersion = templateVersion != null ? templateVersion : uri -> null;
+        this.templateVersion = templateVersion != null ? templateVersion : uri -> new TemplateSvc(null, false);
         this.destRouteResolver = destRouteResolver != null ? destRouteResolver : (base, version) -> null;
         this.requestClientVersion = requestClientVersion;
     }
@@ -258,6 +262,11 @@ public class RouteTraverser {
             } else if (el instanceof SetPropertyElement sp) {
                 if (isHosturl(sp)) {
                     currentHosturl = sp.value().trim();
+                } else if (isServiceVersionHeader(sp)) {
+                    String hv = versionValue(sp.value());
+                    if (hv != null) {
+                        currentHeaderServiceVersion = hv;
+                    }
                 } else if (isApi(sp)) {
                     out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeId));
                     currentServiceVersion = null;   // consumed
@@ -303,6 +312,11 @@ public class RouteTraverser {
             } else if (el instanceof SetPropertyElement sp) {
                 if (isHosturl(sp)) {
                     currentHosturl = sp.value().trim();
+                } else if (isServiceVersionHeader(sp)) {
+                    String hv = versionValue(sp.value());
+                    if (hv != null) {
+                        currentHeaderServiceVersion = hv;   // route sets the header a template reads
+                    }
                 } else if (isApi(sp)) {
                     active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId)));
                     currentServiceVersion = null;   // consumed — a later api needs its own template to get a version
@@ -497,7 +511,12 @@ public class RouteTraverser {
      */
     private void applyTemplateVersion(String uri, List<PendingApi> pending, String routeVer) {
         response.getTemplateUris().add(uri);   // remember every request-body template, for the payload diff
-        String sv = templateVersion.apply(uri);
+        TemplateSvc ts = templateVersion.apply(uri);
+        // A header-driven template emits ${headers.serviceVersionNumber}; when the route set that header to a
+        // constant (e.g. <setHeader>2.8</setHeader>), THAT is what actually gets sent — it wins over the
+        // template's literal fallback (e.g. the #else default 2.4).
+        String sv = (ts.headerDriven() && currentHeaderServiceVersion != null)
+                ? currentHeaderServiceVersion : ts.version();
         currentServiceVersion = sv;
         svcVersionRouteVersion = routeVer;     // the route this template lives in — change vs BAU
         if (sv == null) {
@@ -521,6 +540,20 @@ public class RouteTraverser {
      *  backendHosturl) — case-insensitive. Checked before {@link #isApi} in the walk. */
     private static boolean isHosturl(SetPropertyElement sp) {
         return endsWith(sp, "hosturl") && sp.value() != null && !sp.value().isBlank();
+    }
+
+    /** A {@code setHeader}/{@code setProperty} named serviceVersionNumber (what a header-driven template reads). */
+    private static boolean isServiceVersionHeader(SetPropertyElement sp) {
+        return sp.name() != null && sp.name().trim().equalsIgnoreCase("serviceVersionNumber") && sp.value() != null;
+    }
+
+    /** The value if it's a usable version literal (digits/dots) — a dynamic {@code ${...}} header is not. */
+    private static String versionValue(String v) {
+        if (v == null) {
+            return null;
+        }
+        String t = v.trim();
+        return t.matches("\\d+(?:\\.\\d+)*") ? t : null;
     }
 
     private static boolean endsWith(SetPropertyElement sp, String suffix) {

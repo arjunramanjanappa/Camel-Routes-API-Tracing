@@ -997,7 +997,7 @@ public class RouteTraceService {
 
     /** Trace one API at a resolved entry; the response carries the flow + backend versions. */
     private TraceResponse traceFor(Prepared prepared, OperationInfo op, ResolvedRoute resolved,
-                                   java.util.function.Function<String, String> templateVersion) {
+                                   java.util.function.Function<String, com.uob.tracer.trace.TemplateSvc> templateVersion) {
         TraceResponse r = new TraceResponse();
         RouteGraph graph = new RouteGraph();
         // transferType left null on purpose: walk every branch so the flow includes
@@ -1730,7 +1730,7 @@ public class RouteTraceService {
     private void traverseInto(TraceResponse response, String api, String operationName,
                               ResolvedRoute resolved, String transferType,
                               RouteRegistry registry, RouteGraph graph,
-                              java.util.function.Function<String, String> templateVersion,
+                              java.util.function.Function<String, com.uob.tracer.trace.TemplateSvc> templateVersion,
                               String clientVersion) {
         response.setResolvedRoute(resolved.routeName());
         response.setResolvedVersion(resolved.version());
@@ -1768,14 +1768,14 @@ public class RouteTraceService {
      * under the source root and read its {@code "serviceVersionNumber"} — the
      * backend service version to send to the host.
      */
-    private java.util.function.Function<String, String> templateVersionResolver(TraceRequest request) {
+    private java.util.function.Function<String, com.uob.tracer.trace.TemplateSvc> templateVersionResolver(TraceRequest request) {
         List<Path> files;
         try {
             files = scanCached(resolveRoots(request)).allFiles();   // reuse the cached scan — no per-template walk
         } catch (RuntimeException e) {
-            return uri -> null;   // no source dir → nothing to resolve
+            return uri -> new com.uob.tracer.trace.TemplateSvc(null, false);   // no source dir → nothing to resolve
         }
-        Map<String, String> cache = new java.util.HashMap<>();
+        Map<String, com.uob.tracer.trace.TemplateSvc> cache = new java.util.HashMap<>();
         return uri -> cache.computeIfAbsent(uri, u -> resolveTemplateVersion(files, u));
     }
 
@@ -1783,15 +1783,20 @@ public class RouteTraceService {
     private static final java.util.regex.Pattern SERVICE_VERSION =
             java.util.regex.Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)[\"']?");
 
-    private String resolveTemplateVersion(List<Path> files, String uri) {
+    private com.uob.tracer.trace.TemplateSvc resolveTemplateVersion(List<Path> files, String uri) {
         // Strip the component scheme (velocity:/freemarker:/framework:…) and any nested
         // classpath:/file: resource scheme, leaving the path to suffix-match in memory.
         String content = readTemplateContent(files, uri);
         if (content == null) {
-            return null;
+            return new com.uob.tracer.trace.TemplateSvc(null, false);
         }
+        // Header-driven: the template emits serviceVersionNumber from the exchange header
+        // (${headers.serviceVersionNumber} / ${header.serviceVersionNumber}). Then the numeric literal
+        // found below is only the fallback (e.g. an #else default) — a route-level <setHeader> wins.
+        boolean headerDriven = content.contains("headers.serviceVersionNumber")
+                || content.contains("header.serviceVersionNumber");
         java.util.regex.Matcher m = SERVICE_VERSION.matcher(content);
-        return m.find() ? m.group(1) : null;
+        return new com.uob.tracer.trace.TemplateSvc(m.find() ? m.group(1) : null, headerDriven);
     }
 
     /** Find the template file for a {@code <to>} uri (scheme-stripped, suffix-matched) and read it; null if absent. */

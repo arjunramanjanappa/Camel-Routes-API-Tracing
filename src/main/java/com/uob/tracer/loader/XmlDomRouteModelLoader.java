@@ -105,6 +105,10 @@ public class XmlDomRouteModelLoader implements RouteModelLoader {
             case "setProperty":
             case "setExchangeProperty":
                 return new SetPropertyElement(attr(el, "name"), expressionText(el));
+            case "setHeader":
+                // A header the tracer cares about (e.g. serviceVersionNumber) that a template may read via
+                // ${headers.<name>} — modelled as a SetProperty so the traverser can pick it up by name.
+                return new SetPropertyElement(attr(el, "name"), expressionText(el));
             case "choice":
                 return parseChoice(el);
             case "when":

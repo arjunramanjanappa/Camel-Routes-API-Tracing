@@ -17,6 +17,7 @@ import org.apache.camel.model.OtherwiseDefinition;
 import org.apache.camel.model.ProcessorDefinition;
 import org.apache.camel.model.RecipientListDefinition;
 import org.apache.camel.model.RouteDefinition;
+import org.apache.camel.model.SetHeaderDefinition;
 import org.apache.camel.model.SetPropertyDefinition;
 import org.apache.camel.model.ToDefinition;
 import org.apache.camel.model.ToDynamicDefinition;
@@ -229,6 +230,11 @@ public class CamelRouteModelLoader implements RouteModelLoader {
         if (def instanceof SetPropertyDefinition sp) {
             return new SetPropertyElement(propertyName(sp), expr(sp.getExpression()));
         }
+        if (def instanceof SetHeaderDefinition sh) {
+            // A header (e.g. serviceVersionNumber) a template may read via ${headers.<name>} —
+            // modelled as a SetProperty so the traverser can pick it up by name.
+            return new SetPropertyElement(headerName(sh), expr(sh.getExpression()));
+        }
         if (def instanceof ChoiceDefinition choice) {
             return convertChoice(choice);
         }
@@ -250,6 +256,14 @@ public class CamelRouteModelLoader implements RouteModelLoader {
     private static String propertyName(SetPropertyDefinition sp) {
         try {
             return sp.getName();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static String headerName(SetHeaderDefinition sh) {
+        try {
+            return sh.getName();
         } catch (Throwable t) {
             return null;
         }

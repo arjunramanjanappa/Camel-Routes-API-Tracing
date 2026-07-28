@@ -1,0 +1,8 @@
+{
+#if(${headers.serviceVersionNumber})
+      "serviceVersionNumber":"${headers.serviceVersionNumber}",
+#else
+"serviceVersionNumber":"2.4",
+#end
+  "request": {}
+}

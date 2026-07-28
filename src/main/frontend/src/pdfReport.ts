@@ -113,7 +113,11 @@ export class ReportDoc {
     this.text('TraceGuard', startX + logo + gap, 'bold', 15, PAL.ink, M + 14);
     this.text('release intelligence', startX + logo + gap, 'normal', 8, PAL.muted, M + 25);
     this.y = Math.round(PAGE.h * 0.34);
-    this.text(title, M, 'bold', 34, PAL.ink); this.y += 46;
+    // Auto-fit the title so a long one (e.g. "Release Test — Verification Summary") isn't clipped at the
+    // page edge — shrink from 34pt until it fits the content width (floor 22pt).
+    let tsize = 34;
+    while (tsize > 22 && this.width(title, 'bold', tsize) > CONTENT_W) { tsize -= 1; }
+    this.text(title, M, 'bold', tsize, PAL.ink); this.y += Math.round(tsize * 1.35);
     if (subtitle) { this.text(subtitle, M, 'normal', 15, PAL.accent); this.y += 26; }
     metaLines.forEach((m) => { this.text(m, M, 'normal', 10.5, PAL.muted); this.y += 17; });
     this.doc.addPage(); this.y = M;

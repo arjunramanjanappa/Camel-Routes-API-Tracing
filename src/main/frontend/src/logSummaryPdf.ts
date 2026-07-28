@@ -38,8 +38,7 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
   }
   const total = apis.length;
 
-  r.titlePage('Release Test — Verification Summary',
-    'For release managers, coordinators & delivery leads',
+  r.titlePage('Release Test — Verification Summary', '',
     [
       `${app ? app + ' · ' : ''}Release ${ver}${ctry ? ' · ' + ctry : ''}`,
       `${report.transactions} transactions across ${report.matchedLines} matched log lines`,

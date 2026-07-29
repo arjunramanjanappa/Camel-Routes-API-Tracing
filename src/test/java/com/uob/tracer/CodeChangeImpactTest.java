@@ -125,6 +125,31 @@ class CodeChangeImpactTest {
     }
 
     @Test
+    void aSharedBauClassDeletedByTheReleaseIsFlaggedAsRemovedHighRiskAndNeedsBackwardCompat(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release DELETES statusProcessor — a shared BAU class the R7.14 route still references. The
+        // older flow breaks: this is a removed shared class → HIGH risk + backward compatibility required.
+        Files.delete(dir.resolve("StatusProcessor.java"));
+        commit(dir, "[JIRA-2][SG][19.18.0] remove statusProcessor");
+
+        VersionDiffReport report = run918(dir);
+        assertThat(report.getMatchedCommits()).isEqualTo(1);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.codeChanged()).isTrue();
+        assertThat(status.changedClasses()).anyMatch(c -> c.contains("statusProcessor") && c.contains("REMOVED"));
+        assertThat(status.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        // Re-test still points at the BAU route that used the now-removed class.
+        assertThat(status.impactedRoutes()).anyMatch(r -> r.route().contains("R7.14_getStatus"));
+        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
+        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
     void doesNotFlagANewBeanShippedOnlyWithTheReleasesOwnRoute(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         writeBaseline(dir);

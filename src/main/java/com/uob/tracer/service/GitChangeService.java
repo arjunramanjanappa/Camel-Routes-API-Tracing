@@ -34,9 +34,10 @@ public class GitChangeService {
      */
     public record ReleaseChanges(Set<String> changedFiles, int matchedCommits, boolean gitAvailable,
                                  Map<String, List<String>> fileAuthors,
-                                 Map<String, List<String>> fileVersions) {
+                                 Map<String, List<String>> fileVersions,
+                                 Set<String> deletedFiles) {
         public static ReleaseChanges none() {
-            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of());
+            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of());
         }
     }
 
@@ -83,7 +84,7 @@ public class GitChangeService {
             }
         }
         if (matched.isEmpty()) {
-            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of());   // no commit matched any version
+            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of());   // no commit matched any version
         }
 
         // 2. Candidate files + their authors + the version(s) that touched them: non-whitespace changes across
@@ -139,6 +140,22 @@ public class GitChangeService {
                 candidates.retainAll(netSet);
             }
         }
+        // Files the release DELETED (git status 'D'), from just before the release to HEAD. A removed shared
+        // @Component class / route lands here — used to flag a backward-incompatible removal, distinct from a
+        // modification. Renames (status 'R') are NOT deletions and are excluded.
+        Set<String> deleted = new LinkedHashSet<>();
+        if (earliest != null) {
+            List<String> ns = run(repoDir, 15, "diff", "-M", "--name-status", earliest + "^", "HEAD");
+            if (ns != null) {
+                for (String l : ns) {
+                    String s = l.strip();
+                    if (s.startsWith("D\t") || s.startsWith("D ")) {
+                        deleted.add(s.substring(1).strip().replace('\\', '/'));
+                    }
+                }
+            }
+        }
+
         Map<String, List<String>> fileAuthors = new LinkedHashMap<>();
         Map<String, List<String>> fileVersions = new LinkedHashMap<>();
         for (String f : candidates) {
@@ -151,7 +168,7 @@ public class GitChangeService {
                 fileVersions.put(f, orderedByRequest(v, wanted));
             }
         }
-        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions);
+        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted);
     }
 
     /** Split the field into the distinct version tokens the user entered (comma/whitespace-separated), trimmed. */

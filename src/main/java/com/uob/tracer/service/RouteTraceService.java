@@ -671,6 +671,20 @@ public class RouteTraceService {
                 for (String beanName : beanRefs(rm)) {
                     String classFile = beans.get(beanName);
                     if (classFile == null) {
+                        // Bean referenced but its @Component class is not in the current source. If that class was
+                        // DELETED by this release while a (pre-existing/BAU) route still references it, that is a
+                        // removed shared class — the older flow breaks: a backward-incompatible change.
+                        String removed = matchDeleted(beanName, rc.deletedFiles());
+                        if (removed != null) {
+                            List<ImpactedRoute> hits = collapseImpactedRoutes(
+                                    beanUsage.getOrDefault(beanName, List.of()), release, ownership);
+                            if (!hits.isEmpty()) {
+                                List<String> vers = rc.fileVersions().getOrDefault(removed, List.of());
+                                changedVersions.addAll(vers);
+                                changedClasses.add(classLabel(beanName, removed, vers, rc.fileAuthors().get(removed)) + "  — REMOVED");
+                                impacted.addAll(hits);
+                            }
+                        }
                         continue;
                     }
                     String hit = matchChanged(classFile, changed);
@@ -980,6 +994,32 @@ public class RouteTraceService {
             }
         }
         return null;
+    }
+
+    /**
+     * A deleted {@code .java} file whose class name decapitalises to {@code beanName} (Spring's default
+     * {@code @Component} bean name), or null. Lets a bean reference whose class the release DELETED be flagged
+     * as a removed shared class. Explicitly-named beans ({@code @Component("x")}) can't be matched from a
+     * deleted file, so only the class-name convention is used.
+     */
+    private static String matchDeleted(String beanName, Set<String> deleted) {
+        if (beanName == null || deleted == null) {
+            return null;
+        }
+        for (String f : deleted) {
+            if (f == null || !f.toLowerCase(java.util.Locale.ROOT).endsWith(".java")) {
+                continue;
+            }
+            String cls = fileName(f).replaceFirst("(?i)\\.java$", "");
+            if (!cls.isEmpty() && decapitalize(cls).equals(beanName)) {
+                return f;
+            }
+        }
+        return null;
+    }
+
+    private static String decapitalize(String s) {
+        return (s == null || s.isEmpty()) ? s : Character.toLowerCase(s.charAt(0)) + s.substring(1);
     }
 
     /** The last path segment of a file path, e.g. {@code .../StatusProcessor.java} → {@code StatusProcessor.java}. */

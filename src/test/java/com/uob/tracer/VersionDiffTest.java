@@ -155,17 +155,20 @@ class VersionDiffTest {
     }
 
     @Test
-    void removingABeanFromTheBauFlowIsHighRiskAndNeedsBackwardCompat() {
-        // R9.14 (vs R9.4) drops a bean step (bean:validate) the BAU route invoked — behaviour removed, so the
-        // old flow must be re-verified: HIGH risk + backward compatibility required.
+    void aBeanDroppedInTheNewVersionRouteIsNotHighRisk() {
+        // R9.14 (built from R9.4) does not include a bean (bean:validate) that R9.4 has — a change INTERNAL to
+        // the new version-specific route. The BAU route R9.4 still runs the bean unchanged, so the old app is
+        // unaffected. Scoped to the new app → LOW risk, no backward-compat. (A bean removed from the R9.4 BAU
+        // route ITSELF would be a modification of R9.4 — which comparing two different version routes can't see;
+        // that needs a git-diff of the BAU route, like code-change detection does for @Component classes.)
         RouteTraceService svc = new RouteTraceService("src/test/resources/bean-removed");
         VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.14", null, null));
 
         ApiDiff bean = diffFor(report, "beanApi");
         assertThat(bean.status()).isEqualTo(ApiDiff.CHANGED);
-        assertThat(bean.risk()).isEqualTo(ApiDiff.RISK_HIGH);
-        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
-        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+        assertThat(bean.risk()).isEqualTo(ApiDiff.RISK_LOW);
+        assertThat(report.getHighRiskCount()).isZero();
+        assertThat(report.getBackwardCompatCount()).isZero();
     }
 
     @Test

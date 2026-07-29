@@ -550,30 +550,61 @@ public class RouteTraceService {
     }
 
     /**
+     * True when the release REMOVED a Java bean step ({@code <to uri="bean:…">} / {@code <bean …>}) that the
+     * immediate-lower (BAU) route invoked — i.e. a bean present at 9.4 is gone at 9.14. Dropping a bean drops
+     * the behaviour/validation it performed, so the old flow must be re-verified: backward-incompatible.
+     */
+    private static boolean removesBean(ApiDiff a) {
+        if (a.routeDiffs() == null) {
+            return false;
+        }
+        for (var rd : a.routeDiffs()) {
+            if (rd.removed() == null) {
+                continue;
+            }
+            for (String line : rd.removed()) {
+                if (line == null) {
+                    continue;
+                }
+                String t = line.trim();
+                if (t.contains("bean:") || t.startsWith("bean ") || t.equals("bean")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * True when the release forces a backward-compatibility check of the older app version: either a request
      * field was removed/renamed (the backend must still accept old clients), or a shared {@code @Component}
      * class an older-version route uses was changed (that older route must be regression-tested against the
      * new code). Both mean "the previous version's flow has to be re-verified against this release".
      */
     private static boolean needsBackwardCompat(ApiDiff a) {
-        return removesPayloadField(a) || a.codeChanged();
+        return removesPayloadField(a) || a.codeChanged() || removesBean(a);
     }
 
     /**
      * Test-priority under a BAU-impact model: risk is about whether a change can break EXISTING (BAU)
      * behaviour, not how much new work a release adds.
      * <ul>
-     *   <li>HIGH — a payload/contract change, or a modified BAU {@code @Component} Java class: these reach
-     *       existing consumers / older versions.</li>
+     *   <li>HIGH — a backward-INCOMPATIBLE change: a request field removed/renamed, a bean removed from the
+     *       (BAU) flow, or a modified BAU {@code @Component} Java class — these reach existing consumers /
+     *       older app versions.</li>
      *   <li>MEDIUM — only a backend service-version bump; that is scoped to the new route.</li>
      *   <li>LOW — everything else. Route/flow diffs only ever occur between different version-specific routes
      *       (R9.14 vs R9.10 — a physically shared route compared to itself is identical), so added routes /
-     *       new classes / a restructured flow are all scoped to the new version and cannot touch BAU. A NEW
-     *       API with no such signal is likewise new-app work, not a BAU risk.</li>
+     *       new classes / a restructured flow — and a payload change that only ADDS fields (backward
+     *       compatible) — are all scoped to the new version and cannot touch BAU. The added fields live in the
+     *       new route only (e.g. R9.14 built from R9.8); the old app keeps calling R9.8 unchanged. A NEW API
+     *       with no such signal is likewise new-app work, not a BAU risk.</li>
      * </ul>
      */
     private static String riskOf(ApiDiff a) {
-        if (a.payloadChange() != null || a.codeChanged()) {
+        // HIGH = backward-incompatible: a removed/renamed payload field, a bean dropped from the (BAU) flow, or
+        // a modified BAU class. Additive changes (added fields/routes/beans) are backward compatible → not HIGH.
+        if (a.codeChanged() || removesPayloadField(a) || removesBean(a)) {
             return ApiDiff.RISK_HIGH;
         }
         if (a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty()) {

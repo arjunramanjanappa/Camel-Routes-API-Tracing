@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- 9.8 (BAU): the old app keeps calling this, unchanged. Template carries fields A+B at svc 2.0. -->
+    <route id="R9.8_addApi">
+        <from uri="direct:R9.8_addApi"/>
+        <to uri="framework:META-INF/templates/add/v98/precapture.ftl"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/add</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <route id="callUFWDGE">
+        <from uri="direct:callUFWDGE"/>
+        <to uri="https://host/ufw/dispatch"/>
+    </route>
+
+</routes>

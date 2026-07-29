@@ -6,6 +6,18 @@ import { backendPath } from './spl';
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
 // release". Unchanged APIs are still counted in the summary table, just not enumerated.
 const LISTED_STATUSES: ('CHANGED' | 'NEW')[] = ['CHANGED', 'NEW'];
+
+/** A bean step (bean:… / <bean>) removed from the flow vs the previous version — dropped BAU behaviour. */
+function removesBean(a: ApiDiff): boolean {
+  return (a.routeDiffs || []).some((rd) => (rd.removed || []).some((l) => {
+    const t = (l || '').trim();
+    return t.includes('bean:') || t.startsWith('bean ') || t === 'bean';
+  }));
+}
+/** The element-level route diff is a BAU-impact concern — shown only when backward compatibility is required. */
+function needsBC(a: ApiDiff): boolean {
+  return (a.payloadChange?.removedKeys?.length ?? 0) > 0 || !!a.codeChanged || removesBean(a);
+}
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
   if (s === 'CHANGED') return { title: 'Changed APIs', ramp: PAL.amber,
     blurb: 'Existing APIs whose Camel flow differs from the previous version - review and regression-test these.' };
@@ -379,7 +391,9 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
     summarize('Backend service version', [`${s.backend}  ${s.fromVersion} -> ${s.toVersion}`], PAL.amber.text));
   codeChangeLines(r, a, logByVer);
 
-  (a.routeDiffs || []).forEach((rd) => {
+  // Element-level "What changed" diff: only for backward-compat cases (payload removed / BAU class changed /
+  // bean removed). An additive change is scoped to the new route — no BAU impact — so the diff is omitted.
+  if (needsBC(a)) (a.routeDiffs || []).forEach((rd) => {
     r.ensure(18);
     r.text(`${rd.routeBase}   (+${rd.added.length}  -${rd.removed.length})`, M + 4, 'bold', 9, PAL.ink); r.y += 12;
     if (rd.changedBy && rd.changedBy.length) {

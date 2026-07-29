@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- 9.14 (built from R9.4): the bean:validate step is REMOVED — behaviour dropped from the flow. -->
+    <route id="R9.14_beanApi">
+        <from uri="direct:R9.14_beanApi"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/bean</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

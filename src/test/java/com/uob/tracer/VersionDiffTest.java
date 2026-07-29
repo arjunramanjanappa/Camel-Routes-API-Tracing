@@ -136,6 +136,39 @@ class VersionDiffTest {
     }
 
     @Test
+    void additivePayloadOnANewVersionRouteIsNotHighRisk() {
+        // R9.14 (built from R9.8) only ADDS request fields (C, D) — no removals, no BAU class change, same
+        // backend service version (2.0). Additive payload is backward compatible and scoped to the new
+        // version-specific route; the old app keeps calling R9.8 unchanged. So this is LOW risk, not High.
+        RouteTraceService svc = new RouteTraceService("src/test/resources/payload-add");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.14", null, null));
+
+        ApiDiff add = diffFor(report, "addApi");
+        assertThat(add.status()).isEqualTo(ApiDiff.CHANGED);
+        assertThat(add.payloadChange()).isNotNull();
+        assertThat(add.payloadChange().addedKeys()).contains("fieldC", "fieldD");
+        assertThat(add.payloadChange().removedKeys()).isEmpty();
+        assertThat(add.codeChanged()).isFalse();
+        assertThat(add.backendVersionChanges()).isEmpty();   // svc 2.0 on both sides — no backend bump
+        assertThat(add.risk()).isEqualTo(ApiDiff.RISK_LOW);
+        assertThat(report.getHighRiskCount()).isZero();
+    }
+
+    @Test
+    void removingABeanFromTheBauFlowIsHighRiskAndNeedsBackwardCompat() {
+        // R9.14 (vs R9.4) drops a bean step (bean:validate) the BAU route invoked — behaviour removed, so the
+        // old flow must be re-verified: HIGH risk + backward compatibility required.
+        RouteTraceService svc = new RouteTraceService("src/test/resources/bean-removed");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.14", null, null));
+
+        ApiDiff bean = diffFor(report, "beanApi");
+        assertThat(bean.status()).isEqualTo(ApiDiff.CHANGED);
+        assertThat(bean.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
+        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
     void anUnversionedBaseOnlyApiResolvesToItsBaseRouteAndReadsAsUnchanged() {
         // baseOnlyApi has only an un-versioned route (no R<ver>_ variant). At 9.5 it is
         // not part of the release — a 9.5 client still resolves to the base route — so it

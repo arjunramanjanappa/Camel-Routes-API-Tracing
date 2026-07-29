@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- 9.4 (BAU): the flow invokes a Java bean (validate) before dispatching. -->
+    <route id="R9.4_beanApi">
+        <from uri="direct:R9.4_beanApi"/>
+        <to uri="bean:validate"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/bean</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+    <route id="callUFWDGE">
+        <from uri="direct:callUFWDGE"/>
+        <to uri="https://host/ufw/dispatch"/>
+    </route>
+
+</routes>

@@ -54,12 +54,21 @@ type Risk = 'High' | 'Medium' | 'Low';
 const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 const RISK_CLASS: Record<Risk, string> = { High: 'high', Medium: 'med', Low: 'low' };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
-/** Backward compatibility must be verified when a payload field was removed OR a shared class changed. */
-function needsBC(a: ApiDiff): boolean { return !!a.payloadChange?.removedKeys?.length || !!a.codeChanged; }
+/** True when the release REMOVED a bean step (bean:… / <bean>) the BAU route invoked — behaviour dropped. */
+function removesBean(a: ApiDiff): boolean {
+  return (a.routeDiffs || []).some((rd) => (rd.removed || []).some((l) => {
+    const t = (l || '').trim();
+    return t.includes('bean:') || t.startsWith('bean ') || t === 'bean';
+  }));
+}
+/** Backward compatibility must be verified only when a BAU-reaching change occurred: a payload field removed,
+ *  a shared class changed, or a bean removed from the flow. Additive/new-route-scoped changes don't need it. */
+function needsBC(a: ApiDiff): boolean { return !!a.payloadChange?.removedKeys?.length || !!a.codeChanged || removesBean(a); }
 function bcReason(a: ApiDiff): string {
   const parts: string[] = [];
   if (a.payloadChange?.removedKeys?.length) parts.push(`${a.payloadChange.removedKeys.length} payload field(s) removed — backend must accept old clients`);
   if (a.codeChanged) parts.push('shared class changed — regression-test the older (BAU) version against the new code');
+  if (removesBean(a)) parts.push('a bean was removed from the flow — the older (BAU) version must be re-verified');
   return parts.join('; ');
 }
 
@@ -453,12 +462,16 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         </div>
       )}
 
-      {d.routeDiffs?.length > 0 && (
+      {/* The element-level "What changed" diff is a BAU-impact concern: show it only when backward
+          compatibility is required (a payload field removed, a BAU class changed, or a bean removed). An
+          additive change is scoped to the new version-specific route — it impacts only the new app, not the
+          prod BAU app — so its route-vs-route diff would misleadingly imply a BAU change. */}
+      {needsBC(d) && d.routeDiffs?.length > 0 && (
         <>
           <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
             <span className="collapse-caret">{open ? '▾' : '▸'}</span>
             <span className="rdiff-toggle-title">What changed ({d.routeDiffs.length} route{d.routeDiffs.length > 1 ? 's' : ''})</span>
-            <span className="muted">element-level diff</span>
+            <span className="muted">backward-compatibility review</span>
           </button>
           {open && d.routeDiffs.map((rd) => <RouteDiffBlock key={rd.routeBase} d={rd} />)}
         </>
@@ -731,7 +744,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   }, [report, query]);
 
   const expandableKeys = useMemo(
-    () => visible.filter((d) => d.routeDiffs?.length > 0).map(cardKey), [visible]);
+    () => visible.filter((d) => needsBC(d) && (d.routeDiffs?.length ?? 0) > 0).map(cardKey), [visible]);
   const allOpen = expandableKeys.length > 0 && expandableKeys.every((k) => expanded.has(k));
 
   const toggleOne = (k: string) => setExpanded((prev) => {

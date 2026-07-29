@@ -3,6 +3,7 @@ package com.uob.tracer.service;
 import com.uob.tracer.api.ApiDiff;
 import com.uob.tracer.api.ApiImpact;
 import com.uob.tracer.api.BackendVersionChange;
+import com.uob.tracer.api.BauRouteEdit;
 import com.uob.tracer.api.CatalogResponse;
 import com.uob.tracer.api.GraphEdge;
 import com.uob.tracer.api.GraphNode;
@@ -556,7 +557,19 @@ public class RouteTraceService {
      * new code). Both mean "the previous version's flow has to be re-verified against this release".
      */
     private static boolean needsBackwardCompat(ApiDiff a) {
-        return removesPayloadField(a) || a.codeChanged();
+        return removesPayloadField(a) || a.codeChanged() || bauRouteRemoval(a);
+    }
+
+    /** True when the release REMOVED a step from a BAU route the old app still runs — backward-incompatible. */
+    private static boolean bauRouteRemoval(ApiDiff a) {
+        List<BauRouteEdit> edits = a.bauRouteEdits();
+        return edits != null && edits.stream().anyMatch(e -> e.removedSteps() != null && !e.removedSteps().isEmpty());
+    }
+
+    /** True when the release edited a BAU route at all (added or removed steps) — it changes existing PROD behaviour. */
+    private static boolean bauRouteModified(ApiDiff a) {
+        List<BauRouteEdit> edits = a.bauRouteEdits();
+        return edits != null && !edits.isEmpty();
     }
 
     /**
@@ -579,10 +592,14 @@ public class RouteTraceService {
         // HIGH = backward-incompatible to the SHARED contract/BAU code: a removed/renamed payload field, or a
         // modified BAU class. Changes internal to the new version-specific route (added/removed routes, beans,
         // added fields) are scoped to the new app and cannot touch BAU → not HIGH.
-        if (a.codeChanged() || removesPayloadField(a)) {
+        // A step REMOVED from a BAU route (found by git-diffing that route's own XML across the release) is
+        // backward-incompatible in the same way — the old app loses behaviour it relied on.
+        if (a.codeChanged() || removesPayloadField(a) || bauRouteRemoval(a)) {
             return ApiDiff.RISK_HIGH;
         }
-        if (a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty()) {
+        // A backend service-version bump, OR an ADDITIVE edit to a BAU route: both change existing behaviour but
+        // stay backward-compatible, so they are surfaced at Medium rather than High.
+        if ((a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty()) || bauRouteModified(a)) {
             return ApiDiff.RISK_MEDIUM;
         }
         return ApiDiff.RISK_LOW;
@@ -728,6 +745,83 @@ public class RouteTraceService {
             report.setNewCount(Math.max(0, report.getNewCount() - newToChanged));
             report.setUnchangedCount(Math.max(0, report.getUnchangedCount() - unchangedToChanged));
             report.setChangedCount(report.getChangedCount() + promoted);
+        }
+
+        // On top of shared-class changes: detect in-place edits the release made to BAU routes THEMSELVES (a step
+        // removed/added in a pre-existing/lower route the old app still runs). The version diff can't see these —
+        // it compares the new route to the old route, never a route to its own pre-release self.
+        applyBauRouteEdits(report, roots, registry, rc, release, ownership);
+    }
+
+    /**
+     * Flag in-place edits the release made to <b>BAU routes</b> — a pre-existing (lower/base) route the old app
+     * still runs — by git-diffing each such route's OWN XML across the release (its pre-release content vs the
+     * current one). A removed step is backward-incompatible (High + backward-compat); an added step still
+     * changes existing PROD behaviour and is surfaced (Medium). Complements {@code applyCodeChanges} (shared
+     * {@code @Component} class changes) and the version diff (new route vs old route), neither of which can see a
+     * route modified against its own earlier self. No-op unless the source is a git work tree with a matched
+     * release (a baseline commit and changed files).
+     */
+    private void applyBauRouteEdits(VersionDiffReport report, Roots roots, RouteRegistry registry,
+                                    GitChangeService.ReleaseChanges rc, String release,
+                                    Map<String, RouteOwner> ownership) {
+        if (release == null || rc.baselineRef() == null || rc.changedFiles().isEmpty()) {
+            return;   // N/A snapshot, or no baseline / nothing changed — nothing to diff in place
+        }
+        Map<String, List<String>> bodies = routeBodiesCached(roots);
+        Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(roots);
+        Path repo = roots.primary();
+
+        Map<String, List<BauRouteEdit>> byApi = new LinkedHashMap<>();
+        // Pre-release body index per changed file, so a file holding several routes is fetched/parsed once.
+        Map<String, Map<String, List<String>>> beforeByFile = new LinkedHashMap<>();
+
+        for (RouteModel rm : registry.all()) {
+            if (registry.isAmbient(rm)) {
+                continue;   // a dependency route from another country's scope — not this release's BAU
+            }
+            String routeId = rm.routeId();
+            // BAU = a route BELOW the release, or an un-versioned/base route. The release's own (== release) and
+            // any future (> release) route is not BAU — editing those doesn't touch the old app.
+            String v = routeVersionOf(routeId);
+            if (v != null && compareVersions(v, release) >= 0) {
+                continue;
+            }
+            RouteOwner owner = ownership.get(routeId);
+            RouteXmlDiff.RouteLocation loc = locations.get(routeId);
+            if (owner == null || loc == null) {
+                continue;   // not reachable from an in-scope API entry, or no source location
+            }
+            // Did the release change THIS route's file? matchChanged returns the git-relative path (suffix-matched
+            // across repo-root vs scan-root) — reuse it to fetch the pre-release content of the exact same file.
+            String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
+            if (gitPath == null) {
+                continue;
+            }
+            Map<String, List<String>> before = beforeByFile.computeIfAbsent(gitPath, gp -> {
+                List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
+                return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
+            });
+            List<String> beforeBody = before.get(routeId);
+            if (beforeBody == null) {
+                continue;   // route didn't exist at the baseline (a route this file added) — not a BAU edit
+            }
+            RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, bodies.getOrDefault(routeId, List.of()));
+            if (d.isEmpty()) {
+                continue;   // this route's own body is unchanged (another route in the file changed)
+            }
+            byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
+                    .add(new BauRouteEdit(routeId, owner.path(), d.added(), d.removed(), blameAuthors(loc)));
+        }
+        if (byApi.isEmpty()) {
+            return;
+        }
+        List<ApiDiff> apis = report.getApis();
+        for (int i = 0; i < apis.size(); i++) {
+            List<BauRouteEdit> edits = byApi.get(apis.get(i).api());
+            if (edits != null && !edits.isEmpty()) {
+                apis.set(i, apis.get(i).withBauRouteEdits(edits));
+            }
         }
     }
 

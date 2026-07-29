@@ -10,8 +10,14 @@ const LISTED_STATUSES: ('CHANGED' | 'NEW')[] = ['CHANGED', 'NEW'];
 /** The element-level route diff is a BAU-impact concern — shown only when backward compatibility is required
  *  (a payload field removed or a shared BAU class changed). New-route-scoped changes don't trigger it. */
 function needsBC(a: ApiDiff): boolean {
-  return (a.payloadChange?.removedKeys?.length ?? 0) > 0 || !!a.codeChanged;
+  return (a.payloadChange?.removedKeys?.length ?? 0) > 0 || !!a.codeChanged || bauRouteRemoval(a);
 }
+/** A step removed from a BAU route the old app still runs — backward-incompatible. */
+function bauRouteRemoval(a: ApiDiff): boolean {
+  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length);
+}
+/** The release edited a BAU route at all — it changes existing PROD behaviour. */
+function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
   if (s === 'CHANGED') return { title: 'Changed APIs', ramp: PAL.amber,
     blurb: 'Existing APIs whose Camel flow differs from the previous version - review and regression-test these.' };
@@ -143,11 +149,12 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   // BC is required when a payload field was removed OR a shared class changed — both force a re-test of the
   // older app version against this release.
   const bcItems = mods.flatMap((m) => (m.report?.apis ?? [])
-    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0 || a.codeChanged)
+    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0 || a.codeChanged || bauRouteRemoval(a))
     .map((a) => {
       const reasons: string[] = [];
       if (a.payloadChange?.removedKeys?.length) reasons.push('removed field(s): ' + a.payloadChange.removedKeys.join(', '));
       if (a.codeChanged) reasons.push('shared class changed - regression-test the older (BAU) version');
+      if (bauRouteRemoval(a)) reasons.push('step removed from a BAU route - regression-test the old app');
       return { module: m.name, api: a.api, reason: reasons.join('; ') };
     }));
   if (bcItems.length) {
@@ -186,7 +193,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
       const grouped: Record<'CHANGED' | 'NEW', ApiDiff[]> = { CHANGED: [], NEW: [] };
       rep.apis.forEach((a) => {
         if (a.status === 'SNAPSHOT') return;
-        const eff = (a.status === 'NEW' || a.status === 'UNCHANGED') && a.codeChanged ? 'CHANGED' : a.status;
+        const eff = (a.status === 'NEW' || a.status === 'UNCHANGED') && (a.codeChanged || bauRouteModified(a)) ? 'CHANGED' : a.status;
         if (eff === 'CHANGED') grouped.CHANGED.push(a);
         else if (eff === 'NEW') grouped.NEW.push(a);
         // UNCHANGED is not listed (BAU, no flow change — deliberately no code-change noise).
@@ -323,6 +330,26 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
     rows);
 }
 
+/** In-place edits the release made to BAU routes the old app still runs (git-diffed vs each route's own
+ *  pre-release XML). A removed step is backward-incompatible; an added step changes PROD but stays compatible. */
+function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
+  const edits = a.bauRouteEdits || [];
+  if (!edits.length) return;
+  r.para('BAU route modified - existing PROD behaviour changed:', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
+  edits.forEach((e) => {
+    r.ensure(18);
+    const tag = e.removedSteps.length ? '  backward-incompatible' : '  additive';
+    r.text(`${e.route}   (+${e.addedSteps.length}  -${e.removedSteps.length})${tag}`, M + 4, 'bold', 9,
+      e.removedSteps.length ? PAL.delText : PAL.ink);
+    r.y += 12;
+    if (e.changedBy && e.changedBy.length) {
+      r.para('Changed by: ' + e.changedBy.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.accent, 11);
+    }
+    r.diffLines(e.removedSteps, e.addedSteps);
+    r.y += 3;
+  });
+}
+
 function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Record<string, Record<string, ApiLogResult>>, remark?: string) {
   const log = logAt(logByVer, a.targetVersion, a.api);
   r.ensure(40);
@@ -384,6 +411,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   (a.backendVersionChanges || []).forEach((s) =>
     summarize('Backend service version', [`${s.backend}  ${s.fromVersion} -> ${s.toVersion}`], PAL.amber.text));
   codeChangeLines(r, a, logByVer);
+  bauRouteEditLines(r, a);
 
   // Element-level "What changed" diff: only for backward-compat cases (payload removed / BAU class changed).
   // A change internal to the new version-specific route has no BAU impact, so the diff is omitted.

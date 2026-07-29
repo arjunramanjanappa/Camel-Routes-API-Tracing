@@ -69,6 +69,35 @@ final class RouteXmlDiff {
         return out;
     }
 
+    /**
+     * Index every {@code <route id="...">} in a raw XML string to its canonical body lines. Same as
+     * {@link #indexRouteBodies} but for content that isn't on disk — e.g. a route file's PRE-release version
+     * fetched via {@code git show}, so a BAU route can be diffed against itself across a release. Returns an
+     * empty map if the content doesn't parse.
+     */
+    static Map<String, List<String>> bodiesFromXml(String xml) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        if (xml == null || xml.isBlank()) {
+            return out;
+        }
+        Document doc;
+        try {
+            doc = parse(xml);
+        } catch (Exception e) {
+            return out;
+        }
+        NodeList routes = doc.getElementsByTagNameNS("*", "route");
+        for (int i = 0; i < routes.getLength(); i++) {
+            Element route = (Element) routes.item(i);
+            String id = route.getAttribute("id");
+            if (id == null || id.isEmpty()) {
+                continue;
+            }
+            out.putIfAbsent(id, canonicalize(route));
+        }
+        return out;
+    }
+
     /** Where a route is defined: its file and 1-based inclusive line range (for git blame). */
     record RouteLocation(java.nio.file.Path file, int startLine, int endLine) {
     }

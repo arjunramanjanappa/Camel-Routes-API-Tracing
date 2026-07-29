@@ -150,6 +150,55 @@ class CodeChangeImpactTest {
     }
 
     @Test
+    void aStepRemovedFromABauRouteInTheReleaseIsHighRiskAndNeedsBackwardCompat(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release edits the BAU route R7.14_getStatusRoute the old app still runs — dropping a step
+        // (its statusProcessor call). Removing a step from a BAU route is backward-incompatible: High + BC.
+        Files.writeString(dir.resolve("routes.xml"),
+                ROUTES.replace("<to uri=\"bean:statusProcessor\"/>", ""));
+        commit(dir, "[JIRA-2][SG][19.18.0] drop statusProcessor step from R7.14 BAU route");
+
+        VersionDiffReport report = run918(dir);
+        assertThat(report.getMatchedCommits()).isEqualTo(1);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.bauRouteEdits()).anyMatch(e -> e.route().contains("R7.14_getStatus")
+                && e.removedSteps().stream().anyMatch(s -> s.contains("bean:statusProcessor")));
+        assertThat(status.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
+        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void aStepAddedToABauRouteInTheReleaseIsSurfacedAtMediumRisk(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release ADDS a step to the BAU route R7.14. That changes existing PROD behaviour, but is
+        // backward-compatible, so it is surfaced at Medium — not High, and no backward-compat is required.
+        Files.writeString(dir.resolve("routes.xml"),
+                ROUTES.replace("<to uri=\"bean:statusProcessor\"/>",
+                        "<to uri=\"bean:statusProcessor\"/><to uri=\"bean:auditProcessor\"/>"));
+        commit(dir, "[JIRA-2][SG][19.18.0] add auditProcessor step to R7.14 BAU route");
+
+        VersionDiffReport report = run918(dir);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.bauRouteEdits()).anyMatch(e -> e.route().contains("R7.14_getStatus")
+                && e.removedSteps().isEmpty()
+                && e.addedSteps().stream().anyMatch(s -> s.contains("bean:auditProcessor")));
+        assertThat(status.risk()).isEqualTo(ApiDiff.RISK_MEDIUM);
+        assertThat(status.codeChanged()).isFalse();
+        assertThat(report.getBackwardCompatCount()).isZero();
+    }
+
+    @Test
     void doesNotFlagANewBeanShippedOnlyWithTheReleasesOwnRoute(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         writeBaseline(dir);

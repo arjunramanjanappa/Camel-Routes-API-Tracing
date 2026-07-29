@@ -38,6 +38,9 @@ import java.util.List;
  *                              {@link #RISK_LOW}, derived from the combined change signals (set in a final pass)
  * @param changedVersions       the distinct app/commit versions (as entered) that changed this API's classes, e.g.
  *                              {@code [19.18.0, 19.10.1]} — for the per-version badge; empty when no code change
+ * @param bauRouteEdits         in-place edits the release made to this API's BAU (pre-existing/lower) routes, found
+ *                              by git-diffing each such route's own XML across the release; a removed step is
+ *                              backward-incompatible (High + BC), an added step changes PROD but is surfaced (Medium)
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -53,7 +56,8 @@ public record ApiDiff(String api, String operation,
                       List<String> changedClasses,
                       List<ImpactedRoute> impactedRoutes,
                       String risk,
-                      List<String> changedVersions) {
+                      List<String> changedVersions,
+                      List<BauRouteEdit> bauRouteEdits) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
@@ -79,7 +83,7 @@ public record ApiDiff(String api, String operation,
                    List<String> authors) {
         this(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                false, List.of(), List.of(), RISK_LOW, List.of());
+                false, List.of(), List.of(), RISK_LOW, List.of(), List.of());
     }
 
     /** A copy of this diff annotated with the release's shared-class code changes for the flow. */
@@ -87,13 +91,20 @@ public record ApiDiff(String api, String operation,
                                   List<ImpactedRoute> impactedRoutes, List<String> changedVersions) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+    }
+
+    /** A copy of this diff with the release's in-place edits to its BAU (pre-existing/lower) routes. */
+    public ApiDiff withBauRouteEdits(List<BauRouteEdit> bauRouteEdits) {
+        return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
+                routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
     }
 
     /** A copy of this diff with its computed test-priority. */
     public ApiDiff withRisk(String risk) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
     }
 }

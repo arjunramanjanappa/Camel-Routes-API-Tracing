@@ -35,9 +35,10 @@ public class GitChangeService {
     public record ReleaseChanges(Set<String> changedFiles, int matchedCommits, boolean gitAvailable,
                                  Map<String, List<String>> fileAuthors,
                                  Map<String, List<String>> fileVersions,
-                                 Set<String> deletedFiles) {
+                                 Set<String> deletedFiles,
+                                 String baselineRef) {
         public static ReleaseChanges none() {
-            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of());
+            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of(), null);
         }
     }
 
@@ -84,7 +85,7 @@ public class GitChangeService {
             }
         }
         if (matched.isEmpty()) {
-            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of());   // no commit matched any version
+            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of(), null);   // no commit matched any version
         }
 
         // 2. Candidate files + their authors + the version(s) that touched them: non-whitespace changes across
@@ -168,7 +169,23 @@ public class GitChangeService {
                 fileVersions.put(f, orderedByRequest(v, wanted));
             }
         }
-        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted);
+        // The pre-release baseline commit-ish (parent of the release's earliest matched commit), so callers can
+        // fetch a changed file's PRE-release content (git show baselineRef:path) and diff a BAU route's own XML
+        // across the release — detecting an in-place modification of a route the old app still runs.
+        String baselineRef = earliest != null ? earliest + "^" : null;
+        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted, baselineRef);
+    }
+
+    /**
+     * The content of {@code relPath} at commit-ish {@code ref} ({@code git show ref:relPath}), one entry per
+     * line, or null if git is missing / the file did not exist at that ref (e.g. a route added by the release).
+     * Used to fetch a BAU route file's pre-release version for an in-place diff.
+     */
+    public List<String> fileAtRef(Path repoDir, String ref, String relPath) {
+        if (repoDir == null || ref == null || relPath == null || relPath.isBlank()) {
+            return null;
+        }
+        return run(repoDir, 15, "show", ref + ":" + relPath.replace('\\', '/'));
     }
 
     /** Split the field into the distinct version tokens the user entered (comma/whitespace-separated), trimmed. */

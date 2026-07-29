@@ -172,6 +172,23 @@ export interface ApiDiff {
   risk?: 'High' | 'Medium' | 'Low';
   /** Distinct app/commit version(s) that changed this API's classes, e.g. `['19.18.0','19.10.1']`. */
   changedVersions?: string[];
+  /** In-place edits the release made to this API's BAU (pre-existing/lower) routes, git-diffed against their
+   *  own pre-release version. A removed step is backward-incompatible (High + BC); an added step is Medium. */
+  bauRouteEdits?: BauRouteEdit[];
+}
+
+/** An in-place edit the release made to a BAU (pre-existing/lower) route the old app still runs. */
+export interface BauRouteEdit {
+  /** The BAU route id whose body changed (e.g. `R9.8_getStatusRoute`). */
+  route: string;
+  /** The owning API's entry → … → route chain (for display). */
+  path: string[];
+  /** Canonical step lines added by the release (present after, not before). */
+  addedSteps: string[];
+  /** Canonical step lines removed by the release (present before, not after) — backward-incompatible. */
+  removedSteps: string[];
+  /** Git-blame authors of the route's current lines. */
+  changedBy: string[];
 }
 
 /** A route to re-test for a shared-class change, tagged by its relation to the release. */

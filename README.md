@@ -254,7 +254,7 @@ changed) — and a light/dark theme toggle.
   which cross-origin download failed, so a missing page — it saves as a small
   `.html` error file — is re-fetched by clicking its row). Then attach the CSV
   chunk(s) under *Verify with logs*. Set the **Splunk base URL** once in **⚙ Config**.
-* **Verify with logs** — pick **Output log** or **Splunk report**, then upload a raw
+* **Verify with logs** — pick **Splunk report** (default) or **Output log**, then upload a raw
   output log or a Splunk export; the shape is **auto-detected from the file content**
   (`.log/.txt/.csv/.json/.gz` accepted under either mode — a `_raw`-only export saved
   as `.txt` verifies exactly like an output log, so both modes give the same result).

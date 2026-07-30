@@ -343,7 +343,7 @@ function FileZone({ files, onAdd, onRemove, onClear, hint, label }: {
  * log lines; with nothing selected the whole release is analysed.
  */
 export default function LogAnalysisPanel({ version, country, sourceDir, repo, branch, app, selectedApis = [], selectedBackends = [], modules, deps = [], needsReview, onReport, viewMode = 'detailed' }: Props) {
-  const [inputType, setInputType] = useState<InputType>('OUTPUT_LOG');
+  const [inputType, setInputType] = useState<InputType>('SPLUNK');
   const [files, setFiles] = useState<File[]>([]);   // one upload (chunks) analysed against every selected module
   const [limitToSelection, setLimitToSelection] = useState(true);
   const [progress, setProgress] = useState<UploadProgress | null>(null);   // upload progress while analysing
@@ -529,8 +529,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       <div className="row between">
         <h2 style={{ margin: 0 }}>Verify with logs</h2>
         <div className="seg">
-          <button className={inputType === 'OUTPUT_LOG' ? 'on' : ''} onClick={() => setInputType('OUTPUT_LOG')}>Output log</button>
           <button className={inputType === 'SPLUNK' ? 'on' : ''} onClick={() => setInputType('SPLUNK')}>Splunk report</button>
+          <button className={inputType === 'OUTPUT_LOG' ? 'on' : ''} onClick={() => setInputType('OUTPUT_LOG')}>Output log</button>
         </div>
       </div>
       <div className="sub">

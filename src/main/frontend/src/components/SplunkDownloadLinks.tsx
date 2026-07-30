@@ -124,22 +124,24 @@ export default function SplunkDownloadLinks() {
       {links.length > 0 ? (
         <div className="spl-dl-result">
           <div className="sub" style={{ margin: 0 }}>
-            {n.toLocaleString()} rows → <b>{pages}</b> file{single ? '' : 's'} of up to {size.toLocaleString()} each.
-            {!single && <> The browser can’t confirm each download — if one is missing (saved as a small <code>.html</code>), click that row again to re-download.</>}
+            {n.toLocaleString()} rows → <b>{pages}</b> file{single ? '' : 's'} <span className="muted">(≤ {size.toLocaleString()} each)</span>
           </div>
           {!single && (
-            <ol className="spl-links">
-              {links.map((l) => (
-                <li key={l.i} className={clicked[l.i] ? 'done' : ''}>
-                  <span className="spl-link-no">{l.i + 1}.</span>
-                  <a href={l.url} target="_blank" rel="noopener noreferrer" title={'Download / re-download — ' + l.url}
-                     onClick={() => markClicked(l.i)}>
-                    rows {l.from.toLocaleString()}–{l.to.toLocaleString()}
-                  </a>
-                  <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? '✓' : ''}</span>
-                </li>
-              ))}
-            </ol>
+            <>
+              <ol className="spl-links">
+                {links.map((l) => (
+                  <li key={l.i} className={clicked[l.i] ? 'done' : ''}>
+                    <span className="spl-link-no">{l.i + 1}.</span>
+                    <a href={l.url} target="_blank" rel="noopener noreferrer" title={'Download / re-download — ' + l.url}
+                       onClick={() => markClicked(l.i)}>
+                      rows {l.from.toLocaleString()}–{l.to.toLocaleString()}
+                    </a>
+                    <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? '✓' : ''}</span>
+                  </li>
+                ))}
+              </ol>
+              <div className="sub spl-dl-hint">Missing a file? It saves as a small <code>.html</code> error — click that row to re-download.</div>
+            </>
           )}
         </div>
       ) : (ready && n === 0

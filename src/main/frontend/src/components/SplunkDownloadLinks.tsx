@@ -3,7 +3,7 @@ import { fetchSettings } from '../api';
 import CopyBtn from './CopyBtn';
 
 const DEFAULT_PAGE = 50000;
-const STAGGER_MS = 700;   // space out bulk downloads so the browser's single "allow multiple downloads" prompt settles
+const STAGGER_MS = 2000;   // 2s between bulk downloads — faster bursts get rate-limited/blocked by Splunk (and it lets the browser's "allow multiple downloads" prompt settle)
 
 /**
  * Builds the paginated Splunk result-download links for a finished search job — automating the offset
@@ -84,7 +84,7 @@ export default function SplunkDownloadLinks() {
         {links.length > 0 && (
           <span className="spl-dl-actions">
             <button className="minibtn primary" onClick={downloadAll}
-                    title={single ? 'Download the CSV' : `Trigger all ${links.length} downloads (your browser asks once to allow multiple)`}>
+                    title={single ? 'Download the CSV' : `Trigger all ${links.length} downloads, one every 2s so Splunk doesn't rate-limit (~${Math.ceil((links.length * STAGGER_MS) / 1000)}s). Each row ticks as it fires; your browser asks once to allow multiple downloads.`}>
               ⬇ {single ? 'Download CSV' : `Download all (${links.length})`}
             </button>
             <CopyBtn text={allUrls} label={single ? 'Copy URL' : `Copy URLs (${links.length})`} />

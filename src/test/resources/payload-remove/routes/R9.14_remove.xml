@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- 9.14 (built from R9.8): SAME flow + SAME backend service version (2.0); the template REMOVES request
+         fields C+D. This is the NEW app's route — the old app keeps calling the unchanged R9.8 — so the removal
+         is new-version-scoped and needs no backward-compat test. -->
+    <route id="R9.14_removeApi">
+        <from uri="direct:R9.14_removeApi"/>
+        <to uri="framework:META-INF/templates/remove/v914/precapture.ftl"/>
+        <setProperty name="api">
+            <simple>{{baseUrl}}/svc/remove</simple>
+        </setProperty>
+        <to uri="direct:callUFWDGE"/>
+    </route>
+
+</routes>

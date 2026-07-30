@@ -112,11 +112,12 @@ class VersionDiffTest {
         assertThat(bump.backendVersionChanges().get(0).fromVersion()).isEqualTo("2.2");
         assertThat(bump.backendVersionChanges().get(0).toVersion()).isEqualTo("2.3");
         // This fixture's 9.4→9.5 templates also restructure the payload keys (operation → ServiceContext/
-        // channelId), so it is High on the payload change — not a "backend bump only" case (that is Medium,
-        // covered by pureBackendVersionBumpIsMediumRisk).
+        // channelId) — but a version-diff payload change is between two DIFFERENT version routes (new-app-scoped),
+        // so it is NOT backward-incompatible. The only BAU-affecting signal here is the backend service-version
+        // bump → Medium (and no backward-compat).
         assertThat(bump.payloadChange()).isNotNull();
-        assertThat(bump.risk()).isEqualTo(ApiDiff.RISK_HIGH);
-        assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
+        assertThat(bump.risk()).isEqualTo(ApiDiff.RISK_MEDIUM);
+        assertThat(report.getBackwardCompatCount()).isZero();
     }
 
     @Test
@@ -152,6 +153,26 @@ class VersionDiffTest {
         assertThat(add.backendVersionChanges()).isEmpty();   // svc 2.0 on both sides — no backend bump
         assertThat(add.risk()).isEqualTo(ApiDiff.RISK_LOW);
         assertThat(report.getHighRiskCount()).isZero();
+    }
+
+    @Test
+    void removingPayloadFieldsOnANewVersionRouteIsNotHighAndNeedsNoBackwardCompat() {
+        // R9.14 (built from R9.8) REMOVES request fields (C, D) — but this is the difference between two
+        // DIFFERENT version routes: R9.14 is the new app's route, R9.8 is the unchanged BAU route the old app
+        // still calls. So the removal is new-version-scoped and intentional — NOT backward-incompatible. It must
+        // be Low with no backward-compat (the genuine High+BC payload case is an in-place edit to the BAU route
+        // itself, which is git-detected as a bauRouteEdit, not this version diff).
+        RouteTraceService svc = new RouteTraceService("src/test/resources/payload-remove");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.14", null, null));
+
+        ApiDiff rem = diffFor(report, "removeApi");
+        assertThat(rem.status()).isEqualTo(ApiDiff.CHANGED);
+        assertThat(rem.payloadChange()).isNotNull();
+        assertThat(rem.payloadChange().removedKeys()).contains("fieldC", "fieldD");
+        assertThat(rem.payloadChange().addedKeys()).isEmpty();
+        assertThat(rem.risk()).isEqualTo(ApiDiff.RISK_LOW);
+        assertThat(report.getHighRiskCount()).isZero();
+        assertThat(report.getBackwardCompatCount()).isZero();
     }
 
     @Test

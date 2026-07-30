@@ -54,9 +54,6 @@ type Risk = 'High' | 'Medium' | 'Low';
 const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 const RISK_CLASS: Record<Risk, string> = { High: 'high', Medium: 'med', Low: 'low' };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
-/** Backward compatibility must be verified only when a change reaches BAU: a payload field removed (the shared
- *  backend must still accept old clients) or a shared BAU class changed. Changes internal to the new
- *  version-specific route (added/removed routes, beans, added fields) are new-app-scoped and don't need it. */
 /** A step or payload key removed from a BAU route the old app still runs — backward-incompatible (found by
  *  git-diffing that route's own definition across the release). */
 function bauRouteRemoval(a: ApiDiff): boolean {
@@ -65,12 +62,14 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 /** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
  *  alters a route already in production, so it directly impacts the old/PROD app. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
+/** Backward compatibility must be verified only when a change reaches BAU: a shared BAU class changed, or a BAU
+ *  route was edited in place. A version-diff payload change (fields added OR removed) is between two DIFFERENT
+ *  version routes — new-app-scoped — so the old app keeps calling the unchanged lower route: no BC needed. */
 function needsBC(a: ApiDiff): boolean {
-  return !!a.payloadChange?.removedKeys?.length || !!a.codeChanged || bauRouteModified(a);
+  return !!a.codeChanged || bauRouteModified(a);
 }
 function bcReason(a: ApiDiff): string {
   const parts: string[] = [];
-  if (a.payloadChange?.removedKeys?.length) parts.push(`${a.payloadChange.removedKeys.length} payload field(s) removed — backend must accept old clients`);
   if (a.codeChanged) parts.push('shared class changed — regression-test the older (BAU) version against the new code');
   if (bauRouteModified(a)) parts.push('a BAU route the old app runs was modified' + (bauRouteRemoval(a) ? ' (a step/key was removed — backward-incompatible)' : '') + ' — regression-test the old app');
   return parts.join('; ');
@@ -164,12 +163,14 @@ function FlowCoverage({ log }: { log?: ApiLogResult }) {
 /** Why this API needs testing — compact reasons for the checklist/tooltip. */
 function riskReasons(a: ApiDiff): string[] {
   const why: string[] = [];
-  // BAU-impact model: only a payload/contract change or a BAU class change is High; a backend service-version
-  // bump is Medium (new route only); everything else is scoped to the new version — Low, no BAU impact.
+  // BAU-impact model: a BAU class change or an in-place BAU-route edit is High; a backend service-version
+  // bump is Medium (new route only); everything else — including a version-diff payload change — is scoped to
+  // the new version → Low, no BAU impact.
   if (a.codeChanged) why.push('BAU Java class changed');
   if (bauRouteModified(a)) why.push('BAU route modified — changes existing PROD behaviour' + (bauRouteRemoval(a) ? ' (step/key removed — backward-incompatible)' : ''));
-  if (a.payloadChange?.removedKeys?.length) why.push('payload field removed (backward-incompatible)');
-  if (a.payloadChange?.addedKeys?.length) why.push('payload field added');
+  if (a.codeChanged || bauRouteModified(a)) return why;   // High signals lead
+  if (a.payloadChange?.removedKeys?.length) why.push('payload fields removed on the new version route (new-app-scoped — old app unchanged)');
+  if (a.payloadChange?.addedKeys?.length) why.push('payload fields added on the new version route (new-app-scoped)');
   if (why.length) return why;
   if (a.backendVersionChanges?.length) { why.push('backend service version bumped (new route only)'); return why; }
   if (a.status === 'NEW' || a.status === 'CHANGED') why.push('scoped to the new version — no BAU impact');
@@ -328,7 +329,7 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
     <>
       <div className="readiness" role="group" aria-label="Release readiness">
         <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
-        <span className="rd-chip high" title="High test-priority: a change that impacts the BAU/PROD app — shared BAU class changed, a request field removed, or a BAU route modified in place (its steps or payload)"><b>{high}</b> high risk</span>
+        <span className="rd-chip high" title="High test-priority: a change that impacts the BAU/PROD app — a shared BAU @Component class changed, or a BAU route modified in place (its steps or payload). A version-diff payload change is new-app-scoped, not High."><b>{high}</b> high risk</span>
         {bauMod > 0 && <span className="rd-chip high" title="BAU (in-production) routes the release modified in place — their steps or payload changed. Existing PROD behaviour changed; regression-test the old app."><b>{bauMod}</b> BAU routes modified</span>}
         {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
         <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
@@ -606,15 +607,9 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           <span className="diff-payload-label">Payload change</span>
           {d.payloadChange.addedKeys.map((k) => <span key={'+' + k} className="pk add">+ {k}</span>)}
           {d.payloadChange.removedKeys.map((k) => <span key={'-' + k} className="pk del">− {k}</span>)}
-          {d.payloadChange.removedKeys.length > 0 ? (
-            <div className="bc-flag warn" title="A request field was removed/renamed — older clients may still send it, so the backend must stay backward compatible">
-              ⚠ Backward compatibility required — {d.payloadChange.removedKeys.length} field{d.payloadChange.removedKeys.length === 1 ? '' : 's'} removed
-            </div>
-          ) : (
-            <div className="bc-flag ok" title="Only new fields were added — existing clients are unaffected">
-              ✓ Backward compatible — fields added only
-            </div>
-          )}
+          <div className="bc-flag ok" title="This is the difference between the new version route and the unchanged lower (BAU) route — the old app keeps calling the lower route, so a field added or removed here is scoped to the new app and needs no backward-compat test. (A change to the BAU route's OWN payload is git-detected and flagged separately.)">
+            Scoped to the new version route — old app unchanged, no backward-compat needed
+          </div>
         </div>
       )}
 

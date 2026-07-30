@@ -545,22 +545,16 @@ public class RouteTraceService {
         report.setBackwardCompatCount(bc);
     }
 
-    /** True when this API's payload diff dropped/renamed a request field — a backward-incompatible change. */
-    private static boolean removesPayloadField(ApiDiff a) {
-        PayloadChange pc = a.payloadChange();
-        return pc != null && pc.removedKeys() != null && !pc.removedKeys().isEmpty();
-    }
-
     /**
-     * True when the release forces a backward-compatibility check of the older app version: either a request
-     * field was removed/renamed (the backend must still accept old clients), or a shared {@code @Component}
-     * class an older-version route uses was changed (that older route must be regression-tested against the
-     * new code). Both mean "the previous version's flow has to be re-verified against this release".
+     * True when the release forces a backward-compatibility check of the older app version: a shared
+     * {@code @Component} class an older-version route uses was changed, OR a BAU route was edited in place (its
+     * body or payload — git-detected). Both mean "the previous version's flow has to be re-verified against this
+     * release". A payload change in the version diff does NOT count: it is the difference between two DIFFERENT
+     * version routes (R9.14 vs R9.4), i.e. new-app-scoped — the old app keeps calling the unchanged lower route,
+     * so removing (or adding) fields on the new route needs no backward-compat test.
      */
     private static boolean needsBackwardCompat(ApiDiff a) {
-        // Any edit to a BAU route (its body OR its payload) means the old/PROD app runs a changed route and must
-        // be regression-tested — so it always needs a backward-compatibility check, added or removed.
-        return removesPayloadField(a) || a.codeChanged() || bauRouteModified(a);
+        return a.codeChanged() || bauRouteModified(a);
     }
 
     /** True when the release REMOVED a step or a payload key from a BAU route — backward-incompatible (for messaging). */
@@ -594,13 +588,12 @@ public class RouteTraceService {
      * </ul>
      */
     private static String riskOf(ApiDiff a) {
-        // HIGH = backward-incompatible to the SHARED contract/BAU code: a removed/renamed payload field, or a
-        // modified BAU class. Changes internal to the new version-specific route (added/removed routes, beans,
-        // added fields) are scoped to the new app and cannot touch BAU → not HIGH.
-        // ANY in-place edit to a BAU route — its body OR its payload template (found by git-diffing that route
-        // against its own pre-release self) — is High: it changes a route already in production, so it directly
-        // impacts the old/PROD app (whether a step/key was removed OR added).
-        if (a.codeChanged() || removesPayloadField(a) || bauRouteModified(a)) {
+        // HIGH = backward-incompatible to BAU: a modified BAU @Component class, OR an in-place edit to a BAU route
+        // (body or payload — git-detected). A version-diff PAYLOAD change (fields added OR removed) is NOT High:
+        // it is the difference between two different-version routes (R9.14 vs R9.4), so it is scoped to the new
+        // app — the old app keeps calling the unchanged lower route. Removing fields on the new route may be
+        // intentional and needs no backward-compat test.
+        if (a.codeChanged() || bauRouteModified(a)) {
             return ApiDiff.RISK_HIGH;
         }
         // A backend service-version bump alone is scoped to the new route → Medium.

@@ -10,7 +10,9 @@ const LISTED_STATUSES: ('CHANGED' | 'NEW')[] = ['CHANGED', 'NEW'];
 /** The element-level route diff is a BAU-impact concern — shown only when backward compatibility is required
  *  (a payload field removed or a shared BAU class changed). New-route-scoped changes don't trigger it. */
 function needsBC(a: ApiDiff): boolean {
-  return (a.payloadChange?.removedKeys?.length ?? 0) > 0 || !!a.codeChanged || bauRouteModified(a);
+  // A version-diff payload change is new-app-scoped (new route vs unchanged lower route), so it does NOT need
+  // backward-compat — only a shared BAU class change or an in-place BAU-route edit does.
+  return !!a.codeChanged || bauRouteModified(a);
 }
 /** A step or payload key removed from a BAU route the old app still runs — backward-incompatible. */
 function bauRouteRemoval(a: ApiDiff): boolean {
@@ -149,10 +151,9 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   // BC is required when a payload field was removed OR a shared class changed — both force a re-test of the
   // older app version against this release.
   const bcItems = mods.flatMap((m) => (m.report?.apis ?? [])
-    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0 || a.codeChanged || bauRouteModified(a))
+    .filter((a) => a.codeChanged || bauRouteModified(a))
     .map((a) => {
       const reasons: string[] = [];
-      if (a.payloadChange?.removedKeys?.length) reasons.push('removed field(s): ' + a.payloadChange.removedKeys.join(', '));
       if (a.codeChanged) reasons.push('shared class changed - regression-test the older (BAU) version');
       if (bauRouteModified(a)) reasons.push('BAU route modified' + (bauRouteRemoval(a) ? ' (step/key removed - backward-incompatible)' : '') + ' - regression-test the old app');
       return { module: m.name, api: a.api, reason: reasons.join('; ') };
@@ -434,11 +435,10 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   if (a.payloadChange && (a.payloadChange.addedKeys.length || a.payloadChange.removedKeys.length)) {
     const keys = [...a.payloadChange.addedKeys.map((k) => '+' + k), ...a.payloadChange.removedKeys.map((k) => '-' + k)];
     summarize('Payload change (keys)', keys, PAL.blue.text);
-    const removed = a.payloadChange.removedKeys.length;
-    r.para(removed > 0
-      ? `Backward compatibility required - ${removed} field(s) removed`
-      : 'Backward compatible - fields added only',
-      M + 4, CONTENT_W - 4, 'normal', 9, removed > 0 ? PAL.delText : PAL.addText, 12);
+    // New route vs unchanged lower (BAU) route: fields added OR removed here are new-app-scoped — the old app
+    // keeps calling the lower route, so no backward-compat test is needed.
+    r.para('Scoped to the new version route - old app unchanged, no backward-compat needed',
+      M + 4, CONTENT_W - 4, 'normal', 9, PAL.gray.text, 12);
   }
   // Tester's manual remark (e.g. why an impacted API wasn't/can't be retested).
   if (remark) {

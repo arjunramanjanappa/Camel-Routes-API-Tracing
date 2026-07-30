@@ -253,6 +253,14 @@ final class RouteXmlDiff {
 
     // --- DOM helpers (mirrors the hardened parse in XmlDomRouteModelLoader) ---
 
+    // Rethrow parse failures (callers already catch + skip) but WITHOUT the default handler's noisy
+    // "[Fatal Error] ...: Content is not allowed in prolog" print to stderr for a non-XML/partial input.
+    private static final org.xml.sax.ErrorHandler QUIET = new org.xml.sax.ErrorHandler() {
+        @Override public void warning(org.xml.sax.SAXParseException e) { }
+        @Override public void error(org.xml.sax.SAXParseException e) throws org.xml.sax.SAXException { throw e; }
+        @Override public void fatalError(org.xml.sax.SAXParseException e) throws org.xml.sax.SAXException { throw e; }
+    };
+
     private static Document parse(String xml) throws Exception {
         DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
         f.setNamespaceAware(true);
@@ -260,7 +268,10 @@ final class RouteXmlDiff {
         f.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
         f.setExpandEntityReferences(false);
         DocumentBuilder b = f.newDocumentBuilder();
-        return b.parse(new InputSource(new StringReader(xml)));
+        b.setErrorHandler(QUIET);
+        // A leading UTF-8 BOM (git show / a BOM-saved file) is "content in prolog" and fails parsing at 1:1.
+        String cleaned = !xml.isEmpty() && xml.charAt(0) == 0xFEFF ? xml.substring(1) : xml;
+        return b.parse(new InputSource(new StringReader(cleaned)));
     }
 
     private static List<Element> childElements(Node parent) {

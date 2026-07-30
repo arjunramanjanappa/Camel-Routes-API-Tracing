@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchSettings, saveSettings, type AppSettings } from '../api';
+import LogRulesEditor from './LogRulesEditor';
 
 /**
  * The machine-wide Config menu (⚙). Lets the user store their Bitbucket and npm access tokens once
@@ -103,6 +104,9 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
               <div className="cfg-actions">
                 <button className="primary" disabled={busy} onClick={onSave}>{busy ? 'Saving…' : 'Save'}</button>
               </div>
+
+              <hr className="cfg-sep" />
+              <LogRulesEditor />
 
               <div className="cfg-note">
                 Stored in <code>{state.home}</code> on this machine (plaintext, user-only). Modules saved with

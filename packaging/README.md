@@ -4,9 +4,10 @@ Make TraceGuard a click-to-launch desktop app that needs **no admin, no install,
 pre-installed Java** on the machine that runs it. A bundle is a single folder you unzip anywhere in your
 user profile; double-clicking the launcher starts the server and opens your browser.
 
-Everything the app stores per-machine (Bitbucket + npm tokens, the Splunk base URL, saved modules) lives in
-**`~/.traceguard`** (`%USERPROFILE%\.traceguard` on Windows) — shared by the standalone bundle *and* IntelliJ,
-so both modes see the same config.
+Everything the app stores per-machine (Bitbucket + npm tokens, the Splunk base URL, saved modules, the host
+response-code rules) lives in **`~/.traceguard`** (`%USERPROFILE%\.traceguard` on Windows — `settings.json`,
+`app-modules.json`, `log-rules.json`) — shared by the standalone bundle *and* IntelliJ, so both modes see the
+same config.
 
 ---
 

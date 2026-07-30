@@ -267,6 +267,14 @@ changed) — and a light/dark theme toggle.
   carries a **service-version chip**: `svc 2.2 ✓` when the logged version matches the
   traced one, `svc 9.9 ✗ (exp 2.2)` on a mismatch (which flags the row even if the
   backend itself succeeded).
+* **Host response-code rules** *(⚙ Config → per app)* — some host/backend APIs report
+  their outcome under a different key (e.g. `"resultCode":"000000"`) or with a
+  non-standard success value, and some shouldn't count toward the verdict at all.
+  A per-app rule set (`log-rules.json`, keyed **Mighty / SPL / SPL-Secure**), matched
+  on a backend **hosturl** glob, tells the analyzer which JSON key to read the code
+  from, what counts as success, or to **skip** the backend — surfaced as a neutral
+  **Skipped** verdict (grey badge + its own count) that never fails the API and is
+  shown as *skipped for analysis* in the PDF. Front-end lines are unaffected.
 
 ### Release Impact
 
@@ -353,6 +361,7 @@ are mapped to ASCII in the PDF.
 | `/internal/meta` | GET | Discovered countries, versions and transferType values |
 | `/internal/countries` | GET | Bootstrap (country) scopes |
 | `/internal/settings` | GET / POST | Machine-wide config: Bitbucket / npm tokens (masked) + **Splunk base URL** |
+| `/internal/log-rules` | GET / POST | Per-app **host response-code rules** (`log-rules.json`): alt code field, custom success codes, skip |
 
 Common params (query or, for `log-analysis`, multipart form fields): `version`,
 `country`, `sourceDir`, plus `transferType` (route-graph). Source can also be a

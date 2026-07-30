@@ -922,6 +922,15 @@ button.impact-api.linkish:hover { color: #1e40af; }
 [data-theme="dark"] .codebanner { background: #1a0f33; border-color: #4c1d95; }
 [data-theme="dark"] .codebanner-icon { color: #c4b5fd; }
 
+/* Log-rules editor (Config) */
+.cfg-sep { border: 0; border-top: 1px solid var(--hair, #e2e8f0); margin: 14px 0; }
+.logrules-tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.logrules-tbl th { text-align: left; font-weight: 600; color: var(--muted, #64748b); padding: 2px 6px 2px 0; font-size: 11px; }
+.logrules-tbl td { padding: 2px 6px 2px 0; vertical-align: middle; }
+.logrules-tbl input[type="text"] { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 4px 7px;
+  border: 1px solid var(--hair, #cbd5e1); border-radius: 5px; background: var(--panel, #fff); color: inherit; }
+.logrules-tbl input:disabled { opacity: 0.5; }
+
 /* BAU-route-modified executive callout — highest severity (existing PROD routes changed). */
 .bau-callout { margin: 10px 0; background: #fef2f2; border: 1px solid #fecaca; border-left: 3px solid #dc2626; border-radius: 8px; font-size: 12px; }
 .bau-callout-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; padding: 9px 12px; background: none; border: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }

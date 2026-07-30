@@ -57,21 +57,22 @@ function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
 /** Backward compatibility must be verified only when a change reaches BAU: a payload field removed (the shared
  *  backend must still accept old clients) or a shared BAU class changed. Changes internal to the new
  *  version-specific route (added/removed routes, beans, added fields) are new-app-scoped and don't need it. */
-/** A step removed from a BAU route the old app still runs — backward-incompatible (found by git-diffing that
- *  route's own XML across the release). */
+/** A step or payload key removed from a BAU route the old app still runs — backward-incompatible (found by
+ *  git-diffing that route's own definition across the release). */
 function bauRouteRemoval(a: ApiDiff): boolean {
-  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length);
+  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length || e.removedKeys?.length);
 }
-/** The release edited a BAU route at all (added or removed steps) — it changes existing PROD behaviour. */
+/** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
+ *  alters a route already in production, so it directly impacts the old/PROD app. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
 function needsBC(a: ApiDiff): boolean {
-  return !!a.payloadChange?.removedKeys?.length || !!a.codeChanged || bauRouteRemoval(a);
+  return !!a.payloadChange?.removedKeys?.length || !!a.codeChanged || bauRouteModified(a);
 }
 function bcReason(a: ApiDiff): string {
   const parts: string[] = [];
   if (a.payloadChange?.removedKeys?.length) parts.push(`${a.payloadChange.removedKeys.length} payload field(s) removed — backend must accept old clients`);
   if (a.codeChanged) parts.push('shared class changed — regression-test the older (BAU) version against the new code');
-  if (bauRouteRemoval(a)) parts.push('a step was removed from a BAU route — regression-test the old app against the change');
+  if (bauRouteModified(a)) parts.push('a BAU route the old app runs was modified' + (bauRouteRemoval(a) ? ' (a step/key was removed — backward-incompatible)' : '') + ' — regression-test the old app');
   return parts.join('; ');
 }
 
@@ -166,11 +167,10 @@ function riskReasons(a: ApiDiff): string[] {
   // BAU-impact model: only a payload/contract change or a BAU class change is High; a backend service-version
   // bump is Medium (new route only); everything else is scoped to the new version — Low, no BAU impact.
   if (a.codeChanged) why.push('BAU Java class changed');
-  if (bauRouteRemoval(a)) why.push('step removed from a BAU route (backward-incompatible)');
+  if (bauRouteModified(a)) why.push('BAU route modified — changes existing PROD behaviour' + (bauRouteRemoval(a) ? ' (step/key removed — backward-incompatible)' : ''));
   if (a.payloadChange?.removedKeys?.length) why.push('payload field removed (backward-incompatible)');
   if (a.payloadChange?.addedKeys?.length) why.push('payload field added');
   if (why.length) return why;
-  if (bauRouteModified(a)) { why.push('BAU route modified — changes existing PROD behaviour'); return why; }
   if (a.backendVersionChanges?.length) { why.push('backend service version bumped (new route only)'); return why; }
   if (a.status === 'NEW' || a.status === 'CHANGED') why.push('scoped to the new version — no BAU impact');
   return why;
@@ -193,7 +193,7 @@ function searchHaystack(a: ApiDiff): string {
     ...(a.routeDiffs || []).map((r) => r.routeBase),
     ...(a.backendVersionChanges || []).map((s) => s.backend),
     ...(a.changedClasses || []), ...(a.impactedRoutes || []).flatMap((r) => [...r.routePath, r.api || '']),
-    ...(a.bauRouteEdits || []).flatMap((e) => [e.route, ...e.addedSteps, ...e.removedSteps])]
+    ...(a.bauRouteEdits || []).flatMap((e) => [e.route, ...e.addedSteps, ...e.removedSteps, ...e.addedKeys, ...e.removedKeys])]
     .filter(Boolean).join(' ').toLowerCase();
 }
 
@@ -216,9 +216,12 @@ function apiDiffText(a: ApiDiff): string {
     (a.impactedRoutes || []).forEach((r) => lines.push(`        ! also re-test [${impactGroup(r)}] ${r.api ? r.api + ' — ' : ''}${r.routePath.join(' → ')}`));
   }
   (a.bauRouteEdits || []).forEach((e) => {
-    lines.push(`    ⚑ BAU route modified by app version: ${e.route}${e.removedSteps.length ? ' (backward-incompatible)' : ''}`);
+    const incompat = e.removedSteps.length || e.removedKeys.length;
+    lines.push(`    ⚑ BAU route modified by app version: ${e.route}${incompat ? ' (backward-incompatible)' : ''}`);
     e.removedSteps.forEach((l) => lines.push(`        - ${l}`));
     e.addedSteps.forEach((l) => lines.push(`        + ${l}`));
+    e.removedKeys.forEach((k) => lines.push(`        - payload key ${k}`));
+    e.addedKeys.forEach((k) => lines.push(`        + payload key ${k}`));
   });
   return lines.join('\n');
 }
@@ -322,7 +325,7 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
     <>
       <div className="readiness" role="group" aria-label="Release readiness">
         <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
-        <span className="rd-chip high" title="High test-priority: shared-class change, removed payload field, or backend version bump"><b>{high}</b> high risk</span>
+        <span className="rd-chip high" title="High test-priority: a change that impacts the BAU/PROD app — shared BAU class changed, a request field removed, or a BAU route modified in place (its steps or payload)"><b>{high}</b> high risk</span>
         {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
         <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
         {!log && <span className="rd-chip muted" title="Attach a test log to see which impacted flows were exercised">coverage — not checked</span>}
@@ -397,37 +400,44 @@ function RouteDiffBlock({ d }: { d: RouteStepDiff }) {
 }
 
 /**
- * In-place edits the release made to a BAU (pre-existing/lower) route the old app still runs — found by
- * git-diffing each such route against its OWN pre-release XML. The version diff (new route vs old route) can't
- * see this. A removed step is backward-incompatible (High + BC); an added step changes existing PROD behaviour
- * but stays backward-compatible (surfaced, Medium).
+ * In-place changes the release made to a BAU (pre-existing/lower) route the old app still runs — its route body
+ * (steps) and/or its request payload (template keys) — found by git-diffing each such route against its OWN
+ * pre-release self. The version diff (new route vs old route) can't see this. ANY such change is High risk: it
+ * alters a route already in production. A removed step/key is additionally backward-incompatible.
  */
 function BauRouteEditBlock({ d }: { d: ApiDiff }) {
   const edits = d.bauRouteEdits || [];
   if (!edits.length) return null;
   return (
-    <div className="diff-code" title="Steps the release added or removed inside a pre-existing (BAU) route the old app still runs — found by git-diffing that route against its own pre-release version">
-      <span className="diff-code-label">⚑ BAU route modified — existing PROD behaviour changed</span>
-      {edits.map((e) => (
-        <div key={e.route} className="rdiff">
-          <div className="rdiff-head">
-            <code>{e.route}</code>
-            <span className="row" style={{ gap: 8 }}>
-              <span className="rdiff-tally"><span className="add">+{e.addedSteps.length}</span> <span className="del">−{e.removedSteps.length}</span></span>
-              {e.removedSteps.length > 0
-                ? <span className="bc-flag warn" title="A step the old app relied on was removed — backward-incompatible; regression-test the old app">⚠ backward-incompatible</span>
-                : <span className="bc-flag ok" title="Steps were only added — existing behaviour preserved, but it does run in the BAU app">✓ additive — verify in PROD</span>}
-            </span>
+    <div className="diff-code" title="Changes the release made inside a pre-existing (BAU) route the old app still runs — its steps and/or its request payload — found by git-diffing that route against its own pre-release version. High risk: it changes existing PROD behaviour.">
+      <span className="diff-code-label">⚑ BAU route modified — existing PROD behaviour changed (High)</span>
+      {edits.map((e) => {
+        const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
+        const add = e.addedSteps.length + e.addedKeys.length;
+        const del = e.removedSteps.length + e.removedKeys.length;
+        return (
+          <div key={e.route} className="rdiff">
+            <div className="rdiff-head">
+              <code>{e.route}</code>
+              <span className="row" style={{ gap: 8 }}>
+                <span className="rdiff-tally"><span className="add">+{add}</span> <span className="del">−{del}</span></span>
+                {incompat
+                  ? <span className="bc-flag warn" title="A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app">⚠ backward-incompatible</span>
+                  : <span className="bc-flag warn" title="A route already in production was changed — regression-test the old app">⚠ changes PROD — regression-test</span>}
+              </span>
+            </div>
+            {e.changedBy && e.changedBy.length > 0 && (
+              <div className="rdiff-by"><span className="rdiff-by-label">Changed by</span> {e.changedBy.join(', ')}</div>
+            )}
+            <pre className="rdiff-body">
+              {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
+              {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
+              {e.removedKeys.map((k, i) => <div key={'rk' + i} className="dl del">- payload key: {k}</div>)}
+              {e.addedKeys.map((k, i) => <div key={'ak' + i} className="dl add">+ payload key: {k}</div>)}
+            </pre>
           </div>
-          {e.changedBy && e.changedBy.length > 0 && (
-            <div className="rdiff-by"><span className="rdiff-by-label">Changed by</span> {e.changedBy.join(', ')}</div>
-          )}
-          <pre className="rdiff-body">
-            {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
-            {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
-          </pre>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -177,16 +177,21 @@ export interface ApiDiff {
   bauRouteEdits?: BauRouteEdit[];
 }
 
-/** An in-place edit the release made to a BAU (pre-existing/lower) route the old app still runs. */
+/** An in-place change the release made to a BAU (pre-existing/lower) route the old app still runs — its route
+ *  body and/or its request payload. Any such change is High risk (it alters existing PROD behaviour). */
 export interface BauRouteEdit {
-  /** The BAU route id whose body changed (e.g. `R9.8_getStatusRoute`). */
+  /** The BAU route id whose definition changed (e.g. `R9.8_getStatusRoute`). */
   route: string;
   /** The owning API's entry → … → route chain (for display). */
   path: string[];
-  /** Canonical step lines added by the release (present after, not before). */
+  /** Route-body step lines added by the release (present after, not before). */
   addedSteps: string[];
-  /** Canonical step lines removed by the release (present before, not after) — backward-incompatible. */
+  /** Route-body step lines removed by the release (present before, not after) — backward-incompatible. */
   removedSteps: string[];
+  /** Request-payload keys the release added to a template this route sends. */
+  addedKeys: string[];
+  /** Request-payload keys the release removed from a template this route sends — backward-incompatible. */
+  removedKeys: string[];
   /** Git-blame authors of the route's current lines. */
   changedBy: string[];
 }

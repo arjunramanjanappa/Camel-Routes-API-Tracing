@@ -174,14 +174,14 @@ class CodeChangeImpactTest {
     }
 
     @Test
-    void aStepAddedToABauRouteInTheReleaseIsSurfacedAtMediumRisk(@TempDir Path dir) throws Exception {
+    void aStepAddedToABauRouteInTheReleaseIsHighRiskBecauseItChangesProd(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         writeBaseline(dir);
         initRepo(dir);
         commit(dir, "[JIRA-1][SG][19.14.0] baseline");
 
-        // The 9.18 release ADDS a step to the BAU route R7.14. That changes existing PROD behaviour, but is
-        // backward-compatible, so it is surfaced at Medium — not High, and no backward-compat is required.
+        // The 9.18 release ADDS a step to the BAU route R7.14 the old app still runs. Editing a route already in
+        // production changes existing PROD behaviour → High + backward-compat (even though it's additive).
         Files.writeString(dir.resolve("routes.xml"),
                 ROUTES.replace("<to uri=\"bean:statusProcessor\"/>",
                         "<to uri=\"bean:statusProcessor\"/><to uri=\"bean:auditProcessor\"/>"));
@@ -193,9 +193,48 @@ class CodeChangeImpactTest {
         assertThat(status.bauRouteEdits()).anyMatch(e -> e.route().contains("R7.14_getStatus")
                 && e.removedSteps().isEmpty()
                 && e.addedSteps().stream().anyMatch(s -> s.contains("bean:auditProcessor")));
-        assertThat(status.risk()).isEqualTo(ApiDiff.RISK_MEDIUM);
-        assertThat(status.codeChanged()).isFalse();
-        assertThat(report.getBackwardCompatCount()).isZero();
+        assertThat(status.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        assertThat(status.codeChanged()).isFalse();     // it's a BAU-route edit, not a shared-class change
+        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void aPayloadKeyRemovedFromABauRouteTemplateIsHighRiskAndNeedsBackwardCompat(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        Files.writeString(dir.resolve("routes.xml"), """
+                <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+                  <routeContext id="c">
+                    <route id="R9.8_payRoute"><from uri="direct:R9.8_pay"/><to uri="freemarker:templates/pay.ftl"/></route>
+                  </routeContext>
+                </beans:beans>
+                """);
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @PostMapping("/pay") public Object pay(Object b){ return null; }
+                }
+                """);
+        Files.createDirectories(dir.resolve("templates"));
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"fieldA\": \"x\",\n  \"fieldB\": \"y\"\n}\n");
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release edits the payload TEMPLATE the BAU route R9.8_pay sends — dropping fieldB. A removed
+        // payload key on a route the old app still runs is backward-incompatible: High + BC.
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"fieldA\": \"x\"\n}\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] drop fieldB from pay payload template");
+
+        VersionDiffReport report = new RouteTraceService(dir.toString()).versionDiff(
+                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+
+        ApiDiff pay = apiByRoute(report, "pay");
+        assertThat(pay.bauRouteEdits()).anyMatch(e -> e.route().contains("R9.8_pay")
+                && e.removedKeys().contains("fieldB"));
+        assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
     }
 
     @Test

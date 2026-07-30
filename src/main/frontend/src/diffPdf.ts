@@ -10,13 +10,13 @@ const LISTED_STATUSES: ('CHANGED' | 'NEW')[] = ['CHANGED', 'NEW'];
 /** The element-level route diff is a BAU-impact concern — shown only when backward compatibility is required
  *  (a payload field removed or a shared BAU class changed). New-route-scoped changes don't trigger it. */
 function needsBC(a: ApiDiff): boolean {
-  return (a.payloadChange?.removedKeys?.length ?? 0) > 0 || !!a.codeChanged || bauRouteRemoval(a);
+  return (a.payloadChange?.removedKeys?.length ?? 0) > 0 || !!a.codeChanged || bauRouteModified(a);
 }
-/** A step removed from a BAU route the old app still runs — backward-incompatible. */
+/** A step or payload key removed from a BAU route the old app still runs — backward-incompatible. */
 function bauRouteRemoval(a: ApiDiff): boolean {
-  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length);
+  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length || e.removedKeys?.length);
 }
-/** The release edited a BAU route at all — it changes existing PROD behaviour. */
+/** The release edited a BAU route at all — its body OR its payload changed → it alters existing PROD behaviour. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
   if (s === 'CHANGED') return { title: 'Changed APIs', ramp: PAL.amber,
@@ -149,12 +149,12 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   // BC is required when a payload field was removed OR a shared class changed — both force a re-test of the
   // older app version against this release.
   const bcItems = mods.flatMap((m) => (m.report?.apis ?? [])
-    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0 || a.codeChanged || bauRouteRemoval(a))
+    .filter((a) => (a.payloadChange?.removedKeys?.length ?? 0) > 0 || a.codeChanged || bauRouteModified(a))
     .map((a) => {
       const reasons: string[] = [];
       if (a.payloadChange?.removedKeys?.length) reasons.push('removed field(s): ' + a.payloadChange.removedKeys.join(', '));
       if (a.codeChanged) reasons.push('shared class changed - regression-test the older (BAU) version');
-      if (bauRouteRemoval(a)) reasons.push('step removed from a BAU route - regression-test the old app');
+      if (bauRouteModified(a)) reasons.push('BAU route modified' + (bauRouteRemoval(a) ? ' (step/key removed - backward-incompatible)' : '') + ' - regression-test the old app');
       return { module: m.name, api: a.api, reason: reasons.join('; ') };
     }));
   if (bcItems.length) {
@@ -330,22 +330,25 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
     rows);
 }
 
-/** In-place edits the release made to BAU routes the old app still runs (git-diffed vs each route's own
- *  pre-release XML). A removed step is backward-incompatible; an added step changes PROD but stays compatible. */
+/** In-place changes the release made to BAU routes the old app still runs — route body (steps) and/or request
+ *  payload (template keys) — git-diffed vs each route's own pre-release self. High risk: it changes PROD. */
 function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
   const edits = a.bauRouteEdits || [];
   if (!edits.length) return;
-  r.para('BAU route modified - existing PROD behaviour changed:', M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
+  r.para('BAU route modified - existing PROD behaviour changed (High risk):', M + 4, CONTENT_W - 4, 'bold', 9, PAL.delText, 12);
   edits.forEach((e) => {
     r.ensure(18);
-    const tag = e.removedSteps.length ? '  backward-incompatible' : '  additive';
-    r.text(`${e.route}   (+${e.addedSteps.length}  -${e.removedSteps.length})${tag}`, M + 4, 'bold', 9,
-      e.removedSteps.length ? PAL.delText : PAL.ink);
+    const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
+    const add = e.addedSteps.length + e.addedKeys.length;
+    const del = e.removedSteps.length + e.removedKeys.length;
+    r.text(`${e.route}   (+${add}  -${del})${incompat ? '  backward-incompatible' : '  changes PROD'}`,
+      M + 4, 'bold', 9, incompat ? PAL.delText : PAL.ink);
     r.y += 12;
     if (e.changedBy && e.changedBy.length) {
       r.para('Changed by: ' + e.changedBy.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.accent, 11);
     }
     r.diffLines(e.removedSteps, e.addedSteps);
+    r.diffLines(e.removedKeys.map((k) => 'payload key: ' + k), e.addedKeys.map((k) => 'payload key: ' + k));
     r.y += 3;
   });
 }

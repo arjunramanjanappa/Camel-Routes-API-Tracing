@@ -557,16 +557,20 @@ public class RouteTraceService {
      * new code). Both mean "the previous version's flow has to be re-verified against this release".
      */
     private static boolean needsBackwardCompat(ApiDiff a) {
-        return removesPayloadField(a) || a.codeChanged() || bauRouteRemoval(a);
+        // Any edit to a BAU route (its body OR its payload) means the old/PROD app runs a changed route and must
+        // be regression-tested — so it always needs a backward-compatibility check, added or removed.
+        return removesPayloadField(a) || a.codeChanged() || bauRouteModified(a);
     }
 
-    /** True when the release REMOVED a step from a BAU route the old app still runs — backward-incompatible. */
+    /** True when the release REMOVED a step or a payload key from a BAU route — backward-incompatible (for messaging). */
     private static boolean bauRouteRemoval(ApiDiff a) {
         List<BauRouteEdit> edits = a.bauRouteEdits();
-        return edits != null && edits.stream().anyMatch(e -> e.removedSteps() != null && !e.removedSteps().isEmpty());
+        return edits != null && edits.stream().anyMatch(e ->
+                (e.removedSteps() != null && !e.removedSteps().isEmpty())
+                        || (e.removedKeys() != null && !e.removedKeys().isEmpty()));
     }
 
-    /** True when the release edited a BAU route at all (added or removed steps) — it changes existing PROD behaviour. */
+    /** True when the release edited a BAU route at all — its body OR its payload changed → it alters PROD behaviour. */
     private static boolean bauRouteModified(ApiDiff a) {
         List<BauRouteEdit> edits = a.bauRouteEdits();
         return edits != null && !edits.isEmpty();
@@ -592,14 +596,14 @@ public class RouteTraceService {
         // HIGH = backward-incompatible to the SHARED contract/BAU code: a removed/renamed payload field, or a
         // modified BAU class. Changes internal to the new version-specific route (added/removed routes, beans,
         // added fields) are scoped to the new app and cannot touch BAU → not HIGH.
-        // A step REMOVED from a BAU route (found by git-diffing that route's own XML across the release) is
-        // backward-incompatible in the same way — the old app loses behaviour it relied on.
-        if (a.codeChanged() || removesPayloadField(a) || bauRouteRemoval(a)) {
+        // ANY in-place edit to a BAU route — its body OR its payload template (found by git-diffing that route
+        // against its own pre-release self) — is High: it changes a route already in production, so it directly
+        // impacts the old/PROD app (whether a step/key was removed OR added).
+        if (a.codeChanged() || removesPayloadField(a) || bauRouteModified(a)) {
             return ApiDiff.RISK_HIGH;
         }
-        // A backend service-version bump, OR an ADDITIVE edit to a BAU route: both change existing behaviour but
-        // stay backward-compatible, so they are surfaced at Medium rather than High.
-        if ((a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty()) || bauRouteModified(a)) {
+        // A backend service-version bump alone is scoped to the new route → Medium.
+        if (a.backendVersionChanges() != null && !a.backendVersionChanges().isEmpty()) {
             return ApiDiff.RISK_MEDIUM;
         }
         return ApiDiff.RISK_LOW;
@@ -755,12 +759,12 @@ public class RouteTraceService {
 
     /**
      * Flag in-place edits the release made to <b>BAU routes</b> — a pre-existing (lower/base) route the old app
-     * still runs — by git-diffing each such route's OWN XML across the release (its pre-release content vs the
-     * current one). A removed step is backward-incompatible (High + backward-compat); an added step still
-     * changes existing PROD behaviour and is surfaced (Medium). Complements {@code applyCodeChanges} (shared
-     * {@code @Component} class changes) and the version diff (new route vs old route), neither of which can see a
-     * route modified against its own earlier self. No-op unless the source is a git work tree with a matched
-     * release (a baseline commit and changed files).
+     * still runs — by git-diffing each such route against its OWN pre-release self across the release. Two kinds
+     * of change are detected: the route BODY (steps added/removed in its XML) and its PAYLOAD (request-template
+     * keys added/removed, when the release modified a template the route sends). Either is High + backward-compat:
+     * a route already in production changed. Complements {@code applyCodeChanges} (shared {@code @Component} class
+     * changes) and the version diff (new route vs old route), neither of which can see a route modified against
+     * its own earlier self. No-op unless the source is a git work tree with a matched release.
      */
     private void applyBauRouteEdits(VersionDiffReport report, Roots roots, RouteRegistry registry,
                                     GitChangeService.ReleaseChanges rc, String release,
@@ -770,11 +774,14 @@ public class RouteTraceService {
         }
         Map<String, List<String>> bodies = routeBodiesCached(roots);
         Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(roots);
+        List<Path> allFiles = scanCached(roots).allFiles();
         Path repo = roots.primary();
 
         Map<String, List<BauRouteEdit>> byApi = new LinkedHashMap<>();
-        // Pre-release body index per changed file, so a file holding several routes is fetched/parsed once.
-        Map<String, Map<String, List<String>>> beforeByFile = new LinkedHashMap<>();
+        // Pre-release body index per changed route file, so a file holding several routes is fetched/parsed once.
+        Map<String, Map<String, List<String>>> beforeBodyByFile = new LinkedHashMap<>();
+        // Pre-release payload key set per changed template file (fetched/parsed once).
+        Map<String, List<PayloadKeys.KeyRef>> beforeKeysByFile = new LinkedHashMap<>();
 
         for (RouteModel rm : registry.all()) {
             if (registry.isAmbient(rm)) {
@@ -788,30 +795,61 @@ public class RouteTraceService {
                 continue;
             }
             RouteOwner owner = ownership.get(routeId);
+            if (owner == null) {
+                continue;   // not reachable from an in-scope API entry
+            }
+
+            // 1) Route BODY: did the release change THIS route's own XML? matchChanged returns the git-relative
+            //    path (suffix-matched across repo-root vs scan-root) — reuse it to fetch the pre-release content.
+            List<String> addedSteps = List.of();
+            List<String> removedSteps = List.of();
             RouteXmlDiff.RouteLocation loc = locations.get(routeId);
-            if (owner == null || loc == null) {
-                continue;   // not reachable from an in-scope API entry, or no source location
+            if (loc != null) {
+                String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
+                if (gitPath != null) {
+                    Map<String, List<String>> before = beforeBodyByFile.computeIfAbsent(gitPath, gp -> {
+                        List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
+                        return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
+                    });
+                    List<String> beforeBody = before.get(routeId);
+                    if (beforeBody != null) {   // null = route added by this file in the release, not a BAU edit
+                        RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, bodies.getOrDefault(routeId, List.of()));
+                        addedSteps = d.added();
+                        removedSteps = d.removed();
+                    }
+                }
             }
-            // Did the release change THIS route's file? matchChanged returns the git-relative path (suffix-matched
-            // across repo-root vs scan-root) — reuse it to fetch the pre-release content of the exact same file.
-            String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
-            if (gitPath == null) {
-                continue;
+
+            // 2) PAYLOAD: did the release change a request-body template this BAU route sends? Compare the
+            //    template's keys before vs now (key-based, like the version-diff payload compare).
+            List<String> addedKeys = new ArrayList<>();
+            List<String> removedKeys = new ArrayList<>();
+            for (String uri : templateRefs(rm)) {
+                Path tf = templateFilePath(allFiles, uri);
+                if (tf == null) {
+                    continue;
+                }
+                String tGit = matchChanged(tf.toString(), rc.changedFiles());
+                if (tGit == null) {
+                    continue;   // this template wasn't touched by the release
+                }
+                List<PayloadKeys.KeyRef> beforeKeys = beforeKeysByFile.computeIfAbsent(tGit, gp -> {
+                    List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
+                    return content == null ? List.of() : PayloadKeys.extract(String.join("\n", content));
+                });
+                String current = readTemplateContent(allFiles, uri);
+                List<PayloadKeys.KeyRef> nowKeys = current == null ? List.of() : PayloadKeys.extract(current);
+                PayloadKeys.PayloadDiff pd = PayloadKeys.diff(nowKeys, beforeKeys);   // added = now-not-before
+                pd.added().forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
+                pd.removed().forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
             }
-            Map<String, List<String>> before = beforeByFile.computeIfAbsent(gitPath, gp -> {
-                List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
-                return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
-            });
-            List<String> beforeBody = before.get(routeId);
-            if (beforeBody == null) {
-                continue;   // route didn't exist at the baseline (a route this file added) — not a BAU edit
-            }
-            RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, bodies.getOrDefault(routeId, List.of()));
-            if (d.isEmpty()) {
-                continue;   // this route's own body is unchanged (another route in the file changed)
+
+            if (addedSteps.isEmpty() && removedSteps.isEmpty() && addedKeys.isEmpty() && removedKeys.isEmpty()) {
+                continue;   // neither this route's body nor its payload changed in place
             }
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
-                    .add(new BauRouteEdit(routeId, owner.path(), d.added(), d.removed(), blameAuthors(loc)));
+                    .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, addedKeys, removedKeys,
+                            loc != null ? blameAuthors(loc) : List.of()));
         }
         if (byApi.isEmpty()) {
             return;
@@ -823,6 +861,45 @@ public class RouteTraceService {
                 apis.set(i, apis.get(i).withBauRouteEdits(edits));
             }
         }
+    }
+
+    /** Request-body template {@code <to>} uris a route sends (template-component scheme or {@code .ftl/.vm/…}). */
+    private static List<String> templateRefs(RouteModel route) {
+        Set<String> out = new LinkedHashSet<>();
+        collectTemplateRefs(route.elements(), out);
+        return new ArrayList<>(out);
+    }
+
+    private static void collectTemplateRefs(List<RouteElement> elements, Set<String> out) {
+        for (RouteElement el : elements) {
+            if (el instanceof ToElement to) {
+                if (isTemplateUri(to.uri())) {
+                    out.add(to.uri());
+                }
+            } else if (el instanceof ChoiceElement choice) {
+                for (WhenElement when : choice.whens()) {
+                    collectTemplateRefs(when.children(), out);
+                }
+                collectTemplateRefs(choice.otherwise(), out);
+            } else if (el instanceof ContainerElement container) {
+                collectTemplateRefs(container.children(), out);
+            }
+        }
+    }
+
+    /** Camel template-component schemes whose {@code <to>} carries a request body template (mirror of the traverser). */
+    private static final Set<String> TEMPLATE_SCHEMES = Set.of(
+            "framework", "freemarker", "velocity", "mvel", "mustache",
+            "thymeleaf", "string-template", "stringtemplate", "chunk");
+
+    private static boolean isTemplateUri(String uri) {
+        if (uri == null) {
+            return false;
+        }
+        String u = uri.toLowerCase(java.util.Locale.ROOT);
+        int colon = u.indexOf(':');
+        String scheme = colon > 0 ? u.substring(0, colon) : "";
+        return TEMPLATE_SCHEMES.contains(scheme) || u.matches(".*\\.(ftl|ftlh|vm|vtl|mustache|peb)(\\?.*)?$");
     }
 
     /** The release version of a route id ({@code R9.14_getStatus} → {@code 9.14}), or null for a BASE route. */
@@ -1936,6 +2013,19 @@ public class RouteTraceService {
 
     /** Find the template file for a {@code <to>} uri (scheme-stripped, suffix-matched) and read it; null if absent. */
     private String readTemplateContent(List<Path> files, String uri) {
+        Path p = templateFilePath(files, uri);
+        if (p == null) {
+            return null;
+        }
+        try {
+            return Files.readString(p);
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The source file a template {@code <to>} uri resolves to (scheme-stripped, suffix-matched), or null. */
+    private static Path templateFilePath(List<Path> files, String uri) {
         String suffix = uri.contains(":") ? uri.substring(uri.indexOf(':') + 1) : uri;
         suffix = suffix.replace('\\', '/').trim();
         int q = suffix.indexOf('?');
@@ -1952,11 +2042,7 @@ public class RouteTraceService {
         }
         for (Path p : files) {
             if (p.toString().replace('\\', '/').endsWith(want)) {
-                try {
-                    return Files.readString(p);
-                } catch (java.io.IOException | RuntimeException e) {
-                    return null;
-                }
+                return p;
             }
         }
         return null;

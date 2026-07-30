@@ -57,9 +57,19 @@ import java.util.zip.GZIPInputStream;
 public class LogAnalysisService {
 
     private final RouteTraceService traceService;
+    private final LogRulesService logRules;
 
-    public LogAnalysisService(RouteTraceService traceService) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public LogAnalysisService(RouteTraceService traceService, LogRulesService logRules) {
         this.traceService = traceService;
+        this.logRules = logRules;
+    }
+
+    /** Back-compat / test constructor: no host response-code rules configured (points at an empty store). */
+    public LogAnalysisService(RouteTraceService traceService) {
+        this(traceService, new LogRulesService(
+                java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "traceguard-no-rules").toString(),
+                new com.fasterxml.jackson.databind.ObjectMapper()));
     }
 
     // timestamp [thread] LEVEL [marker][...fields...]-/path -Dir - json
@@ -157,7 +167,8 @@ public class LogAnalysisService {
         boolean secure = idx.isCommandDispatch();
         String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
         Parsed parsed = parseLog(raw, filename, markersFor(application, secure), application);
-        return buildReport(idx, parsed, version, secure, all, selectedApis, selectedBackends);
+        return buildReport(idx, parsed, version, secure, all, selectedApis, selectedBackends,
+                logRules.rulesFor(application, secure));
     }
 
     /**
@@ -165,9 +176,11 @@ public class LogAnalysisService {
      * MightyMessage/MightyHostMessage, SPL → SPLMessage/SPLHostMessage). For an auto-detected
      * SPL-Secure source it ADDITIONALLY recognises the SPLAppLog / SPLWSAppLog front-end loggers.
      */
-    private static Markers markersFor(String app, boolean secure) {
+    private Markers markersFor(String app, boolean secure) {
         String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
-        return new Markers(application + "Message", application + "HostMessage", secure);
+        // Host response-code fields to try for this app/marker (config-driven; always includes responseCode).
+        List<String> beCodeFields = logRules.rulesFor(application, secure).effectiveCodeFields();
+        return new Markers(application + "Message", application + "HostMessage", secure, beCodeFields);
     }
 
     /** A log parsed into correlation-id transactions — independent of any module's scope, so it is
@@ -384,7 +397,8 @@ public class LogAnalysisService {
      * Cheap (in-memory matching), so it runs per module while the parse is shared across a flavour.
      */
     private LogAnalysisReport buildReport(ImpactIndex idx, Parsed parsed, String version, boolean secure,
-                                          boolean all, List<String> selectedApis, List<String> selectedBackends) {
+                                          boolean all, List<String> selectedApis, List<String> selectedBackends,
+                                          LogRulesService.AppRules rules) {
         List<Txn> txns = parsed.txns();
         boolean apiSel = selectedApis != null && !selectedApis.isEmpty();
         boolean beSel = selectedBackends != null && !selectedBackends.isEmpty();
@@ -412,7 +426,7 @@ public class LogAnalysisService {
                 if (!all && !selectedApis.contains(api.api())) {
                     continue;
                 }
-                apiResults.add(correlate(api, txns, version, hosturls, secure));
+                apiResults.add(correlate(api, txns, version, hosturls, secure, rules));
             }
         }
 
@@ -430,15 +444,15 @@ public class LogAnalysisService {
             if (change.size() + bau.size() <= 1) {
                 boolean isBau = change.isEmpty() && !bau.isEmpty();
                 String ver = !change.isEmpty() ? change.get(0) : (!bau.isEmpty() ? bau.get(0) : changeVer);
-                backendResults.add(correlateBackend(backend, txns, version, ver, backendUniverse, hosturls, secure, false, isBau));
+                backendResults.add(correlateBackend(backend, txns, version, ver, backendUniverse, hosturls, secure, false, isBau, rules));
             } else {
                 // Several service-version behaviours on the same backend → one version-strict row each: a
                 // verified row per release version, a labelled BAU row per reused version.
                 for (String cv : change) {
-                    backendResults.add(correlateBackend(backend, txns, version, cv, backendUniverse, hosturls, secure, true, false));
+                    backendResults.add(correlateBackend(backend, txns, version, cv, backendUniverse, hosturls, secure, true, false, rules));
                 }
                 for (String bv : bau) {
-                    backendResults.add(correlateBackend(backend, txns, version, bv, backendUniverse, hosturls, secure, true, true));
+                    backendResults.add(correlateBackend(backend, txns, version, bv, backendUniverse, hosturls, secure, true, true, rules));
                 }
             }
         }
@@ -510,7 +524,8 @@ public class LogAnalysisService {
                 continue;
             }
             try {
-                LogAnalysisReport rep = buildReport(r.idx(), byFlavour.get(key), version, r.secure(), true, List.of(), List.of());
+                LogAnalysisReport rep = buildReport(r.idx(), byFlavour.get(key), version, r.secure(), true, List.of(), List.of(),
+                        logRules.rulesFor(r.app(), r.secure()));
                 out.add(new ModuleLogReport(r.spec().name(), rep, null));
             } catch (Exception e) {
                 out.add(new ModuleLogReport(r.spec().name(), null, msg(e)));
@@ -856,11 +871,13 @@ public class LogAnalysisService {
             // only if the JSON won't parse (e.g. a truncated line).
             JsonNode tree = tryParseJson(json);
             if (tree != null) {
-                code = jsonFind(tree, "responseCode");
+                // Backend/host lines may report the code under a config-declared key (e.g. resultCode);
+                // front-end lines always use responseCode.
+                code = fe ? jsonFind(tree, "responseCode") : jsonFindAny(tree, markers.beCodeFields());
                 desc = jsonFind(tree, "responseDescription");
                 svc = jsonFind(tree, "serviceVersionNumber");
             } else {
-                code = firstGroup(CODE, json);
+                code = fe ? firstGroup(CODE, json) : firstCodeByFields(json, markers.beCodeFields());
                 desc = firstGroup(DESC, json);
                 svc = firstGroup(SVC_VERSION, json);
             }
@@ -1026,6 +1043,32 @@ public class LogAnalysisService {
         return null;
     }
 
+    /** First non-null value across the candidate code keys (host lines may use resultCode etc., not responseCode). */
+    private static String jsonFindAny(JsonNode tree, List<String> fields) {
+        List<String> keys = (fields == null || fields.isEmpty()) ? List.of("responseCode") : fields;
+        for (String k : keys) {
+            String v = jsonFind(tree, k);
+            if (v != null) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    /** Regex fallback (truncated JSON): first candidate code key that matches, else null. */
+    private static String firstCodeByFields(String json, List<String> fields) {
+        List<String> keys = (fields == null || fields.isEmpty()) ? List.of("responseCode") : fields;
+        for (String k : keys) {
+            Pattern p = Pattern.compile("[\"']?" + Pattern.quote(k) + "[\"']?\\s*:\\s*[\"']?([0-9A-Za-z]+)",
+                    Pattern.CASE_INSENSITIVE);
+            String v = firstGroup(p, json);
+            if (v != null) {
+                return v;
+            }
+        }
+        return null;
+    }
+
     /**
      * The bucket a non-success attempt is counted under in the failure breakdown: the actual
      * responseCode for an outright failure, or a readable label for the other failure modes.
@@ -1139,7 +1182,8 @@ public class LogAnalysisService {
 
     // --- per-API correlation ---
 
-    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version, Map<String, String> hosturls, boolean secure) {
+    private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version, Map<String, String> hosturls,
+                                   boolean secure, LogRulesService.AppRules rules) {
         List<Txn> matched = new ArrayList<>();
         for (Txn t : txns) {
             if (t.fePath() != null && feMatches(t.fePath(), api.api())) {
@@ -1194,7 +1238,7 @@ public class LogAnalysisService {
 
         // One row per CHANGE / BAU flow (backend + service version), each resolved across ALL runs to the
         // latest run that covered it (so a choice branch exercised in an earlier run still counts).
-        List<BackendCallResult> rows = coverageRows(api, forVersion, hosturls, secure);
+        List<BackendCallResult> rows = coverageRows(api, forVersion, hosturls, secure, rules);
 
         // Verdict — driven only by the release CHANGE flows; BAU rows never move it.
         LogStatus feLatest = feStatus(latest);
@@ -1213,8 +1257,8 @@ public class LogAnalysisService {
             List<String> failed = new ArrayList<>();
             List<String> notTested = new ArrayList<>();
             for (BackendCallResult b : rows) {
-                if (b.bau()) {
-                    continue;   // BAU reuse — never part of the change verdict
+                if (b.bau() || b.status() == LogStatus.SKIPPED) {
+                    continue;   // BAU reuse, or skipped-by-config — never part of the change verdict
                 }
                 if (b.status() == LogStatus.NOT_TESTED) {
                     notTested.add(flowLabel(b));
@@ -1273,7 +1317,8 @@ public class LogAnalysisService {
      * separate labelled row that never moves the verdict.
      */
     private List<BackendCallResult> coverageRows(ApiImpact api, List<Txn> forVersion,
-                                                 Map<String, String> hosturls, boolean secure) {
+                                                 Map<String, String> hosturls, boolean secure,
+                                                 LogRulesService.AppRules rules) {
         List<BackendCallResult> out = new ArrayList<>();
         Collection<String> universe = api.backends();
         // Change flows grouped by backend → service version ("" = no version) → the routes that own that flow.
@@ -1287,6 +1332,8 @@ public class LogAnalysisService {
         for (String tb : api.backends()) {
             Map<String, List<String>> byVer = flowsByBackend.getOrDefault(tb, Map.of());
             List<String> bau = bauVersions(api.backendVersions().get(tb), api.changeBackendVersions().get(tb));
+            // Host response-code rule for this backend (matched on its hosturl): custom code field / success, or skip.
+            LogRulesService.Rule rule = rules == null ? null : rules.ruleFor(matchPath(tb, hosturls));
             // Match a specific version strictly only when the URL carries several distinct version behaviours
             // (to keep them apart); with one version the log line may omit it, so match by URL alone.
             Set<String> distinct = new java.util.LinkedHashSet<>();
@@ -1295,13 +1342,13 @@ public class LogAnalysisService {
             boolean strict = distinct.size() > 1;
             for (var e : byVer.entrySet()) {
                 String ver = e.getKey().isEmpty() ? null : e.getKey();
-                out.addAll(flowRows(tb, ver, e.getValue(), forVersion, universe, hosturls, secure, strict));
+                out.addAll(flowRows(tb, ver, e.getValue(), forVersion, universe, hosturls, secure, strict, rule));
             }
             if (byVer.isEmpty() && bau.isEmpty()) {
-                out.addAll(flowRows(tb, null, List.of("(flow)"), forVersion, universe, hosturls, secure, false));
+                out.addAll(flowRows(tb, null, List.of("(flow)"), forVersion, universe, hosturls, secure, false, rule));
             }
             for (String bv : bau) {
-                out.add(bauRow(tb, bv, forVersion, universe, hosturls, secure, strict));
+                out.add(bauRow(tb, bv, forVersion, universe, hosturls, secure, strict, rule));
             }
         }
         return out;
@@ -1328,19 +1375,21 @@ public class LogAnalysisService {
      */
     private List<BackendCallResult> flowRows(String tb, String ver, List<String> routeIds, List<Txn> forVersion,
                                              Collection<String> universe, Map<String, String> hosturls,
-                                             boolean secure, boolean strict) {
+                                             boolean secure, boolean strict, LogRulesService.Rule rule) {
         List<CallHit> hits = flowHits(tb, ver, forVersion, universe, hosturls, strict);
         int n = hits.size();
+        boolean skip = rule != null && rule.skip();
         int passed = 0;
         Map<String, Integer> failures = new LinkedHashMap<>();
         for (CallHit h : hits) {
-            LogStatus st = beStatus(h.call(), secure);
+            LogStatus st = beStatus(h.call(), secure, rule);
             if (st == LogStatus.SUCCESS) {
                 passed++;
-            } else {
+            } else if (st != LogStatus.SKIPPED) {
                 failures.merge(failureKey(st, h.call().code()), 1, Integer::sum);
             }
         }
+        int failedTotal = skip ? 0 : n - passed;   // a skipped backend contributes no pass/fail
         Map<String, Integer> dist = sortByCountDesc(failures);
         List<BackendCallResult> rows = new ArrayList<>();
         int k = routeIds.size();
@@ -1348,11 +1397,11 @@ public class LogAnalysisService {
             String route = routeIds.get(i);
             int a = i == 0 ? n : 0;
             int p = i == 0 ? passed : 0;
-            int f = i == 0 ? n - passed : 0;
+            int f = i == 0 ? failedTotal : 0;
             Map<String, Integer> fbc = i == 0 ? dist : Map.of();
             if (i < n) {
                 BackendCall c = hits.get(i).call();   // assign the latest calls to the flow rows
-                LogStatus st = beStatus(c, secure);
+                LogStatus st = beStatus(c, secure, rule);
                 boolean timedOut = st == LogStatus.TIMEOUT;
                 String desc = timedOut ? null : c.desc();
                 if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
@@ -1362,7 +1411,8 @@ public class LogAnalysisService {
                         timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
                         ver, c.serviceVersion(), versionOk(ver, c.serviceVersion()), false, route, a, p, f, fbc));
             } else {
-                rows.add(new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null,
+                // A skipped backend is never "not tested" (it must not turn the API Partial) — mark it Skipped.
+                rows.add(new BackendCallResult(tb, null, skip ? LogStatus.SKIPPED : LogStatus.NOT_TESTED, null, null, null,
                         ver, null, null, false, route, a, p, f, fbc));
             }
         }
@@ -1371,7 +1421,7 @@ public class LogAnalysisService {
 
     /** A single BAU-reuse row (latest call + its distribution), labelled BAU and never in the verdict. */
     private BackendCallResult bauRow(String tb, String ver, List<Txn> forVersion, Collection<String> universe,
-                                     Map<String, String> hosturls, boolean secure, boolean strict) {
+                                     Map<String, String> hosturls, boolean secure, boolean strict, LogRulesService.Rule rule) {
         List<CallHit> hits = flowHits(tb, ver, forVersion, universe, hosturls, strict);
         int n = hits.size();
         if (n == 0) {
@@ -1381,15 +1431,15 @@ public class LogAnalysisService {
         int passed = 0;
         Map<String, Integer> failures = new LinkedHashMap<>();
         for (CallHit h : hits) {
-            LogStatus st = beStatus(h.call(), secure);
+            LogStatus st = beStatus(h.call(), secure, rule);
             if (st == LogStatus.SUCCESS) {
                 passed++;
-            } else {
+            } else if (st != LogStatus.SKIPPED) {
                 failures.merge(failureKey(st, h.call().code()), 1, Integer::sum);
             }
         }
         BackendCall c = hits.get(0).call();
-        LogStatus st = beStatus(c, secure);
+        LogStatus st = beStatus(c, secure, rule);
         boolean timedOut = st == LogStatus.TIMEOUT;
         String desc = timedOut ? null : c.desc();
         if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
@@ -1425,7 +1475,8 @@ public class LogAnalysisService {
     /** Backend-only correlation: read the MightyHostMessage calls that hit this backend. */
     private BackendLogResult correlateBackend(String backend, List<Txn> txns, String version, String expectedVersion,
                                               Collection<String> candidates, Map<String, String> hosturls, boolean secure,
-                                              boolean strict, boolean bau) {
+                                              boolean strict, boolean bau, LogRulesService.AppRules rules) {
+        LogRulesService.Rule rule = rules == null ? null : rules.ruleFor(matchPath(backend, hosturls));
         // N/A means "every release in scope" — don't restrict the host lines by a concrete version.
         boolean versionScoped = version != null && !version.isBlank() && !VersionResolver.isLatest(version);
         List<BackendHit> hits = new ArrayList<>();
@@ -1462,7 +1513,8 @@ public class LogAnalysisService {
                         + (expectedVersion != null ? " for service version " + expectedVersion : "")
                         + " (unchanged route — not part of this release).";
             }
-            return new BackendLogResult(backend, LogStatus.NOT_TESTED, false, null, null, null, 0, 0, 0, null, null, note,
+            LogStatus emptyStatus = (rule != null && rule.skip()) ? LogStatus.SKIPPED : LogStatus.NOT_TESTED;
+            return new BackendLogResult(backend, emptyStatus, false, null, null, null, 0, 0, 0, null, null, note,
                     expectedVersion, null, null, Map.of(), bau);
         }
 
@@ -1470,18 +1522,19 @@ public class LogAnalysisService {
         int success = 0;
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         for (BackendHit h : hits) {
-            LogStatus st = beStatus(h.call(), secure);
+            LogStatus st = beStatus(h.call(), secure, rule);
             if (st == LogStatus.SUCCESS) {
                 success++;
-            } else {
+            } else if (st != LogStatus.SKIPPED) {
                 failuresByCode.merge(failureKey(st, h.call().code()), 1, Integer::sum);
             }
         }
-        LogStatus status = beStatus(latest.call(), secure);
+        LogStatus status = beStatus(latest.call(), secure, rule);
         String logged = latest.call().serviceVersion();
         Boolean svcOk = versionOk(expectedVersion, logged);
         String note = switch (status) {
             case SUCCESS -> null;
+            case SKIPPED -> "Skipped by config — excluded from the verdict (host response-code rule).";
             case TIMEOUT -> "Backend request logged but no response.";
             case INDETERMINATE -> "Backend " + UNRECOGNISED_RESPONSE;
             default -> "Backend responseCode " + latest.call().code()
@@ -1491,14 +1544,16 @@ public class LogAnalysisService {
             note = "BAU – " + (latest.call().code() != null ? latest.call().code() : status.name())
                     + (latest.call().desc() != null ? " (" + latest.call().desc() + ")" : "")
                     + " (unchanged route — not part of this release).";
-        } else if (Boolean.FALSE.equals(svcOk)) {
+        } else if (status != LogStatus.SKIPPED && Boolean.FALSE.equals(svcOk)) {
             note = (note == null ? "" : note + " ") + "Service version mismatch: called " + logged
                     + ", expected " + expectedVersion + ".";
         }
+        int failureCount = status == LogStatus.SKIPPED ? 0 : hits.size() - success;   // skipped = neither pass nor fail
         return new BackendLogResult(backend, status, true, latest.call().tookMs(),
                 latest.call().code(), latest.call().desc(),
-                hits.size(), success, hits.size() - success, latest.txn().ts(), latest.txn().correlationId(), note,
-                expectedVersion, logged, bau ? null : svcOk, sortByCountDesc(failuresByCode), bau);
+                hits.size(), success, failureCount, latest.txn().ts(), latest.txn().correlationId(), note,
+                expectedVersion, logged, (bau || status == LogStatus.SKIPPED) ? null : svcOk,
+                sortByCountDesc(failuresByCode), bau);
     }
 
     /** true if the logged version is one of the expected (possibly "2.2 / 3.3"); null if either is absent. */
@@ -1523,14 +1578,20 @@ public class LogAnalysisService {
         return existing + " / " + add;
     }
 
-    private LogStatus beStatus(BackendCall c, boolean secure) {
+    private LogStatus beStatus(BackendCall c, boolean secure, LogRulesService.Rule rule) {
+        if (rule != null && rule.skip()) {
+            return LogStatus.SKIPPED;   // configured out of the verdict — outcome not evaluated
+        }
         if (!c.hasResponse()) {
             return LogStatus.TIMEOUT;
         }
         if (c.code() == null) {
             return LogStatus.INDETERMINATE;
         }
-        return isBackendSuccess(c.code(), secure) ? LogStatus.SUCCESS : LogStatus.FAILED;
+        boolean ok = (rule != null && !rule.successCodes().isEmpty())
+                ? rule.successCodes().stream().anyMatch(v -> v != null && v.trim().equalsIgnoreCase(c.code().trim()))
+                : isBackendSuccess(c.code(), secure);
+        return ok ? LogStatus.SUCCESS : LogStatus.FAILED;
     }
 
     /** Front-end path match: the log path ends with (or contains) the traced controller path. */
@@ -1716,7 +1777,7 @@ public class LogAnalysisService {
      * SPL-Secure flavour ({@code secure=true}) the front-end uses a different logger
      * (SPLAppLog request / SPLWSAppLog response) while the backend stays SPLHostMessage.
      */
-    private record Markers(String fe, String be, boolean secure) {
+    private record Markers(String fe, String be, boolean secure, List<String> beCodeFields) {
         /** Cheap pre-filter: does this candidate line carry any marker we care about? */
         boolean present(String s) {
             if (s.indexOf(fe) >= 0 || s.indexOf(be) >= 0) {

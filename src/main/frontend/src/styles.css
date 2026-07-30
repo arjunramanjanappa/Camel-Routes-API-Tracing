@@ -292,7 +292,9 @@ table.grid tr:hover td { background: #f7f9fb; }
 .lstat.timeout { background: #ede9fe; color: #5b21b6; }
 .lstat.partial { background: #fef3c7; color: #92400e; }
 .lstat.indeterminate { background: #dbeafe; color: #1e40af; }
+.lstat.skipped { background: #e2e8f0; color: #475569; }
 .lstat.not_tested { background: #fee2e2; color: #991b1b; }
+tr.lrow.skipped td { background: #f8fafc; }
 tr.lrow.not_tested td { background: #fef4f4; }
 tr.lrow.failed td { background: #fff6f1; }
 tr.lrow.timeout td { background: #f8f6ff; }

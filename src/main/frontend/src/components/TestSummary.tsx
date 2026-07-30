@@ -9,7 +9,7 @@ import { groupItemsByFeature } from '../feature';
  * Reuses the shared `.sumv-*` styles from the Release Impact summary.
  */
 
-const SEVERITY: Record<LogStatus, number> = { FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5 };
+const SEVERITY: Record<LogStatus, number> = { FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5, SKIPPED: 6 };
 
 function resultOf(a: ApiLogResult): { cls: string; label: string } {
   switch (a.status) {

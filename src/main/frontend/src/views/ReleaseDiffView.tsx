@@ -320,6 +320,7 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
   const high = report.highRiskCount ?? 0;
   const bc = report.backwardCompatCount ?? 0;
   const code = report.codeChangedCount ?? 0;
+  const bauMod = report.apis.filter(bauRouteModified).length;
   if (toTest === 0 && high === 0 && bc === 0) return null;
   const t = testedTally(report, log);
   const f = flowTally(report, log);
@@ -328,6 +329,7 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
       <div className="readiness" role="group" aria-label="Release readiness">
         <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
         <span className="rd-chip high" title="High test-priority: a change that impacts the BAU/PROD app — shared BAU class changed, a request field removed, or a BAU route modified in place (its steps or payload)"><b>{high}</b> high risk</span>
+        {bauMod > 0 && <span className="rd-chip high" title="BAU (in-production) routes the release modified in place — their steps or payload changed. Existing PROD behaviour changed; regression-test the old app."><b>{bauMod}</b> BAU routes modified</span>}
         {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
         <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
         {!log && <span className="rd-chip muted" title="Attach a test log to see which impacted flows were exercised">coverage — not checked</span>}
@@ -349,6 +351,7 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
 function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
   if (!report.appVersion) return null;
   const n = report.codeChangedCount ?? 0;
+  const bauMod = report.apis.filter(bauRouteModified).length;
   return (
     <div className="codebanner">
       <div className="codebanner-head">
@@ -360,9 +363,59 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
           <span className="muted">
             {' · '}{report.matchedCommits ?? 0} commit{(report.matchedCommits ?? 0) === 1 ? '' : 's'} tagged
             {' · '}{n} API{n === 1 ? '' : 's'} with a shared Java class change
+            {bauMod > 0 && ` · ${bauMod} BAU route${bauMod === 1 ? '' : 's'} modified in place`}
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Top-of-report executive callout: every BAU (in-production) route the release modified in place — the highest
+ * severity signal (existing PROD routes changed). Collapsible; each row summarises what changed and links to
+ * the API's flow. Nothing renders when no BAU route was touched.
+ */
+function BauRouteCallout({ report, onOpenApi }: { report: VersionDiffReport; onOpenApi?: (api: string) => void }) {
+  const [open, setOpen] = useState(true);
+  const rows = report.apis
+    .filter((a) => a.bauRouteEdits?.length)
+    .flatMap((a) => (a.bauRouteEdits || []).map((e) => ({ api: a.api, e })));
+  if (!rows.length) return null;
+  return (
+    <div className="bau-callout" role="note">
+      <button type="button" className="bau-callout-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+        <span className="bau-callout-icon" aria-hidden="true">⚑</span>
+        <b>{rows.length} BAU route{rows.length === 1 ? '' : 's'} modified in place</b>
+        <span className="muted">existing PROD routes changed — High risk, regression-test the old app</span>
+      </button>
+      {open && (
+        <div className="bau-callout-body">
+          {rows.map(({ api, e }) => {
+            const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
+            const parts = [
+              e.removedSteps.length && `−${e.removedSteps.length} step`,
+              e.addedSteps.length && `+${e.addedSteps.length} step`,
+              e.removedKeys.length && `−${e.removedKeys.length} payload key`,
+              e.addedKeys.length && `+${e.addedKeys.length} payload key`,
+              (e.changedValues?.length ?? 0) > 0 && `~${e.changedValues!.length} value`,
+            ].filter(Boolean);
+            return (
+              <div key={api + e.route} className="bau-callout-row">
+                <code className="bau-callout-route">{e.route}</code>
+                <span className="bc-flag warn" title={incompat ? 'A step or payload key the old app relied on was removed — backward-incompatible' : 'A route already in production was changed — regression-test the old app'}>
+                  {incompat ? 'backward-incompatible' : 'changes PROD'}
+                </span>
+                {parts.length > 0 && <span className="muted">{parts.join(', ')}</span>}
+                {onOpenApi
+                  ? <button type="button" className="linkish" title="Open this API's flow" onClick={() => onOpenApi(api)}>{api}</button>
+                  : <code className="bau-callout-api">{api}</code>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -480,6 +533,9 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           )}
           {d.codeChanged && (
             <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
+          )}
+          {bauRouteModified(d) && (
+            <span className="diff-badge code" title={'A BAU (in-production) route was modified in place — ' + bcReason(d)}>⚑ BAU route</span>
           )}
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
           {needsBC(d) && <span className="bc-badge" title={'Backward compatibility required — ' + bcReason(d)}>BC</span>}
@@ -932,6 +988,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         <div className="impact-body" style={{ display: 'block', padding: '0 18px 20px' }}>
           <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
           <CodeChangeSummary report={report} />
+          <BauRouteCallout report={report} />
           <div className="testlog-bar" style={{ marginTop: 10 }}>
             <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">
               {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</> : '⤒ Attach test log'}
@@ -1046,6 +1103,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               )}
             </div>
             <CodeChangeSummary report={report} />
+            <BauRouteCallout report={report} onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })} />
 
             <div className="diff-main-head row between">
               <h2 style={{ margin: 0 }}>{GROUP_LABEL[activeGroup]} APIs <span className="muted">{visible.length}</span></h2>

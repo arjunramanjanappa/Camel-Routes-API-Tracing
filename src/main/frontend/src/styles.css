@@ -899,6 +899,19 @@ button.impact-api.linkish:hover { color: #1e40af; }
 [data-theme="dark"] .codebanner { background: #1a0f33; border-color: #4c1d95; }
 [data-theme="dark"] .codebanner-icon { color: #c4b5fd; }
 
+/* BAU-route-modified executive callout — highest severity (existing PROD routes changed). */
+.bau-callout { margin: 10px 0; background: #fef2f2; border: 1px solid #fecaca; border-left: 3px solid #dc2626; border-radius: 8px; font-size: 12px; }
+.bau-callout-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; padding: 9px 12px; background: none; border: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.bau-callout-head:hover { background: rgba(220, 38, 38, 0.04); }
+.bau-callout-icon { color: #dc2626; font-size: 14px; }
+.bau-callout-body { padding: 2px 12px 10px 30px; display: flex; flex-direction: column; gap: 5px; }
+.bau-callout-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bau-callout-route { font-weight: 700; }
+.bau-callout-api { color: var(--muted); }
+[data-theme="dark"] .bau-callout { background: #2a0e0e; border-color: #7f1d1d; border-left-color: #ef4444; }
+[data-theme="dark"] .bau-callout-head:hover { background: rgba(239, 68, 68, 0.08); }
+[data-theme="dark"] .bau-callout-icon { color: #f87171; }
+
 .rdiff { margin-top: 8px; border: 1px solid #eef2f7; border-radius: 6px; overflow: hidden; }
 .rdiff-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; background: #f8fafc; font-size: 12px; }
 .rdiff-head code { font-weight: 700; }

@@ -9,8 +9,10 @@ import java.util.List;
  * diff (new route vs old route) fundamentally can't see. Two kinds, both on the same route:
  * <ul>
  *   <li><b>Route body</b> — steps added/removed in the route XML ({@code addedSteps}/{@code removedSteps}).</li>
- *   <li><b>Payload</b> — request-body template keys added/removed ({@code addedKeys}/{@code removedKeys}), when
- *       the release modified a template the BAU route sends.</li>
+ *   <li><b>Payload</b> — request-body template keys added/removed ({@code addedKeys}/{@code removedKeys}), and
+ *       scalar values changed in place ({@code changedValues}), when the release modified a template the BAU
+ *       route sends. Value comparison is safe here because the same template file is diffed against its own
+ *       pre-release self (same engine on both sides).</li>
  * </ul>
  *
  * <p>Because the change lands on a route already in production it alters existing PROD behaviour, so it is
@@ -22,12 +24,14 @@ import java.util.List;
  * @param path         the owning API's entry → … → route chain (for display)
  * @param addedSteps   canonical route-body step lines present after the release but not before
  * @param removedSteps canonical route-body step lines present before the release but not after
- * @param addedKeys    request-payload keys the release added to a template this route sends
- * @param removedKeys  request-payload keys the release removed from a template this route sends
- * @param changedBy    git-blame authors of the route's current lines (empty when not a git work tree)
+ * @param addedKeys     request-payload keys the release added to a template this route sends
+ * @param removedKeys   request-payload keys the release removed from a template this route sends
+ * @param changedValues scalar payload values the release changed in place (key present on both sides)
+ * @param changedBy     git-blame authors of the route's current lines (empty when not a git work tree)
  */
 public record BauRouteEdit(String route, List<String> path,
                            List<String> addedSteps, List<String> removedSteps,
                            List<String> addedKeys, List<String> removedKeys,
+                           List<PayloadValueChange> changedValues,
                            List<String> changedBy) {
 }

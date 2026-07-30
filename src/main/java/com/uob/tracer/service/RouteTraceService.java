@@ -10,6 +10,7 @@ import com.uob.tracer.api.GraphNode;
 import com.uob.tracer.api.ImpactedRoute;
 import com.uob.tracer.api.ImpactIndex;
 import com.uob.tracer.api.PayloadChange;
+import com.uob.tracer.api.PayloadValueChange;
 import com.uob.tracer.api.RouteGraph;
 import com.uob.tracer.api.RouteStepDiff;
 import com.uob.tracer.api.TraceRequest;
@@ -780,8 +781,8 @@ public class RouteTraceService {
         Map<String, List<BauRouteEdit>> byApi = new LinkedHashMap<>();
         // Pre-release body index per changed route file, so a file holding several routes is fetched/parsed once.
         Map<String, Map<String, List<String>>> beforeBodyByFile = new LinkedHashMap<>();
-        // Pre-release payload key set per changed template file (fetched/parsed once).
-        Map<String, List<PayloadKeys.KeyRef>> beforeKeysByFile = new LinkedHashMap<>();
+        // Pre-release content per changed template file (fetched once), for the payload key + value diffs.
+        Map<String, String> beforeTemplateByFile = new LinkedHashMap<>();
 
         for (RouteModel rm : registry.all()) {
             if (registry.isAmbient(rm)) {
@@ -821,9 +822,11 @@ public class RouteTraceService {
             }
 
             // 2) PAYLOAD: did the release change a request-body template this BAU route sends? Compare the
-            //    template's keys before vs now (key-based, like the version-diff payload compare).
+            //    template before vs now — keys (added/removed) AND scalar values (changed in place). Both sides
+            //    are the SAME file (git-diffed against its own pre-release self), so values are comparable.
             List<String> addedKeys = new ArrayList<>();
             List<String> removedKeys = new ArrayList<>();
+            List<PayloadValueChange> changedValues = new ArrayList<>();
             for (String uri : templateRefs(rm)) {
                 Path tf = templateFilePath(allFiles, uri);
                 if (tf == null) {
@@ -833,23 +836,30 @@ public class RouteTraceService {
                 if (tGit == null) {
                     continue;   // this template wasn't touched by the release
                 }
-                List<PayloadKeys.KeyRef> beforeKeys = beforeKeysByFile.computeIfAbsent(tGit, gp -> {
+                String before = beforeTemplateByFile.computeIfAbsent(tGit, gp -> {
                     List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
-                    return content == null ? List.of() : PayloadKeys.extract(String.join("\n", content));
+                    return content == null ? "" : String.join("\n", content);
                 });
                 String current = readTemplateContent(allFiles, uri);
-                List<PayloadKeys.KeyRef> nowKeys = current == null ? List.of() : PayloadKeys.extract(current);
-                PayloadKeys.PayloadDiff pd = PayloadKeys.diff(nowKeys, beforeKeys);   // added = now-not-before
+                if (current == null) {
+                    current = "";
+                }
+                PayloadKeys.PayloadDiff pd = PayloadKeys.diff(PayloadKeys.extract(current), PayloadKeys.extract(before));
                 pd.added().forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
                 pd.removed().forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
+                for (PayloadKeys.ValueChange vc : PayloadKeys.valueDiff(
+                        PayloadKeys.extractValues(before), PayloadKeys.extractValues(current))) {
+                    changedValues.add(new PayloadValueChange(vc.key(), vc.before(), vc.after()));
+                }
             }
 
-            if (addedSteps.isEmpty() && removedSteps.isEmpty() && addedKeys.isEmpty() && removedKeys.isEmpty()) {
+            if (addedSteps.isEmpty() && removedSteps.isEmpty()
+                    && addedKeys.isEmpty() && removedKeys.isEmpty() && changedValues.isEmpty()) {
                 continue;   // neither this route's body nor its payload changed in place
             }
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                     .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, addedKeys, removedKeys,
-                            loc != null ? blameAuthors(loc) : List.of()));
+                            changedValues, loc != null ? blameAuthors(loc) : List.of()));
         }
         if (byApi.isEmpty()) {
             return;

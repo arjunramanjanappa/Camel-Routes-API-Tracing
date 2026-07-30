@@ -338,10 +338,12 @@ function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
   r.para('BAU route modified - existing PROD behaviour changed (High risk):', M + 4, CONTENT_W - 4, 'bold', 9, PAL.delText, 12);
   edits.forEach((e) => {
     r.ensure(18);
+    const changedVals = e.changedValues || [];
     const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
     const add = e.addedSteps.length + e.addedKeys.length;
     const del = e.removedSteps.length + e.removedKeys.length;
-    r.text(`${e.route}   (+${add}  -${del})${incompat ? '  backward-incompatible' : '  changes PROD'}`,
+    const tally = `(+${add}  -${del}${changedVals.length ? '  ~' + changedVals.length : ''})`;
+    r.text(`${e.route}   ${tally}${incompat ? '  backward-incompatible' : '  changes PROD'}`,
       M + 4, 'bold', 9, incompat ? PAL.delText : PAL.ink);
     r.y += 12;
     if (e.changedBy && e.changedBy.length) {
@@ -349,6 +351,8 @@ function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
     }
     r.diffLines(e.removedSteps, e.addedSteps);
     r.diffLines(e.removedKeys.map((k) => 'payload key: ' + k), e.addedKeys.map((k) => 'payload key: ' + k));
+    changedVals.forEach((v) => r.para(`~ payload ${v.key}: ${v.before} -> ${v.after}`,
+      M + 8, CONTENT_W - 8, 'normal', 8.5, PAL.body, 11));
     r.y += 3;
   });
 }

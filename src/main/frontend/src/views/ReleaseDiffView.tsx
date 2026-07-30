@@ -193,7 +193,8 @@ function searchHaystack(a: ApiDiff): string {
     ...(a.routeDiffs || []).map((r) => r.routeBase),
     ...(a.backendVersionChanges || []).map((s) => s.backend),
     ...(a.changedClasses || []), ...(a.impactedRoutes || []).flatMap((r) => [...r.routePath, r.api || '']),
-    ...(a.bauRouteEdits || []).flatMap((e) => [e.route, ...e.addedSteps, ...e.removedSteps, ...e.addedKeys, ...e.removedKeys])]
+    ...(a.bauRouteEdits || []).flatMap((e) => [e.route, ...e.addedSteps, ...e.removedSteps, ...e.addedKeys, ...e.removedKeys,
+      ...(e.changedValues || []).flatMap((v) => [v.key, v.before, v.after])])]
     .filter(Boolean).join(' ').toLowerCase();
 }
 
@@ -222,6 +223,7 @@ function apiDiffText(a: ApiDiff): string {
     e.addedSteps.forEach((l) => lines.push(`        + ${l}`));
     e.removedKeys.forEach((k) => lines.push(`        - payload key ${k}`));
     e.addedKeys.forEach((k) => lines.push(`        + payload key ${k}`));
+    (e.changedValues || []).forEach((v) => lines.push(`        ~ payload ${v.key}: ${v.before} -> ${v.after}`));
   });
   return lines.join('\n');
 }
@@ -412,6 +414,7 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
     <div className="diff-code" title="Changes the release made inside a pre-existing (BAU) route the old app still runs — its steps and/or its request payload — found by git-diffing that route against its own pre-release version. High risk: it changes existing PROD behaviour.">
       <span className="diff-code-label">⚑ BAU route modified — existing PROD behaviour changed (High)</span>
       {edits.map((e) => {
+        const changedVals = e.changedValues || [];
         const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
         const add = e.addedSteps.length + e.addedKeys.length;
         const del = e.removedSteps.length + e.removedKeys.length;
@@ -420,7 +423,10 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
             <div className="rdiff-head">
               <code>{e.route}</code>
               <span className="row" style={{ gap: 8 }}>
-                <span className="rdiff-tally"><span className="add">+{add}</span> <span className="del">−{del}</span></span>
+                <span className="rdiff-tally">
+                  <span className="add">+{add}</span> <span className="del">−{del}</span>
+                  {changedVals.length > 0 && <span className="muted"> ~{changedVals.length}</span>}
+                </span>
                 {incompat
                   ? <span className="bc-flag warn" title="A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app">⚠ backward-incompatible</span>
                   : <span className="bc-flag warn" title="A route already in production was changed — regression-test the old app">⚠ changes PROD — regression-test</span>}
@@ -434,6 +440,11 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
               {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
               {e.removedKeys.map((k, i) => <div key={'rk' + i} className="dl del">- payload key: {k}</div>)}
               {e.addedKeys.map((k, i) => <div key={'ak' + i} className="dl add">+ payload key: {k}</div>)}
+              {changedVals.map((v, i) => (
+                <div key={'cv' + i} className="dl" title="payload value changed in place — the old app now sends a different value">
+                  ~ payload {v.key}: <span className="del">{v.before}</span> → <span className="add">{v.after}</span>
+                </div>
+              ))}
             </pre>
           </div>
         );

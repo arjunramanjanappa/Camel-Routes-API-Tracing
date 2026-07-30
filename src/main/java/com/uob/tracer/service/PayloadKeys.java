@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,14 @@ final class PayloadKeys {
 
     /** A JSON key and the immediate object that contains it ("" for a root-level key). */
     record KeyRef(String parent, String name) {
+    }
+
+    /** A scalar key's value (raw expression text, whitespace-normalised) and its enclosing object. */
+    record KeyValue(String parent, String name, String value) {
+    }
+
+    /** A scalar value the release changed for a key present on both sides: {@code key: before -> after}. */
+    record ValueChange(String key, String before, String after) {
     }
 
     /** Keys added in the target vs lower, and keys removed (present in lower, gone in target). */
@@ -150,6 +159,133 @@ final class PayloadKeys {
 
     private static boolean isServiceVersion(String name) {
         return name != null && name.equalsIgnoreCase(SERVICE_VERSION);
+    }
+
+    /**
+     * Every scalar key's VALUE (the raw expression text after {@code :}, whitespace-normalised), for the BAU
+     * in-place payload diff. Unlike {@link #extract}, interpolations are PRESERVED (only comments stripped), so
+     * a value like {@code ${ctx.amount}} is comparable — but note this is only meaningful when both sides are
+     * the SAME template file/engine (which the BAU in-place git-diff guarantees; the cross-version diff, which
+     * may pair a {@code .vm} against a {@code .ftl}, must stay key-based). Object/array values carry no scalar
+     * and are skipped. {@code serviceVersionNumber} is excluded (it is the backend service-version bump).
+     */
+    static List<KeyValue> extractValues(String template) {
+        if (template == null || template.isBlank()) {
+            return List.of();
+        }
+        String s = stripComments(template);
+        List<KeyValue> out = new ArrayList<>();
+        Deque<String> stack = new ArrayDeque<>();
+        String lastKey = null;
+        int i = 0;
+        int n = s.length();
+        while (i < n) {
+            char c = s.charAt(i);
+            if (c == '"' || c == '\'') {
+                int j = i + 1;
+                StringBuilder sb = new StringBuilder();
+                while (j < n && s.charAt(j) != c) {
+                    if (s.charAt(j) == '\\' && j + 1 < n) {
+                        j++;
+                    }
+                    sb.append(s.charAt(j));
+                    j++;
+                }
+                int k = j + 1;
+                while (k < n && Character.isWhitespace(s.charAt(k))) {
+                    k++;
+                }
+                if (k < n && s.charAt(k) == ':') {   // quoted string + ':' = a key
+                    lastKey = sb.toString();
+                    i = k + 1;
+                } else {                              // a quoted VALUE for the pending key
+                    if (lastKey != null && !isServiceVersion(lastKey)) {
+                        out.add(new KeyValue(stack.isEmpty() ? "" : stack.peek(), lastKey, normalize(sb.toString())));
+                    }
+                    lastKey = null;
+                    i = j + 1;
+                }
+            } else if (c == '{') {
+                stack.push(lastKey != null ? lastKey : "");
+                lastKey = null;
+                i++;
+            } else if (c == '}') {
+                if (!stack.isEmpty()) {
+                    stack.pop();
+                }
+                lastKey = null;
+                i++;
+            } else if (lastKey != null && c != ',' && c != ':' && c != '[' && c != ']' && !Character.isWhitespace(c)) {
+                // An unquoted scalar value (e.g. ${ctx.amount}, $x.y, 123, true) — read to the enclosing ',' or '}'.
+                int j = i;
+                int depth = 0;
+                StringBuilder sb = new StringBuilder();
+                while (j < n) {
+                    char d = s.charAt(j);
+                    if (d == '{' || d == '[' || d == '(') {
+                        depth++;
+                    } else if (d == ')' || d == ']') {
+                        depth--;
+                    } else if (d == '}') {
+                        if (depth == 0) {
+                            break;   // the enclosing object's close
+                        }
+                        depth--;
+                    } else if ((d == ',' || d == '\n') && depth == 0) {
+                        break;
+                    }
+                    sb.append(d);
+                    j++;
+                }
+                if (!isServiceVersion(lastKey)) {
+                    out.add(new KeyValue(stack.isEmpty() ? "" : stack.peek(), lastKey, normalize(sb.toString())));
+                }
+                lastKey = null;
+                i = j;
+            } else {
+                i++;
+            }
+        }
+        return out;
+    }
+
+    /** For keys present on BOTH sides (matched by object+name), the ones whose scalar value changed. */
+    static List<ValueChange> valueDiff(List<KeyValue> before, List<KeyValue> now) {
+        Map<String, String> b = new LinkedHashMap<>();
+        for (KeyValue kv : before) {
+            b.put(qualified(kv), kv.value());
+        }
+        List<ValueChange> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (KeyValue kv : now) {
+            String key = qualified(kv);
+            if (!seen.add(key)) {
+                continue;   // one change per key
+            }
+            String was = b.get(key);
+            if (was != null && !was.equals(kv.value())) {
+                out.add(new ValueChange(key, was, kv.value()));
+            }
+        }
+        out.sort(java.util.Comparator.comparing(ValueChange::key));
+        return out;
+    }
+
+    private static String qualified(KeyValue kv) {
+        return kv.parent().isEmpty() ? kv.name() : kv.parent() + "." + kv.name();
+    }
+
+    /** Collapse whitespace runs and trim, so a reindent / trailing-space edit is not a value change. */
+    private static String normalize(String v) {
+        return v == null ? "" : v.trim().replaceAll("\\s+", " ");
+    }
+
+    /** Strip only comments (keep interpolations/directives), for value comparison of the same template file. */
+    private static String stripComments(String t) {
+        return t
+                .replaceAll("(?s)<#--.*?-->", " ")     // freemarker comments
+                .replaceAll("(?s)#\\*.*?\\*#", " ")    // velocity block comments
+                .replaceAll("(?m)##[^\\n]*", " ");     // velocity line comments
     }
 
     /** Remove comments, directives and interpolations so only the JSON skeleton remains. */

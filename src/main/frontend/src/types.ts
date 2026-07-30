@@ -192,8 +192,17 @@ export interface BauRouteEdit {
   addedKeys: string[];
   /** Request-payload keys the release removed from a template this route sends — backward-incompatible. */
   removedKeys: string[];
+  /** Scalar payload values the release changed in place (key present on both sides): key, before → after. */
+  changedValues: PayloadValueChange[];
   /** Git-blame authors of the route's current lines. */
   changedBy: string[];
+}
+
+/** A scalar payload value the release changed in place for a key present on both sides — `key: before → after`. */
+export interface PayloadValueChange {
+  key: string;
+  before: string;
+  after: string;
 }
 
 /** A route to re-test for a shared-class change, tagged by its relation to the release. */

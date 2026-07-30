@@ -237,6 +237,77 @@ class CodeChangeImpactTest {
         assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
     }
 
+    // A BAU route (/pay, R9.8) that sends a freemarker payload template — for the in-place payload value diff.
+    private static void writePayFixture(Path dir, String template) throws Exception {
+        Files.writeString(dir.resolve("routes.xml"), """
+                <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+                  <routeContext id="c">
+                    <route id="R9.8_payRoute"><from uri="direct:R9.8_pay"/><to uri="freemarker:templates/pay.ftl"/></route>
+                  </routeContext>
+                </beans:beans>
+                """);
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @PostMapping("/pay") public Object pay(Object b){ return null; }
+                }
+                """);
+        Files.createDirectories(dir.resolve("templates"));
+        Files.writeString(dir.resolve("templates/pay.ftl"), template);
+    }
+
+    private VersionDiffReport runPay918(Path dir) {
+        return new RouteTraceService(dir.toString()).versionDiff(
+                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+    }
+
+    @Test
+    void aPayloadValueChangedInABauRouteTemplateIsHighRiskAndNeedsBackwardCompat(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writePayFixture(dir, "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"MOBILE\",\n  \"amount\": \"${ctx.amount}\"\n}\n");
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release changes a payload VALUE (channel MOBILE -> APP) the BAU route R9.8_pay sends — same
+        // key, new value, so the old app now sends different data → High + BC. (amount's value is unchanged.)
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"APP\",\n  \"amount\": \"${ctx.amount}\"\n}\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] change channel value in pay template");
+
+        VersionDiffReport report = runPay918(dir);
+
+        ApiDiff pay = apiByRoute(report, "pay");
+        assertThat(pay.bauRouteEdits()).anyMatch(e -> e.route().contains("R9.8_pay")
+                && e.changedValues().stream().anyMatch(v -> v.key().equals("channel")
+                        && v.before().equals("MOBILE") && v.after().equals("APP")));
+        // Only channel changed — amount's value (${ctx.amount}) is identical on both sides.
+        assertThat(pay.bauRouteEdits()).allSatisfy(e ->
+                assertThat(e.changedValues()).noneMatch(v -> v.key().equals("amount")));
+        assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_HIGH);
+        assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void aWhitespaceOnlyReformatOfABauRouteTemplateIsNotFlagged(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writePayFixture(dir, "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"MOBILE\"\n}\n");
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release only REINDENTS the template — same keys, same values. Whitespace normalisation means
+        // this is not a payload change, so the BAU route is not flagged (no false positive on a cosmetic edit).
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n\n      \"serviceVersionNumber\":     \"2.0\",\n      \"channel\":      \"MOBILE\"\n\n}\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] reformat pay template");
+
+        VersionDiffReport report = runPay918(dir);
+
+        ApiDiff pay = apiByRoute(report, "pay");
+        assertThat(pay.bauRouteEdits()).isEmpty();
+        assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_LOW);
+    }
+
     @Test
     void doesNotFlagANewBeanShippedOnlyWithTheReleasesOwnRoute(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");

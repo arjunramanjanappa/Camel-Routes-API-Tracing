@@ -131,12 +131,12 @@ export default function SplunkDownloadLinks() {
               <ol className="spl-links">
                 {links.map((l) => (
                   <li key={l.i} className={clicked[l.i] ? 'done' : ''}>
+                    <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? '✓' : ''}</span>
                     <span className="spl-link-no">{l.i + 1}.</span>
                     <a href={l.url} target="_blank" rel="noopener noreferrer" title={'Download / re-download — ' + l.url}
                        onClick={() => markClicked(l.i)}>
                       rows {l.from.toLocaleString()}–{l.to.toLocaleString()}
                     </a>
-                    <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? '✓' : ''}</span>
                   </li>
                 ))}
               </ol>

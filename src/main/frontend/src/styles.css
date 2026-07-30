@@ -236,10 +236,10 @@ table.grid tr:hover td { background: #f7f9fb; }
 .spl-links { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 1px;
   font-size: 12px; max-height: 260px; overflow-y: auto; }
 .spl-links li { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; min-width: 0; }
-.spl-link-no { flex: none; width: 2.4em; text-align: right; color: var(--muted, #64748b); }
+.spl-link-check { flex: none; width: 1.1em; text-align: center; color: #16a34a; font-weight: 700; }
+.spl-link-no { flex: none; width: 2.2em; text-align: right; color: var(--muted, #64748b); }
 .spl-links a { flex: 1 1 auto; min-width: 0; color: var(--link, #2563eb); text-decoration: none; overflow-wrap: anywhere; }
 .spl-links a:hover { text-decoration: underline; }
-.spl-link-check { flex: none; width: 1.1em; text-align: center; color: #16a34a; }
 .spl-links li.done a { color: var(--muted, #64748b); }
 
 /* ---- log / Splunk analysis ---- */

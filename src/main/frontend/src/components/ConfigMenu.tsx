@@ -13,13 +13,14 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [bb, setBb] = useState('');
   const [npm, setNpm] = useState('');
+  const [sp, setSp] = useState('');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     let alive = true;
     fetchSettings()
-      .then((s) => { if (alive) setState(s); })
+      .then((s) => { if (alive) { setState(s); setSp(s.splunkUrl || ''); } })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
   }, []);
@@ -30,12 +31,12 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onEsc);
   }, [onClose]);
 
-  const apply = async (patch: { bitbucketToken?: string; npmToken?: string }) => {
+  const apply = async (patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string }) => {
     setBusy(true); setError(null); setSaved(false);
     try {
       const next = await saveSettings(patch);
       setState(next);
-      setBb(''); setNpm('');
+      setBb(''); setNpm(''); setSp(next.splunkUrl || '');
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -45,10 +46,12 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
   };
 
   const onSave = () => {
-    const patch: { bitbucketToken?: string; npmToken?: string } = {};
+    const patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string } = {};
     if (bb.trim()) patch.bitbucketToken = bb.trim();
     if (npm.trim()) patch.npmToken = npm.trim();
-    if (Object.keys(patch).length === 0) { setError('Enter a new token to save, or use Remove to clear one.'); return; }
+    // The Splunk URL is a plain field (not a secret), always sent so an edit or a clear takes effect.
+    if (sp.trim() !== (state?.splunkUrl || '')) patch.splunkUrl = sp.trim();
+    if (Object.keys(patch).length === 0) { setError('Nothing to save — enter a token or change the Splunk URL.'); return; }
     apply(patch);
   };
 
@@ -87,6 +90,14 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
                 </div>
                 <input type="password" autoComplete="off" placeholder="Enter new npm token" value={npm}
                        onChange={(e) => setNpm(e.target.value)} />
+              </div>
+
+              <div className="cfg-field">
+                <label>Splunk base URL <span className="muted">(Splunk Web, up to <code>/services/search/jobs/</code> — used to build result-download links)</span></label>
+                <input type="text" autoComplete="off" spellCheck={false}
+                       placeholder="https://host:8000/en-US/splunkd/__raw/services/search/jobs/" value={sp}
+                       onChange={(e) => setSp(e.target.value)} />
+                <div className="sub">Not a secret. TraceGuard only builds the paginated <code>…/&lt;SID&gt;/results?output_mode=csv…</code> download links; your browser session does the download.</div>
               </div>
 
               <div className="cfg-actions">

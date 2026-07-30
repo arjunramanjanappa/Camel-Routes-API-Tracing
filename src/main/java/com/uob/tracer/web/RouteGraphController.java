@@ -210,6 +210,7 @@ public class RouteGraphController {
         out.put("bitbucketTokenMasked", mask(s.bitbucketToken()));
         out.put("npmTokenSet", !s.npmToken().isBlank());
         out.put("npmTokenMasked", mask(s.npmToken()));
+        out.put("splunkUrl", s.splunkUrl());   // a URL, not a secret — returned in full so it can be edited
         return out;
     }
 
@@ -222,7 +223,8 @@ public class RouteGraphController {
     public Map<String, Object> saveSettings(@RequestBody Map<String, String> body) {
         settings.save(
                 body.containsKey("bitbucketToken") ? nz(body.get("bitbucketToken")) : null,
-                body.containsKey("npmToken") ? nz(body.get("npmToken")) : null);
+                body.containsKey("npmToken") ? nz(body.get("npmToken")) : null,
+                body.containsKey("splunkUrl") ? nz(body.get("splunkUrl")) : null);
         return settings();
     }
 

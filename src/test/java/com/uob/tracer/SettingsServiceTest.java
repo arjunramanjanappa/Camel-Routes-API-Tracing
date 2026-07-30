@@ -28,7 +28,7 @@ class SettingsServiceTest {
     @Test
     void savesAndReadsBackTokens(@TempDir Path home) {
         SettingsService s = svc(home);
-        s.save("bb-secret", "npm-secret");
+        s.save("bb-secret", "npm-secret", null);
         assertEquals("bb-secret", s.bitbucketToken());
         assertEquals("npm-secret", s.read().npmToken());
         // A fresh instance over the same home reads the persisted file.
@@ -38,13 +38,13 @@ class SettingsServiceTest {
     @Test
     void nullFieldIsLeftUnchangedEmptyClears(@TempDir Path home) {
         SettingsService s = svc(home);
-        s.save("bb-1", "npm-1");
+        s.save("bb-1", "npm-1", null);
         // null bitbucket -> keep; new npm -> replace
-        s.save(null, "npm-2");
+        s.save(null, "npm-2", null);
         assertEquals("bb-1", s.bitbucketToken());
         assertEquals("npm-2", s.read().npmToken());
         // empty string clears just that token, leaves the other
-        s.save("", null);
+        s.save("", null, null);
         assertEquals("", s.bitbucketToken());
         assertEquals("npm-2", s.read().npmToken());
     }
@@ -52,13 +52,25 @@ class SettingsServiceTest {
     @Test
     void tokensAreTrimmed(@TempDir Path home) {
         SettingsService s = svc(home);
-        s.save("  spaced-token  ", null);
+        s.save("  spaced-token  ", null, null);
         assertEquals("spaced-token", s.bitbucketToken());
     }
 
     @Test
+    void savesAndMergesTheSplunkUrl(@TempDir Path home) {
+        SettingsService s = svc(home);
+        String url = "https://host:8000/en-US/splunkd/__raw/services/search/jobs/";
+        s.save("bb", "npm", url);
+        assertEquals(url, s.read().splunkUrl());
+        // Saving only a token leaves the Splunk URL untouched (null = keep).
+        s.save("bb2", null, null);
+        assertEquals(url, s.read().splunkUrl());
+        assertEquals(url, svc(home).read().splunkUrl());   // persisted across instances
+    }
+
+    @Test
     void writesFileUnderTheConfiguredHome(@TempDir Path home) {
-        svc(home).save("x", "y");
+        svc(home).save("x", "y", null);
         assertTrue(Files.exists(home.resolve("settings.json")), "settings.json should be written under the home dir");
     }
 }

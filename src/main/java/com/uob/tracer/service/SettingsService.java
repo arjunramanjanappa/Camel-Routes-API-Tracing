@@ -34,12 +34,13 @@ public class SettingsService {
     private static final Logger LOG = LoggerFactory.getLogger(SettingsService.class);
 
     /** The persisted settings. Fields are never null once read (empty string = not set). */
-    public record Settings(String bitbucketToken, String npmToken) {
+    public record Settings(String bitbucketToken, String npmToken, String splunkUrl) {
         public Settings {
             bitbucketToken = bitbucketToken == null ? "" : bitbucketToken.trim();
             npmToken = npmToken == null ? "" : npmToken.trim();
+            splunkUrl = splunkUrl == null ? "" : splunkUrl.trim();
         }
-        static Settings empty() { return new Settings("", ""); }
+        static Settings empty() { return new Settings("", "", ""); }
     }
 
     private final Path home;
@@ -66,7 +67,7 @@ public class SettingsService {
             }
             try {
                 Map<String, Object> raw = mapper.readValue(Files.readAllBytes(file), Map.class);
-                return new Settings(str(raw.get("bitbucketToken")), str(raw.get("npmToken")));
+                return new Settings(str(raw.get("bitbucketToken")), str(raw.get("npmToken")), str(raw.get("splunkUrl")));
             } catch (IOException e) {
                 LOG.warn("Could not read settings at {} ({}); treating as empty", file, e.getMessage());
                 return Settings.empty();
@@ -78,18 +79,20 @@ public class SettingsService {
      * Merge-save: a {@code null} field is left unchanged (so saving one token never wipes the other),
      * while a non-null value — including {@code ""} — is written (empty string clears that token).
      */
-    public Settings save(String bitbucketToken, String npmToken) {
+    public Settings save(String bitbucketToken, String npmToken, String splunkUrl) {
         synchronized (lock) {
             Settings cur = read();
             Settings next = new Settings(
                     bitbucketToken == null ? cur.bitbucketToken() : bitbucketToken,
-                    npmToken == null ? cur.npmToken() : npmToken);
+                    npmToken == null ? cur.npmToken() : npmToken,
+                    splunkUrl == null ? cur.splunkUrl() : splunkUrl);
             try {
                 Files.createDirectories(home);
                 Path tmp = file.resolveSibling("settings.json.tmp");
                 mapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), Map.of(
                         "bitbucketToken", next.bitbucketToken(),
-                        "npmToken", next.npmToken()));
+                        "npmToken", next.npmToken(),
+                        "splunkUrl", next.splunkUrl()));
                 lockDownPerms(tmp);
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
                 lockDownPerms(file);

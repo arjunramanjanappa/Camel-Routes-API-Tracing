@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS } from '../spl';
 import CopyBtn from './CopyBtn';
+import SplunkDownloadLinks from './SplunkDownloadLinks';
 
 interface Props {
   title?: string;
@@ -164,6 +165,8 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         </div>
         <pre>{spl || '— select one or more APIs to build the query —'}</pre>
       </div>
+
+      <SplunkDownloadLinks />
 
       {hint && <div className="sub">{hint}</div>}
     </div>

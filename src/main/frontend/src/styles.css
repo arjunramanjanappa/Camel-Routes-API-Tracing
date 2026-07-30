@@ -220,6 +220,10 @@ table.grid tr:hover td { background: #f7f9fb; }
 .env-custom { width: 100%; margin-top: 6px; font: inherit; font-size: 12px; padding: 5px 9px; box-sizing: border-box; border: 1px solid var(--hair, #cbd5e1); border-radius: 6px; background: var(--panel, #fff); color: inherit; }
 .spl-block { margin-top: 10px; }
 .spl-block pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
+.spl-links { margin: 6px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.spl-links li { list-style: decimal; }
+.spl-links a { color: var(--link, #2563eb); text-decoration: none; word-break: break-all; }
+.spl-links a:hover { text-decoration: underline; }
 
 /* ---- log / Splunk analysis ---- */
 .timerange { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 2px; }

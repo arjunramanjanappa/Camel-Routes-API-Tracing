@@ -136,6 +136,7 @@ export default function SplunkDownloadLinks() {
                      onClick={() => markClicked(l.i)}>
                     rows {l.from.toLocaleString()}–{l.to.toLocaleString()}
                   </a>
+                  <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? '✓' : ''}</span>
                 </li>
               ))}
             </ol>

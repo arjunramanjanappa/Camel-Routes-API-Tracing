@@ -242,6 +242,18 @@ changed) — and a light/dark theme toggle.
   raw log lines — identical to a raw output log, which uploads straight back for
   correlation. Configurable `index`, front-end / backend / service-version field
   names; copy or download as `.spl`.
+* **Splunk result download** *(no export permission needed)* — if you can run a
+  Splunk search but not *export* it, paste the finished job's **Job SID** and
+  **result count**; TraceGuard builds the paginated CSV download links
+  (`…/<SID>/results?output_mode=csv&count=50000&offset=N`, one per page — automating
+  the offset arithmetic). It **never calls Splunk**: the links open in **your**
+  browser, already authenticated to Splunk Web (the `/en-US/splunkd/__raw/…` proxy
+  rides your session cookie), so no token or export right is needed. **⬇ Download
+  all** triggers every page at once (your browser asks once to *allow multiple
+  downloads*); each page is also a one-click re-download (the browser can't report
+  which cross-origin download failed, so a missing page — it saves as a small
+  `.html` error file — is re-fetched by clicking its row). Then attach the CSV
+  chunk(s) under *Verify with logs*. Set the **Splunk base URL** once in **⚙ Config**.
 * **Verify with logs** — pick **Output log** or **Splunk report**, then upload a raw
   output log or a Splunk export; the shape is **auto-detected from the file content**
   (`.log/.txt/.csv/.json/.gz` accepted under either mode — a `_raw`-only export saved
@@ -286,6 +298,25 @@ diffs them.
   changed route lists who authored its lines in the **latest** version (`git blame` of
   the target route; the lower/BAU version's authors are intentionally excluded), and a
   **New** API lists who added its routes. Omitted entirely when git isn't available.
+* **Test priority (risk) & backward-compatibility** — every card carries a **High /
+  Medium / Low** badge, plus a **BC** badge when a change reaches the BAU/PROD app.
+  Risk is **BAU-impact based**, not new-work size: **High** = a backward-incompatible
+  change to existing production behaviour (a request field removed, a shared BAU
+  `@Component` class changed/deleted, or a **BAU route modified in place**); **Medium**
+  = a backend service-version bump scoped to the new route; **Low** = additive /
+  new-version-scoped work that can't reach BAU. The readiness strip and PDF lead with
+  the High-risk and backward-compat counts.
+* **App-version code changes** *(git work tree)* — enter a **commit/app version**
+  (e.g. `19.18.0`) and TraceGuard uses **git history** to flag what the release
+  *actually* changed, beyond the version-to-version flow diff: a modified or **deleted**
+  shared `@Component` class an older (BAU) route still uses (`Changed (code)`, listing
+  the **Current / BAU / Future** routes to re-test), and **in-place edits to a BAU
+  route itself** — a step or payload **key** added/removed, or a payload **value**
+  changed — found by git-diffing that route against its *own* pre-release version
+  (which the version diff, comparing two *different* routes, fundamentally can't see).
+  A top-of-report **"BAU routes modified"** callout lists every such route. Both are
+  High + backward-compatibility. Needs `git` on the `PATH` and commits tagged with the
+  version token (`[jira][country][19.18.0]`); absent that, this analysis is skipped.
 * **Export PDF** — a sectioned **Release Impact report** (Changed + New), independent
   of which group is on screen.
 
@@ -321,6 +352,7 @@ are mapped to ASCII in the PDF.
 | `/internal/log-analysis` | POST (multipart) | Correlate an uploaded log / Splunk export against the traced APIs |
 | `/internal/meta` | GET | Discovered countries, versions and transferType values |
 | `/internal/countries` | GET | Bootstrap (country) scopes |
+| `/internal/settings` | GET / POST | Machine-wide config: Bitbucket / npm tokens (masked) + **Splunk base URL** |
 
 Common params (query or, for `log-analysis`, multipart form fields): `version`,
 `country`, `sourceDir`, plus `transferType` (route-graph). Source can also be a
@@ -340,12 +372,17 @@ Every response carries a `needsReview` list (unresolved imports / routes / depen
   its route resolves to (`9.4`, `9.3`, …, `BASE`, and a `(no route found)`
   bucket). With a `version`, only that release's impacted APIs are shown.
 
-`version-diff` (`sourceDir`, `country`, `version`) returns a `VersionDiffReport`
-(`mode: "version-diff"`): counts and an `apis` list of `ApiDiff` — each with a
-`status` (`CHANGED` / `NEW` / `UNCHANGED`), the target & lower route/version,
-per-route `routeDiffs` (`added`/`removed` canonical lines + `changedBy` git
-authors), whole `addedRoutes`/`removedRoutes`, `backendVersionChanges`, a
-`payloadChange` (`addedKeys`/`removedKeys`), and `authors` (who added a NEW API).
+`version-diff` (`sourceDir`, `country`, `version`, and an optional **`appVersion`**
+commit/app version for git code-change detection) returns a `VersionDiffReport`
+(`mode: "version-diff"`): counts (incl. `highRiskCount` / `backwardCompatCount` /
+`codeChangedCount`) and an `apis` list of `ApiDiff` — each with a `status` (`CHANGED`
+/ `NEW` / `UNCHANGED`), the target & lower route/version, per-route `routeDiffs`
+(`added`/`removed` canonical lines + `changedBy` git authors), whole
+`addedRoutes`/`removedRoutes`, `backendVersionChanges`, a `payloadChange`
+(`addedKeys`/`removedKeys`), `authors` (who added a NEW API), a **`risk`**
+(`High`/`Medium`/`Low`), and — when `appVersion` is given over a git work tree —
+`codeChanged` + `changedClasses` + `impactedRoutes` (Current/BAU/Future) and
+`bauRouteEdits` (in-place BAU-route step/payload-key/value changes).
 
 ---
 
@@ -583,20 +620,23 @@ src/main/java/com/uob/tracer/
   api/        DTOs — TraceRequest/Response, GraphNode/Edge, RouteGraph,
               ImpactIndex/ApiImpact (+ backendVersions), LogAnalysisReport/
               ApiLogResult/BackendCallResult/BackendLogResult, LogStatus,
-              VersionDiffReport/ApiDiff/RouteStepDiff/BackendVersionChange (Release Impact)
+              VersionDiffReport/ApiDiff/RouteStepDiff/BackendVersionChange/PayloadChange/
+              ImpactedRoute/BauRouteEdit/PayloadValueChange (Release Impact + risk)
   model/      neutral route model shared by both loaders
   loader/     CamelRouteModelLoader, XmlDomRouteModelLoader, RouteRegistry
   resolve/    OperationResolver (JavaParser), VersionResolver (+ immediateLowerVersion)
   trace/      RouteTraverser (+ template service-version capture)
-  service/    RouteTraceService (trace/catalog/impact/versionDiff/template resolution),
+  service/    RouteTraceService (trace/catalog/impact/versionDiff/risk/template resolution),
               LogAnalysisService (app-aware parse, correlation, version match),
               RouteXmlDiff (raw-XML canonicalise + LCS diff + route line ranges),
-              GitBlameService (changed-route authorship)
+              GitBlameService (changed-route authorship),
+              GitChangeService (release app-version file changes + deletions + baseline),
+              SettingsService (machine-wide config store: tokens + Splunk base URL)
   web/        RouteGraphController, WebConfig
 src/main/frontend/                React + Vite + TypeScript SPA (built into the jar)
   src/App.tsx       application picker (Mighty/SPL) + tabbed shell
   src/views/        TraceView, ImpactView, ReleaseDiffView   (per-app context: tracer.<app>.*)
-  src/components/    AppPicker, RouteGraph, SplunkPanel, LogAnalysisPanel, ApiFlowModal, …
+  src/components/    AppPicker, RouteGraph, SplunkPanel, SplunkDownloadLinks, LogAnalysisPanel, ConfigMenu, ApiFlowModal, …
   src/spl.ts         SPL generation (events query, time presets, service-version + client-version filter)
   src/pdfReport.ts   shared PDF kit (header, stat band, sections, legend, footers)
   src/apiTracePdf.ts / impactPdf.ts / logPdf.ts / diffPdf.ts   the four PDF reports (jsPDF, lazy-loaded)
@@ -633,6 +673,14 @@ mvn test          # or:  mvn -Dskip.frontend=true test   (Java only)
 * `PayloadKeysTest` — the Release Impact **payload key** diff: engine-agnostic
   (`.vm`/`.ftl` same keys ⇒ no change), added/removed keys, `serviceVersionNumber`
   excluded, same-name-under-different-objects qualified `Object.key`, nested keys.
+* `CodeChangeImpactTest` — **app-version git code changes**: a changed / **deleted**
+  shared `@Component` class promoting BAU + New APIs to Changed with Current/BAU/Future
+  re-test routes, a bean/class only on the release's own route *not* flagged, and
+  **in-place BAU-route edits** (step removed → High + BC, step added → High, a payload
+  **key** removed and a payload **value** changed → High + BC, a whitespace-only
+  template reformat → *not* flagged), over a real git repo fixture.
+* `SettingsServiceTest` — the machine-wide config store: save / merge / clear of the
+  Bitbucket & npm tokens and the **Splunk base URL**, persisted across instances.
 * `StaleSourceInvalidationTest` — editing a template between two compares is picked
   up on the next run (source-fingerprint cache invalidation), no restart.
 * `VersionResolverTest` — version ordering: multi-part / patch (`9.18.1 > 9.18`,

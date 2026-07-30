@@ -4,9 +4,9 @@ Make TraceGuard a click-to-launch desktop app that needs **no admin, no install,
 pre-installed Java** on the machine that runs it. A bundle is a single folder you unzip anywhere in your
 user profile; double-clicking the launcher starts the server and opens your browser.
 
-Everything the app stores per-machine (Bitbucket + npm tokens, saved modules) lives in **`~/.traceguard`**
-(`%USERPROFILE%\.traceguard` on Windows) — shared by the standalone bundle *and* IntelliJ, so both modes
-see the same config.
+Everything the app stores per-machine (Bitbucket + npm tokens, the Splunk base URL, saved modules) lives in
+**`~/.traceguard`** (`%USERPROFILE%\.traceguard` on Windows) — shared by the standalone bundle *and* IntelliJ,
+so both modes see the same config.
 
 ---
 
@@ -191,11 +191,14 @@ Boot + Tomcat + Camel + JGit).
 
 ## First-run config (the ⚙ Config menu)
 
-Open TraceGuard, click **⚙ Config** in the header, and paste your **Bitbucket** and **npm** tokens.
-They are saved to `~/.traceguard/settings.json` on that machine and remembered on every run:
+Open TraceGuard, click **⚙ Config** in the header, and set your **Bitbucket** / **npm** tokens and the
+**Splunk base URL**. They are saved to `~/.traceguard/settings.json` on that machine and remembered on every run:
 
 - **Bitbucket token** — used to clone repos in *Bitbucket branch* mode. Takes effect immediately (no restart).
 - **npm token** — used by the build script for the private npm registry (build-time only).
+- **Splunk base URL** — the Splunk Web address up to `/services/search/jobs/` (e.g.
+  `https://host:8000/en-US/splunkd/__raw/services/search/jobs/`); used by *Release Test* to build the
+  result-download links. Not a secret — just a URL.
 
 Modules you save with **“Save as default”** are stored in `~/.traceguard/app-modules.json`, so your module
 lists come back automatically — in both the standalone app and IntelliJ.

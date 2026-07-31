@@ -80,4 +80,76 @@ class LoadBalanceHostTest {
         // No host node for the secondary.
         assertThat(r.getGraph().getNodes()).noneMatch(n -> n.id().startsWith("route:callssov5S"));
     }
+
+    // The real shape: the load-balanced targets are NOT the host themselves — each forwards one more hop
+    // (callssov5P → sendPrimaryHost, callssov5S → sendSecondaryHost) to the CamelHttpUri host route. The
+    // collapse must still fold both arms into a single host.
+    private static final String INDIRECT = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="ssoCtx">
+                <route id="R5.3_authenticateusingSSOv5Route">
+                  <from uri="direct:R5.3_authenticateusingSSOv5Route"/>
+                  <to uri="direct:callSSOv5route"/>
+                </route>
+                <route id="callSSOv5route">
+                  <from uri="direct:callSSOv5route"/>
+                  <setHeader name="CamelHttpPath"><constant>/rest/auth/login</constant></setHeader>
+                  <choice>
+                    <when>
+                      <simple>${header.primaryAvailable} == 'Y'</simple>
+                      <loadBalance>
+                        <failover/>
+                        <to uri="direct:callssov5P"/>
+                      </loadBalance>
+                    </when>
+                    <otherwise>
+                      <loadBalance>
+                        <failover/>
+                        <to uri="direct:callssov5S"/>
+                      </loadBalance>
+                    </otherwise>
+                  </choice>
+                </route>
+                <route id="callssov5P">
+                  <from uri="direct:callssov5P"/>
+                  <log message="primary arm"/>
+                  <to uri="direct:sendPrimaryHost"/>
+                </route>
+                <route id="callssov5S">
+                  <from uri="direct:callssov5S"/>
+                  <log message="secondary arm"/>
+                  <to uri="direct:sendSecondaryHost"/>
+                </route>
+                <route id="sendPrimaryHost">
+                  <from uri="direct:sendPrimaryHost"/>
+                  <setProperty name="api"><constant>/rest/auth/login</constant></setProperty>
+                  <setHeader name="CamelHttpUri"><simple>${exchangeProperty.api}</simple></setHeader>
+                  <toD uri="${header.CamelHttpUri}"/>
+                </route>
+                <route id="sendSecondaryHost">
+                  <from uri="direct:sendSecondaryHost"/>
+                  <setProperty name="api"><constant>/rest/auth/login/secondary</constant></setProperty>
+                  <setHeader name="CamelHttpUri"><simple>${exchangeProperty.api}</simple></setHeader>
+                  <toD uri="${header.CamelHttpUri}"/>
+                </route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    @Test
+    void loadBalancedTargetsThatForwardToAHostStillCollapseToOne(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("sso.xml"), INDIRECT);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("R5.3_authenticateusingSSOv5Route", "", null, null));
+
+        // The primary arm reaches its host; the secondary HOST is collapsed away — only ONE backend log
+        // response is expected. (The secondary arm route itself may be walked, but it is not a host, so it
+        // never expects a log line; what must not happen is a second host node / backend.)
+        assertThat(r.getFlow()).contains("callSSOv5route", "callssov5P", "sendPrimaryHost");
+        assertThat(r.getFlow()).doesNotContain("sendSecondaryHost");
+
+        assertThat(r.getBackendApis()).containsExactly("/rest/auth/login");
+        assertThat(r.getBackendApis()).doesNotContain("/rest/auth/login/secondary");
+        assertThat(r.getGraph().getNodes()).noneMatch(n -> n.id().startsWith("route:sendSecondaryHost"));
+    }
 }

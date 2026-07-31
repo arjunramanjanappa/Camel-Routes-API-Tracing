@@ -184,10 +184,15 @@ public class RouteTraverser {
         }
         if (firstVisit) {
             response.getFlow().add(identity);
-            // The load-balanced-host collapse is scoped to this (non-host) route body — the widest scope a
-            // <loadBalance> (or a choice whose branches each load-balance) can span. Host bodies aren't
-            // walked, so visiting a load-balanced host target won't reset this mid-collapse.
-            loadBalancedHostEmitted = false;
+            // Arm the load-balanced-host collapse for THIS route body — the caller that owns the
+            // <loadBalance> (or the choice whose branches each load-balance). Only when we're not already
+            // inside a load-balancing region (loadBalanceDepth == 0): a load-balanced target may itself be
+            // a plain intermediate route that forwards one more hop to the host, and descending into it
+            // must NOT re-arm the flag, or the choice's secondary arm would emit a second host. The host
+            // reached deeper still sees loadBalanceDepth > 0 (it's an instance counter held across the hop).
+            if (loadBalanceDepth == 0) {
+                loadBalancedHostEmitted = false;
+            }
             List<PendingApi> active = new ArrayList<>(inherited);
             // Leftover = api set in/inherited by this route that no downstream route
             // consumed → this route is itself the consumer.

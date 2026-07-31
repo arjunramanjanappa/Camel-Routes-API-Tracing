@@ -5,7 +5,6 @@ import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.api.TraceRequest;
 import com.uob.tracer.service.AppConfigService;
 import com.uob.tracer.service.LogAnalysisService;
-import com.uob.tracer.service.LogRulesService;
 import com.uob.tracer.service.RouteTraceService;
 import com.uob.tracer.service.SettingsService;
 import org.springframework.http.HttpStatus;
@@ -41,15 +40,13 @@ public class RouteGraphController {
     private final LogAnalysisService logService;
     private final AppConfigService appConfig;
     private final SettingsService settings;
-    private final LogRulesService logRules;
 
     public RouteGraphController(RouteTraceService service, LogAnalysisService logService,
-                                AppConfigService appConfig, SettingsService settings, LogRulesService logRules) {
+                                AppConfigService appConfig, SettingsService settings) {
         this.settings = settings;
         this.service = service;
         this.logService = logService;
         this.appConfig = appConfig;
-        this.logRules = logRules;
     }
 
     /**
@@ -229,21 +226,6 @@ public class RouteGraphController {
                 body.containsKey("npmToken") ? nz(body.get("npmToken")) : null,
                 body.containsKey("splunkUrl") ? nz(body.get("splunkUrl")) : null);
         return settings();
-    }
-
-    /**
-     * Host response-code rules ({@code log-rules.json}) — the per-app map for the Config editor. Tells log
-     * analysis which JSON key to read a backend's code from, what counts as success, and which backends to skip.
-     */
-    @GetMapping("/internal/log-rules")
-    public Map<String, LogRulesService.AppRules> logRules() {
-        return logRules.readAll();
-    }
-
-    /** Replace the whole host response-code rule map (the Config editor saves every app at once). */
-    @PostMapping("/internal/log-rules")
-    public Map<String, LogRulesService.AppRules> saveLogRules(@RequestBody Map<String, LogRulesService.AppRules> body) {
-        return logRules.saveAll(body == null ? Map.of() : body);
     }
 
     private static String nz(String v) { return v == null ? "" : v; }

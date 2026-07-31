@@ -6,14 +6,9 @@ import com.uob.tracer.api.BackendLogResult;
 import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.LogStatus;
 import com.uob.tracer.api.ModuleLogReport;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uob.tracer.service.LogAnalysisService;
-import com.uob.tracer.service.LogRulesService;
-import com.uob.tracer.service.LogRulesService.AppRules;
-import com.uob.tracer.service.LogRulesService.Rule;
 import com.uob.tracer.service.RouteTraceService;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -58,27 +53,6 @@ class LogAnalysisServiceTest {
 
     private ApiLogResult api(LogAnalysisReport r, String apiPath) {
         return r.apis().stream().filter(a -> a.api().equals(apiPath)).findFirst().orElseThrow();
-    }
-
-    @Test
-    void aHostSkipRuleExcludesTheBackendFromTheVerdict(@TempDir Path home) throws IOException {
-        // Configure a skip rule for the /bfs/ft/own/submit backend, then analyse the same e2e log: that backend
-        // row must read SKIPPED (neither pass nor fail) instead of driving the API's verdict.
-        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
-        rules.saveApp("Mighty", false, new AppRules(List.of(),
-                List.of(new Rule("*/bfs/ft/own/submit", null, List.of(), true))));
-        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
-
-        LogAnalysisReport rep;
-        try (InputStream in = Files.newInputStream(Path.of("src/test/resources/sample-logs/analysis-e2e.log"))) {
-            rep = svc.analyze(in, "analysis-e2e.log", "9.4", null, FW, null, null, true, "Mighty");
-        }
-        ApiLogResult v2 = api(rep, V2);
-        assertThat(v2.backends()).anySatisfy(b -> {
-            assertThat(b.backend()).contains("/bfs/ft/own/submit");
-            assertThat(b.status()).isEqualTo(LogStatus.SKIPPED);   // skipped by config
-            assertThat(b.failed()).isZero();                        // never counted as a failure
-        });
     }
 
     @Test

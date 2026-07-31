@@ -55,31 +55,6 @@ export async function saveSettings(patch: { bitbucketToken?: string; npmToken?: 
   return (await res.json()) as AppSettings;
 }
 
-/** One host response-code rule (matched on a backend hosturl glob). */
-export interface LogRule { match: string; codeField: string; successCodes: string[]; skip: boolean; }
-/** Per-app host response-code rules: ordered fallback code keys + per-hosturl rules. */
-export interface AppLogRules { codeFields: string[]; rules: LogRule[]; }
-/** The whole log-rules.json — keyed by app/marker (Mighty / SPL / SPL-Secure). */
-export type LogRulesMap = Record<string, AppLogRules>;
-
-export async function fetchLogRules(): Promise<LogRulesMap> {
-  const res = await fetch('/internal/log-rules');
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as LogRulesMap;
-}
-
-/** Replace the whole host response-code rule map (all apps at once). */
-export async function saveLogRules(map: LogRulesMap): Promise<LogRulesMap> {
-  const res = await fetch('/internal/log-rules', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(map),
-  });
-  if (!res.ok) {
-    const d = await res.json().catch(() => null);
-    throw new Error((d && d.error) || `HTTP ${res.status}`);
-  }
-  return (await res.json()) as LogRulesMap;
-}
-
 /** Build a query string; string values are set once, string[] values are appended once per entry (repeated params). */
 function qs(params: Record<string, string | string[] | undefined>): string {
   const p = new URLSearchParams();

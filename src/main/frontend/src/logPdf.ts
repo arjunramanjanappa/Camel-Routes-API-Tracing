@@ -8,18 +8,16 @@ const ST: Record<LogStatus, { label: string; ramp: Ramp }> = {
   FAILED: { label: 'Failed', ramp: PAL.orange },
   TIMEOUT: { label: 'Timeout', ramp: PAL.purple },
   INDETERMINATE: { label: 'Check', ramp: PAL.blue },
-  SKIPPED: { label: 'Skipped', ramp: PAL.gray },
   NOT_TESTED: { label: 'Not tested', ramp: PAL.red },
 };
-// Worst first so what needs investigation leads the report. Skipped is neutral (near the end, before Success).
-const ORDER: LogStatus[] = ['FAILED', 'TIMEOUT', 'PARTIAL', 'INDETERMINATE', 'NOT_TESTED', 'SKIPPED', 'SUCCESS'];
+// Worst first so what needs investigation leads the report.
+const ORDER: LogStatus[] = ['FAILED', 'TIMEOUT', 'PARTIAL', 'INDETERMINATE', 'NOT_TESTED', 'SUCCESS'];
 const SECTION_BLURB: Record<LogStatus, string> = {
   FAILED: 'Failed end-to-end - the backend returned an error. Investigate before release.',
   TIMEOUT: 'No response correlated within the window - confirm whether the call completed.',
   PARTIAL: 'Some calls succeeded and some did not - review the per-backend detail.',
   INDETERMINATE: 'Seen in the logs but the outcome could not be determined - check manually.',
   NOT_TESTED: 'No matching log lines - these APIs were not exercised by the uploaded logs.',
-  SKIPPED: 'Skipped for analysis by a host response-code rule (log-rules.json) - excluded from the verdict; not counted as pass or fail.',
   SUCCESS: 'Verified end-to-end (front-end and backend) for this release.',
 };
 
@@ -34,12 +32,12 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
   const r = await ReportDoc.create();
   const ver = version || report.clientVersion || 'BASE';
 
-  const counts: Record<LogStatus, number> = { SUCCESS: 0, PARTIAL: 0, FAILED: 0, TIMEOUT: 0, INDETERMINATE: 0, SKIPPED: 0, NOT_TESTED: 0 };
+  const counts: Record<LogStatus, number> = { SUCCESS: 0, PARTIAL: 0, FAILED: 0, TIMEOUT: 0, INDETERMINATE: 0, NOT_TESTED: 0 };
   report.apis.forEach((a) => { counts[a.status]++; });
   const total = report.apis.length;
   const passed = counts.SUCCESS;
   const notTested = counts.NOT_TESTED;
-  const issues = total - passed - notTested - counts.SKIPPED;   // skipped is neutral, not an issue
+  const issues = total - passed - notTested;
 
   r.header('Verification Report',
     `${app ? app + '  -  ' : ''}Release ${ver}${report.country ? '  -  ' + report.country : ''}`,
@@ -101,7 +99,7 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
 export interface ModuleLog { name: string; report: LogAnalysisReport | null; error?: string; }
 
 function statusCounts(report: LogAnalysisReport) {
-  const c: Record<LogStatus, number> = { SUCCESS: 0, PARTIAL: 0, FAILED: 0, TIMEOUT: 0, INDETERMINATE: 0, SKIPPED: 0, NOT_TESTED: 0 };
+  const c: Record<LogStatus, number> = { SUCCESS: 0, PARTIAL: 0, FAILED: 0, TIMEOUT: 0, INDETERMINATE: 0, NOT_TESTED: 0 };
   report.apis.forEach((a) => { c[a.status]++; });
   const total = report.apis.length;
   return { c, total, passed: c.SUCCESS, notTested: c.NOT_TESTED, issues: total - c.SUCCESS - c.NOT_TESTED };

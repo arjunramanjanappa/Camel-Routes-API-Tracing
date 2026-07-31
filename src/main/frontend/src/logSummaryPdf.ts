@@ -8,11 +8,10 @@ import { groupItemsByFeature } from './feature';
  * developer report (response codes, latency, backends, per-attempt) is {@link exportLogPdf}.
  */
 
-const SEVERITY: Record<LogStatus, number> = { FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5, SKIPPED: 6 };
+const SEVERITY: Record<LogStatus, number> = { FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5 };
 function resultRamp(s: LogStatus): { label: string; ramp: Ramp } {
   if (s === 'SUCCESS') return { label: 'Passed', ramp: PAL.green };
   if (s === 'NOT_TESTED') return { label: 'Not tested', ramp: PAL.gray };
-  if (s === 'SKIPPED') return { label: 'Skipped', ramp: PAL.gray };
   if (s === 'PARTIAL') return { label: 'Partial', ramp: PAL.amber };
   if (s === 'INDETERMINATE') return { label: 'Check', ramp: PAL.gray };
   return { label: s === 'TIMEOUT' ? 'Timeout' : 'Failed', ramp: PAL.red };
@@ -35,7 +34,6 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
   for (const a of apis) {
     if (a.status === 'SUCCESS') passed++;
     else if (a.status === 'NOT_TESTED') notTested++;
-    else if (a.status === 'SKIPPED') { /* neutral — not passed, not an issue */ }
     else issues++;
   }
   const total = apis.length;

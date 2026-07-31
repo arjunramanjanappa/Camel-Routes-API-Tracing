@@ -253,7 +253,7 @@ export interface VersionDiffReport {
 // --- log / Splunk correlation ---
 
 export type LogStatus =
-  | 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'PARTIAL' | 'INDETERMINATE' | 'SKIPPED' | 'NOT_TESTED';
+  | 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'PARTIAL' | 'INDETERMINATE' | 'NOT_TESTED';
 
 export interface BackendCallResult {
   backend: string;

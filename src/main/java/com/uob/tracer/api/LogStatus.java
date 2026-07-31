@@ -15,8 +15,6 @@ public enum LogStatus {
     PARTIAL,
     /** A response was logged but its pass/fail could not be determined (no parseable code). */
     INDETERMINATE,
-    /** Excluded from the verdict by a host response-code rule (log-rules.json) — neither pass nor fail. */
-    SKIPPED,
     /** No log entry for this API at the requested client release — it was never tested. */
     NOT_TESTED
 }

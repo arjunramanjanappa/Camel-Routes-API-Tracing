@@ -14,11 +14,10 @@ const STATUS_LABEL: Record<LogStatus, string> = {
   TIMEOUT: 'Timeout',
   PARTIAL: 'Partial',
   INDETERMINATE: 'Check',
-  SKIPPED: 'Skipped',
   NOT_TESTED: 'Not tested',
 };
 
-const STATUS_ORDER: LogStatus[] = ['SUCCESS', 'PARTIAL', 'FAILED', 'TIMEOUT', 'INDETERMINATE', 'SKIPPED', 'NOT_TESTED'];
+const STATUS_ORDER: LogStatus[] = ['SUCCESS', 'PARTIAL', 'FAILED', 'TIMEOUT', 'INDETERMINATE', 'NOT_TESTED'];
 
 const STATUS_COLOR: Record<LogStatus, string> = {
   SUCCESS: '#16a34a',
@@ -26,13 +25,12 @@ const STATUS_COLOR: Record<LogStatus, string> = {
   FAILED: '#ea580c',
   TIMEOUT: '#7c3aed',
   INDETERMINATE: '#2563eb',
-  SKIPPED: '#94a3b8',
   NOT_TESTED: '#dc2626',
 };
 
-// Worst-first ordering so the rows that need investigation float to the top. Skipped is neutral (after Success).
+// Worst-first ordering so the rows that need investigation float to the top.
 const SEVERITY: Record<LogStatus, number> = {
-  FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5, SKIPPED: 6,
+  FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5,
 };
 
 function Badge({ s }: { s: LogStatus }) {
@@ -77,7 +75,7 @@ function Donut({ counts }: { counts: Record<LogStatus, number> }) {
 function BackendRow({ b }: { b: BackendLogResult }) {
   const resultText = b.bau
     ? (b.note || 'BAU')
-    : b.status === 'NOT_TESTED' || b.status === 'TIMEOUT' || b.status === 'SKIPPED'
+    : b.status === 'NOT_TESTED' || b.status === 'TIMEOUT'
       ? b.note || '—'
       : `${b.responseCode || '—'}${b.responseDescription ? ' · ' + b.responseDescription : ''}`;
   return (
@@ -110,7 +108,7 @@ function fbTitle(m?: Record<string, number> | null): string | undefined {
 
 function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onToggle: () => void }) {
   const resultText =
-    a.status === 'NOT_TESTED' || a.status === 'TIMEOUT' || a.status === 'SKIPPED'
+    a.status === 'NOT_TESTED' || a.status === 'TIMEOUT'
       ? a.note || '—'
       : `${a.responseCode || '—'}${a.responseDescription ? ' · ' + a.responseDescription : ''}`;
   return (
@@ -255,14 +253,9 @@ interface Props {
 
 /** Passed / issues / not-tested tallies for a module's report — drives the per-module coverage strip. */
 function tally(report: LogAnalysisReport) {
-  let passed = 0, notTested = 0, issues = 0, skipped = 0;
-  report.apis.forEach((a) => {
-    if (a.status === 'SUCCESS') passed++;
-    else if (a.status === 'NOT_TESTED') notTested++;
-    else if (a.status === 'SKIPPED') skipped++;   // neutral — not an issue
-    else issues++;
-  });
-  return { passed, notTested, issues, skipped, total: report.apis.length };
+  let passed = 0, notTested = 0, issues = 0;
+  report.apis.forEach((a) => { if (a.status === 'SUCCESS') passed++; else if (a.status === 'NOT_TESTED') notTested++; else issues++; });
+  return { passed, notTested, issues, total: report.apis.length };
 }
 
 /** Release-test readiness for a module (issues-only rule): issues → at risk, else not-tested → review, else ready. */
@@ -479,10 +472,10 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   }, [report]);
   const total = (report?.apis.length ?? 0) + (report?.backends.length ?? 0);
   const issuesCount = useMemo(() =>
-    (report?.apis.filter((a) => a.status !== 'SUCCESS' && a.status !== 'SKIPPED').length ?? 0)
-    + (report?.backends.filter((b) => !b.bau && b.status !== 'SUCCESS' && b.status !== 'SKIPPED').length ?? 0), [report]);
+    (report?.apis.filter((a) => a.status !== 'SUCCESS').length ?? 0)
+    + (report?.backends.filter((b) => !b.bau && b.status !== 'SUCCESS').length ?? 0), [report]);
 
-  const keep = (s: LogStatus) => filter === 'ALL' || (filter === 'ISSUES' ? s !== 'SUCCESS' && s !== 'SKIPPED' : s === filter);
+  const keep = (s: LogStatus) => filter === 'ALL' || (filter === 'ISSUES' ? s !== 'SUCCESS' : s === filter);
 
   const shownApis = useMemo(() => {
     if (!report) return [];

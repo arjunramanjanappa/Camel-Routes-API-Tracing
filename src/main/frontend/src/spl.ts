@@ -27,28 +27,54 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
   return `index=${index} ${win}(${ors})\n| stats count, latest(_time) as last_seen by ${field}\n| sort - count`;
 }
 
+/** The three fields the analyser always reads; never duplicated by a custom code field. */
+const STANDARD_LEAN_FIELDS = ['responseCode', 'responseDescription', 'serviceVersionNumber'];
+
 /**
  * Slims each event's trailing JSON down to only the fields the analyser reads —
- * {@code responseCode} / {@code responseDescription} / {@code serviceVersionNumber} — while keeping
- * the line prefix (path, correlation/trace id, client version, direction, latency) intact. Request /
- * response payloads never leave Splunk, so the export is small AND audit-safe (no customer data), and
- * the existing {@code _raw} parser reads it unchanged. Lines with no JSON are left untouched.
+ * {@code responseCode} / {@code responseDescription} / {@code serviceVersionNumber}, plus any custom
+ * code fields configured under Rules (e.g. {@code resultCode}) — while keeping the line prefix (path,
+ * correlation/trace id, client version, direction, latency) intact. Request / response payloads never
+ * leave Splunk, so the export is small AND audit-safe (no customer data), and the existing {@code _raw}
+ * parser reads it unchanged. Lines with no JSON are left untouched.
+ *
+ * Custom code fields matter because a host whose response uses e.g. {@code "resultCode":"000000"} (not
+ * {@code responseCode}) would otherwise have that key stripped by the slimming — the export would show
+ * an empty {@code {}} and the analyser could never read the code. Each such field is {@code rex}'d out
+ * (it may nest at any depth in the payload — rex scans the whole line) and re-emitted into the slimmed
+ * JSON so the analyser's per-rule code field finds it. Skipped rules pass their field as {@code []} (not
+ * exported — the backend is out of the verdict anyway).
+ *
+ * @param extraCodeFields the custom code keys to also preserve (from the app's non-skip Rules).
  */
-const LEAN_JSON = [
-  '| rex field=_raw max_match=1 "(?i)\\"responseCode\\"\\s*:\\s*\\"?(?<rc>[^\\",}\\s]+)"',
-  '| rex field=_raw max_match=1 "(?i)\\"responseDescription\\"\\s*:\\s*\\"?(?<rd>[^\\",}]*)"',
-  '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
-  '| rex field=_raw "^(?<pfx>[^{]*)"',
-  '| eval parts=mvappend(if(isnull(rc),"","\\"responseCode\\":\\"".rc."\\""),if(isnull(rd),"","\\"responseDescription\\":\\"".rd."\\""),if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\""))',
-  '| eval parts=mvfilter(parts!="")',
-  '| eval _raw=if(pfx==_raw,_raw,pfx."{".coalesce(mvjoin(parts,","),"")."}")',
-].join('\n');
+function leanJson(extraCodeFields: string[] = []): string {
+  const extra = [...new Set(extraCodeFields.map((f) => f.trim()).filter(Boolean))]
+    .filter((f) => !STANDARD_LEAN_FIELDS.includes(f));   // the standard three are already emitted
+  const extraRex = extra.map((f, i) =>
+    `| rex field=_raw max_match=1 "(?i)\\"${f}\\"\\s*:\\s*\\"?(?<xc${i}>[^\\",}\\s]+)"`);
+  const parts = [
+    'if(isnull(rc),"","\\"responseCode\\":\\"".rc."\\"")',
+    'if(isnull(rd),"","\\"responseDescription\\":\\"".rd."\\"")',
+    'if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\"")',
+    ...extra.map((f, i) => `if(isnull(xc${i}),"","\\"${f}\\":\\"".xc${i}."\\"")`),
+  ];
+  return [
+    '| rex field=_raw max_match=1 "(?i)\\"responseCode\\"\\s*:\\s*\\"?(?<rc>[^\\",}\\s]+)"',
+    '| rex field=_raw max_match=1 "(?i)\\"responseDescription\\"\\s*:\\s*\\"?(?<rd>[^\\",}]*)"',
+    '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
+    ...extraRex,
+    '| rex field=_raw "^(?<pfx>[^{]*)"',
+    `| eval parts=mvappend(${parts.join(',')})`,
+    '| eval parts=mvfilter(parts!="")',
+    '| eval _raw=if(pfx==_raw,_raw,pfx."{".coalesce(mvjoin(parts,","),"")."}")',
+  ].join('\n');
+}
 
 /**
  * Build a Splunk search that returns the raw events (one combined query over the
  * selected front-end paths and their backends) within the time window, projected
  * as a single {@code _raw} column (sorted by time first). The trailing JSON is slimmed to just the
- * fields the analyser reads (see {@link LEAN_JSON}) so no payloads are exported. Exporting this as CSV
+ * fields the analyser reads (see {@link leanJson}) so no payloads are exported. Exporting this as CSV
  * yields exactly the (lean) lines the analyser reads back, so the same report drives the correlation.
  */
 export function buildEventsSpl(
@@ -67,7 +93,9 @@ export function buildEventsSpl(
   clientVersion = '',
   secure = false,
   sources: string[] = [],
+  extraCodeFields: string[] = [],
 ): string {
+  const lean = leanJson(extraCodeFields);
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   // Optional environment filter: (source="*env1*" OR source="*env2*") ANDed into the search so only the
   // chosen environment(s)' lines are fetched. Empty = every source (all environments).
@@ -105,7 +133,7 @@ export function buildEventsSpl(
       if (feS.length) groups.push(...feGroups(feS));
       if (beS.length) groups.push(...beGroups(beS));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${LEAN_JSON}\n| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${lean}\n| sort 0 - _time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -114,7 +142,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}${src}(${markers})${ver}\n${LEAN_JSON}\n| sort 0 _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${markers})${ver}\n${lean}\n| sort 0 _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -149,7 +177,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${LEAN_JSON}\n| sort 0 _time\n| table _raw`;
+  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${lean}\n| sort 0 _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

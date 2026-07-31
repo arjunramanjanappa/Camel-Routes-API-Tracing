@@ -586,9 +586,17 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         </>
       )}
 
-      <button className="trace" disabled={!canAnalyse || loading} onClick={run}>
-        {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
-      </button>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="trace" disabled={!canAnalyse || loading} onClick={run}>
+          {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
+        </button>
+        {report && canAnalyse && !loading && (
+          <button className="minibtn" onClick={run}
+                  title="Re-analyse the SAME uploaded log(s) with the current host response-code rules — no need to re-attach the file after editing a rule.">
+            ↻ Re-run with current rules
+          </button>
+        )}
+      </div>
 
       {loading && (() => {
         const uploading = !!progress && !progress.done;

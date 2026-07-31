@@ -396,7 +396,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
 
   const showReport = (rep: LogAnalysisReport | null) => {
     setReport(rep);
-    setOpen(new Set());
+    // Land on what needs attention: auto-expand the issue rows (not passed / skipped) that have detail to show;
+    // passed APIs stay collapsed.
+    const openKeys = new Set<string>();
+    (rep?.apis ?? []).forEach((a) => {
+      if (a.status !== 'SUCCESS' && a.status !== 'SKIPPED' && (a.backends.length > 0 || hasFailures(a.failuresByCode))) {
+        openKeys.add(a.api + a.operation);
+      }
+    });
+    setOpen(openKeys);
     setFilter('ALL');
     setSection((rep?.apis.length ?? 0) ? 'FE' : 'BE');   // default to whichever section has data
   };

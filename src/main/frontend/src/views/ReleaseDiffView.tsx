@@ -558,55 +558,65 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
 
       <CodeChangeBlock d={d} onOpenApi={onOpenApi} routeLog={routeLog} />
 
-      {chips.length > 0 && (
-        <div className="diff-changes">
-          {chips.map((c) => (
-            <span key={c.key} className={'chg ' + c.cls} title={c.title}>
-              <span className="chg-sym">{c.sym}</span> {c.text}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {svc.length > 0 && (
-        <div className="diff-svc">
-          {svc.map((s) => (
-            <div key={s.backend} className="diff-svc-row">
-              <span className="diff-svc-label">backend service version</span>
-              <code>{s.backend}</code>
-              <span className="svc-from">{s.fromVersion}</span>
-              <span className="diff-arrow">→</span>
-              <span className="svc-to">{s.toVersion}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* The element-level "What changed" diff is a BAU-impact concern: show it only when backward
-          compatibility is required (a payload field removed, or a BAU class changed). A change internal to the
-          new version-specific route impacts only the new app, not the prod BAU app — so its route-vs-route
-          diff would misleadingly imply a BAU change. */}
-      {needsBC(d) && d.routeDiffs?.length > 0 && (
-        <>
-          <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
-            <span className="collapse-caret">{open ? '▾' : '▸'}</span>
-            <span className="rdiff-toggle-title">What changed ({d.routeDiffs.length} route{d.routeDiffs.length > 1 ? 's' : ''})</span>
-            <span className="muted">backward-compatibility review</span>
-          </button>
-          {open && d.routeDiffs.map((rd) => <RouteDiffBlock key={rd.routeBase} d={rd} />)}
-        </>
-      )}
-
-      {d.payloadChange && (d.payloadChange.addedKeys.length > 0 || d.payloadChange.removedKeys.length > 0) && (
-        <div className="diff-payload" title="JSON keys added/removed in the request-body template (.ftl/.vm) — serviceVersionNumber excluded">
-          <span className="diff-payload-label">Payload change</span>
-          {d.payloadChange.addedKeys.map((k) => <span key={'+' + k} className="pk add">+ {k}</span>)}
-          {d.payloadChange.removedKeys.map((k) => <span key={'-' + k} className="pk del">− {k}</span>)}
-          <div className="bc-flag ok" title="This is the difference between the new version route and the unchanged lower (BAU) route — the old app keeps calling the lower route, so a field added or removed here is scoped to the new app and needs no backward-compat test. (A change to the BAU route's OWN payload is git-detected and flagged separately.)">
-            Scoped to the new version route — old app unchanged, no backward-compat needed
-          </div>
-        </div>
-      )}
+      {/* Release changes (new-version-scoped: route names, backend svc version, payload, element diff) are
+          collapsed by default so the card stays clean like a New card — the BAU/code (PROD-impact) blocks above
+          stay visible; these details expand on click. */}
+      {(() => {
+        const hasPayload = !!d.payloadChange && (d.payloadChange.addedKeys.length > 0 || d.payloadChange.removedKeys.length > 0);
+        const hasDiff = needsBC(d) && (d.routeDiffs?.length ?? 0) > 0;
+        if (chips.length === 0 && svc.length === 0 && !hasPayload && !hasDiff) return null;
+        const summary = [
+          chips.length > 0 && `${chips.length} route${chips.length > 1 ? 's' : ''}`,
+          svc.length > 0 && 'svc version',
+          hasPayload && 'payload',
+        ].filter(Boolean).join(' · ');
+        return (
+          <>
+            <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
+              <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+              <span className="rdiff-toggle-title">Release changes</span>
+              <span className="muted">{summary} — new-version-scoped</span>
+            </button>
+            {open && (
+              <>
+                {chips.length > 0 && (
+                  <div className="diff-changes">
+                    {chips.map((c) => (
+                      <span key={c.key} className={'chg ' + c.cls} title={c.title}>
+                        <span className="chg-sym">{c.sym}</span> {c.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {svc.length > 0 && (
+                  <div className="diff-svc">
+                    {svc.map((s) => (
+                      <div key={s.backend} className="diff-svc-row">
+                        <span className="diff-svc-label">backend service version</span>
+                        <code>{s.backend}</code>
+                        <span className="svc-from">{s.fromVersion}</span>
+                        <span className="diff-arrow">→</span>
+                        <span className="svc-to">{s.toVersion}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {hasDiff && d.routeDiffs.map((rd) => <RouteDiffBlock key={rd.routeBase} d={rd} />)}
+                {hasPayload && (
+                  <div className="diff-payload" title="JSON keys added/removed in the request-body template (.ftl/.vm) — serviceVersionNumber excluded">
+                    <span className="diff-payload-label">Payload change</span>
+                    {d.payloadChange!.addedKeys.map((k) => <span key={'+' + k} className="pk add">+ {k}</span>)}
+                    {d.payloadChange!.removedKeys.map((k) => <span key={'-' + k} className="pk del">− {k}</span>)}
+                    <div className="bc-flag ok" title="This is the difference between the new version route and the unchanged lower (BAU) route — the old app keeps calling the lower route, so a field added or removed here is scoped to the new app and needs no backward-compat test. (A change to the BAU route's OWN payload is git-detected and flagged separately.)">
+                      Scoped to the new version route — old app unchanged, no backward-compat needed
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        );
+      })()}
 
       <FlowCoverage log={log} />
 

@@ -379,39 +379,29 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
  */
 function BauRouteCallout({ report, onOpenApi }: { report: VersionDiffReport; onOpenApi?: (api: string) => void }) {
   const [open, setOpen] = useState(true);
-  const rows = report.apis
-    .filter((a) => a.bauRouteEdits?.length)
-    .flatMap((a) => (a.bauRouteEdits || []).map((e) => ({ api: a.api, e })));
-  if (!rows.length) return null;
+  // One row per API (an API may modify several BAU routes — list the API once). Details are in its card below.
+  const apis = report.apis.filter((a) => a.bauRouteEdits?.length);
+  if (!apis.length) return null;
   return (
     <div className="bau-callout" role="note">
       <button type="button" className="bau-callout-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="collapse-caret">{open ? '▾' : '▸'}</span>
         <span className="bau-callout-icon" aria-hidden="true">⚑</span>
-        <b>{rows.length} BAU route{rows.length === 1 ? '' : 's'} modified in place</b>
+        <b>{apis.length} API{apis.length === 1 ? '' : 's'} modified a BAU route in place</b>
         <span className="muted">existing PROD routes changed — High risk, regression-test the old app</span>
       </button>
       {open && (
         <div className="bau-callout-body">
-          {rows.map(({ api, e }) => {
-            const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
-            const parts = [
-              e.removedSteps.length && `−${e.removedSteps.length} step`,
-              e.addedSteps.length && `+${e.addedSteps.length} step`,
-              e.removedKeys.length && `−${e.removedKeys.length} payload key`,
-              e.addedKeys.length && `+${e.addedKeys.length} payload key`,
-              (e.changedValues?.length ?? 0) > 0 && `~${e.changedValues!.length} value`,
-            ].filter(Boolean);
+          {apis.map((a) => {
+            const incompat = (a.bauRouteEdits || []).some((e) => e.removedSteps.length > 0 || e.removedKeys.length > 0);
             return (
-              <div key={api + e.route} className="bau-callout-row">
-                <code className="bau-callout-route">{e.route}</code>
+              <div key={a.api} className="bau-callout-row">
+                {onOpenApi
+                  ? <button type="button" className="linkish bau-callout-api" title="Open this API's flow" onClick={() => onOpenApi(a.api)}>{a.api}</button>
+                  : <code className="bau-callout-api">{a.api}</code>}
                 <span className="bc-flag warn" title={incompat ? 'A step or payload key the old app relied on was removed — backward-incompatible' : 'A route already in production was changed — regression-test the old app'}>
                   {incompat ? 'backward-incompatible' : 'changes PROD'}
                 </span>
-                {parts.length > 0 && <span className="muted">{parts.join(', ')}</span>}
-                {onOpenApi
-                  ? <button type="button" className="linkish" title="Open this API's flow" onClick={() => onOpenApi(api)}>{api}</button>
-                  : <code className="bau-callout-api">{api}</code>}
               </div>
             );
           })}
@@ -470,25 +460,18 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
       {edits.map((e) => {
         const changedVals = e.changedValues || [];
         const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
-        const add = e.addedSteps.length + e.addedKeys.length;
-        const del = e.removedSteps.length + e.removedKeys.length;
         return (
-          <div key={e.route} className="rdiff">
-            <div className="rdiff-head">
-              <code>{e.route}</code>
-              <span className="row" style={{ gap: 8 }}>
-                <span className="rdiff-tally">
-                  <span className="add">+{add}</span> <span className="del">−{del}</span>
-                  {changedVals.length > 0 && <span className="muted"> ~{changedVals.length}</span>}
-                </span>
-                {incompat
-                  ? <span className="bc-flag warn" title="A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app">⚠ backward-incompatible</span>
-                  : <span className="bc-flag warn" title="A route already in production was changed — regression-test the old app">⚠ changes PROD — regression-test</span>}
+          <div key={e.route}>
+            {/* Header chip — uniform with the code-changed chip: route  — authors  [flag] */}
+            <span className="chg code" title="a BAU route the release edited in place — git-blame authors of its current lines">
+              {e.route}
+              {e.changedBy && e.changedBy.length > 0 && <span className="code-auth"> — {e.changedBy.join(', ')}</span>}
+              <span className={'bc-flag warn'} style={{ marginLeft: 6 }}
+                    title={incompat ? 'A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app' : 'A route already in production was changed — regression-test the old app'}>
+                {incompat ? 'backward-incompatible' : 'changes PROD'}
               </span>
-            </div>
-            {e.changedBy && e.changedBy.length > 0 && (
-              <div className="rdiff-by"><span className="rdiff-by-label">Changed by</span> {e.changedBy.join(', ')}</div>
-            )}
+            </span>
+            {/* Below the header: what changed (same +/- diff style as the code section) */}
             <pre className="rdiff-body">
               {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
               {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
@@ -563,6 +546,13 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         )}
       </div>
 
+      {/* BAU-impact changes FIRST (highest severity — they touch the prod/old app): an in-place BAU-route edit,
+          then a shared BAU class change. The new-version-scoped "release changes" (chips / svc / route diff /
+          payload) follow below. */}
+      <BauRouteEditBlock d={d} />
+
+      <CodeChangeBlock d={d} onOpenApi={onOpenApi} routeLog={routeLog} />
+
       {chips.length > 0 && (
         <div className="diff-changes">
           {chips.map((c) => (
@@ -612,10 +602,6 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           </div>
         </div>
       )}
-
-      <CodeChangeBlock d={d} onOpenApi={onOpenApi} routeLog={routeLog} />
-
-      <BauRouteEditBlock d={d} />
 
       <FlowCoverage log={log} />
 

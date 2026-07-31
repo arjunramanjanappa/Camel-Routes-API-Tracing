@@ -171,6 +171,9 @@ class CodeChangeImpactTest {
         assertThat(status.risk()).isEqualTo(ApiDiff.RISK_HIGH);
         assertThat(report.getHighRiskCount()).isGreaterThanOrEqualTo(1);
         assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
+        // getStatus is an UNCHANGED API (falls back to R7.14) — modifying its BAU route promotes it into the
+        // Changed COUNT so the left-nav count matches the list.
+        assertThat(report.getChangedCount()).isGreaterThanOrEqualTo(1);
     }
 
     @Test

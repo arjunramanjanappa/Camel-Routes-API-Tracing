@@ -858,11 +858,31 @@ public class RouteTraceService {
             return;
         }
         List<ApiDiff> apis = report.getApis();
+        int newToChanged = 0;
+        int unchangedToChanged = 0;
         for (int i = 0; i < apis.size(); i++) {
-            List<BauRouteEdit> edits = byApi.get(apis.get(i).api());
-            if (edits != null && !edits.isEmpty()) {
-                apis.set(i, apis.get(i).withBauRouteEdits(edits));
+            ApiDiff a = apis.get(i);
+            List<BauRouteEdit> edits = byApi.get(a.api());
+            if (edits == null || edits.isEmpty()) {
+                continue;
             }
+            apis.set(i, a.withBauRouteEdits(edits));
+            // A New/Unchanged API whose BAU route the release modified is High — promote it into the Changed
+            // group so its count matches the list (the frontend groups it as Changed via effectiveStatus).
+            // codeChanged APIs were already promoted by the shared-class pass above, so don't double-count them.
+            if (!a.codeChanged()) {
+                if (ApiDiff.NEW.equals(a.status())) {
+                    newToChanged++;
+                } else if (ApiDiff.UNCHANGED.equals(a.status())) {
+                    unchangedToChanged++;
+                }
+            }
+        }
+        int promoted = newToChanged + unchangedToChanged;
+        if (promoted > 0) {
+            report.setNewCount(Math.max(0, report.getNewCount() - newToChanged));
+            report.setUnchangedCount(Math.max(0, report.getUnchangedCount() - unchangedToChanged));
+            report.setChangedCount(report.getChangedCount() + promoted);
         }
     }
 

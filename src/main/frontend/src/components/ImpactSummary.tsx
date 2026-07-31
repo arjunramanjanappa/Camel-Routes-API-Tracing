@@ -12,11 +12,16 @@ import { groupItemsByFeature } from '../feature';
 type Risk = 'High' | 'Medium' | 'Low';
 const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
-/** A NEW API that changed shared BAU code is grouped under Changed (mirrors the backend promotion). */
-function effectiveStatus(a: ApiDiff): DiffStatus { return (a.status === 'NEW' || a.status === 'UNCHANGED') && a.codeChanged ? 'CHANGED' : a.status as DiffStatus; }
+function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
+/** A NEW/UNCHANGED API that changed shared BAU code OR modified a BAU route in place is grouped under Changed
+ *  (mirrors the backend count promotion). */
+function effectiveStatus(a: ApiDiff): DiffStatus {
+  return (a.status === 'NEW' || a.status === 'UNCHANGED') && (a.codeChanged || bauRouteModified(a)) ? 'CHANGED' : a.status as DiffStatus;
+}
 
 /** Plain-English "what changed" for a stakeholder — one primary reason, derived from existing fields. */
 function whatChanged(a: ApiDiff): { label: string; kind: string } {
+  if (bauRouteModified(a)) return { label: 'BAU route modified (PROD)', kind: 'code' };
   if (effectiveStatus(a) === 'NEW') return { label: 'New API', kind: 'new' };
   if (a.codeChanged) return { label: 'Shared code changed', kind: 'code' };
   if (a.payloadChange?.removedKeys?.length || a.payloadChange?.addedKeys?.length) return { label: 'Request/response changed', kind: 'payload' };
@@ -43,7 +48,7 @@ export default function ImpactSummary({ report, log }: {
   // The APIs that need verifying: Changed + New for a diff; for the N/A snapshot (no diff), the ones whose
   // shared code this release changed. Highest-risk first.
   const toVerify = (snapshot
-    ? report.apis.filter((a) => a.codeChanged)
+    ? report.apis.filter((a) => a.codeChanged || bauRouteModified(a))
     : report.apis.filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT'))
     .sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
 

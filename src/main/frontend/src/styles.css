@@ -295,6 +295,14 @@ table.grid tr:hover td { background: #f7f9fb; }
 .lstat.skipped { background: #e2e8f0; color: #475569; }
 .lstat.not_tested { background: #fee2e2; color: #991b1b; }
 tr.lrow.skipped td { background: #f8fafc; }
+/* Risk/status spine on the Verify-with-logs rows (matches the Impact-card spine). */
+.lrow > td:first-child { border-left: 3px solid transparent; }
+.lrow.failed > td:first-child, .lrow.timeout > td:first-child { border-left-color: #ea580c; }
+.lrow.partial > td:first-child { border-left-color: #d97706; }
+.lrow.not_tested > td:first-child { border-left-color: #dc2626; }
+.lrow.success > td:first-child { border-left-color: #16a34a; }
+.lrow.skipped > td:first-child { border-left-color: #94a3b8; }
+.lrow.indeterminate > td:first-child { border-left-color: #2563eb; }
 tr.lrow.not_tested td { background: #fef4f4; }
 tr.lrow.failed td { background: #fff6f1; }
 tr.lrow.timeout td { background: #f8f6ff; }
@@ -676,6 +684,15 @@ tr.lsub.bau td, tr.lrow.bau td { opacity: .8; }
 .diff-card.changed { border-left-color: #f59e0b; }
 .diff-card.new { border-left-color: #22c55e; }
 .diff-card.unchanged { border-left-color: #cbd5e1; opacity: .85; }
+/* Risk spine: High risk overrides to red so the cards that need attention pop (declared after status = wins). */
+.diff-card.risk-high { border-left-color: #dc2626; }
+[data-theme="dark"] .diff-card.risk-high { border-left-color: #ef4444; }
+/* Collapsed-to-row: caret + one-line verdict summary. */
+.card-caret { border: 0; background: none; cursor: pointer; color: var(--muted, #64748b); font-size: 11px; padding: 0 2px 0 0; flex: none; }
+.card-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin-top: 6px; padding: 2px 0 0; background: none; border: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.card-summary-text { font-size: 12px; font-weight: 600; }
+.card-summary-hint { font-size: 11px; color: var(--muted, #64748b); flex: none; }
+.card-summary:hover .card-summary-hint { text-decoration: underline; }
 .diff-card-id { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .diff-card-id code { font-size: 13px; font-weight: 700; word-break: break-all; }
 .diff-card-id .op { font-size: 11px; }

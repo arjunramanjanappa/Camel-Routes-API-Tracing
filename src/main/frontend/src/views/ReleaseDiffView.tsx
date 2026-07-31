@@ -177,6 +177,26 @@ function riskReasons(a: ApiDiff): string[] {
   return why;
 }
 
+/** One plain-English line summarising a card: risk + the single most important reason. */
+function verdictLine(d: ApiDiff): string {
+  const risk = riskOf(d);
+  if (bauRouteModified(d)) return `${risk} · BAU route modified in place — regression needed`;
+  if (d.codeChanged) return `${risk} · shared BAU class changed — regression needed`;
+  if (d.status === 'NEW') return `${risk} · new API — new-app work, no BAU impact`;
+  if (d.backendVersionChanges?.length) return `${risk} · backend service version bumped (new route)`;
+  const add = d.payloadChange?.addedKeys?.length ?? 0;
+  const rem = d.payloadChange?.removedKeys?.length ?? 0;
+  if (add || rem) {
+    const parts = [rem ? `−${rem}` : '', add ? `+${add}` : ''].filter(Boolean).join(' ');
+    return `${risk} · new-version route · payload ${parts} field(s), no BAU impact`;
+  }
+  if ((d.routeDiffs?.length ?? 0) > 0 || (d.addedRoutes?.length ?? 0) > 0 || (d.removedRoutes?.length ?? 0) > 0) {
+    return `${risk} · route/flow changed — new-version-scoped`;
+  }
+  if (d.status === 'UNCHANGED') return 'version bumped — identical flow';
+  return `${risk} · changed`;
+}
+
 /**
  * The tab a diff belongs to. A NEW API that changed shared BAU code is grouped under Changed — that Java
  * change means BAU APIs using the class need regression-testing, so it belongs where testers look for changes.
@@ -505,14 +525,17 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
   const tested = testedMeta(log);
   const [editingRemark, setEditingRemark] = useState(false);
   const [remarkDraft, setRemarkDraft] = useState(remark ?? '');
+  const [expanded, setExpanded] = useState(false);   // collapsed to a scannable row by default; details on click
   // An UNCHANGED card with a note is a fallback API (no route at the target version).
   const fallback = d.status === 'UNCHANGED' && !!d.note;
   const showPill = !!d.lowerVersion && (d.status === 'CHANGED' || (d.status === 'UNCHANGED' && !fallback));
   const chips = changeChips(d);
   return (
-    <div className={'diff-card ' + d.status.toLowerCase()}>
+    <div className={'diff-card ' + d.status.toLowerCase() + ' risk-' + riskOf(d).toLowerCase() + (expanded ? ' open' : '')}>
       <div className="diff-card-head row between">
         <div className="diff-card-id">
+          <button type="button" className="card-caret" aria-expanded={expanded}
+                  title={expanded ? 'Collapse' : 'Expand details'} onClick={() => setExpanded(!expanded)}>{expanded ? '▾' : '▸'}</button>
           <code>{d.api}</code>
           <span className="muted op">{d.operation}</span>
         </div>
@@ -533,6 +556,14 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         </span>
       </div>
 
+      {/* Always-visible one-line verdict — click to expand the full detail (route diff, code/BAU, coverage). */}
+      <button type="button" className="card-summary" onClick={() => setExpanded(!expanded)}>
+        <span className="card-summary-text">{verdictLine(d)}</span>
+        <span className="card-summary-hint">{expanded ? '' : 'details ▸'}</span>
+      </button>
+
+      {expanded && (
+      <>
       <div className="diff-verdict">
         {d.status === 'NEW' ? (
           <>Added in <b>{d.targetVersion}</b> — no earlier version to compare against. <span className="tag route">{d.targetRoute}</span>
@@ -646,6 +677,8 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
         <button className="linkbtn" onClick={onCopy}>{copied ? 'Copied ✓' : 'Copy'}</button>
       </div>
+      </>
+      )}
     </div>
   );
 }

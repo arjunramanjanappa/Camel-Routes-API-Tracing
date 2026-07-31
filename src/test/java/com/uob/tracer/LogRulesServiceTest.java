@@ -47,6 +47,15 @@ class LogRulesServiceTest {
     }
 
     @Test
+    void effectiveCodeFieldsIncludesEveryRulesCodeFieldSoItIsReadAtParseTime() {
+        // A codeField declared ONLY on a rule (not in the app-wide codeFields) must still be read at parse time,
+        // else the rule's successCodes never match (the code stays null). responseCode is always first.
+        AppRules rules = new AppRules(List.of(),
+                List.of(new Rule("*/host/xyz", "resultCode", List.of("000000"), false)));
+        assertEquals(List.of("responseCode", "resultCode"), rules.effectiveCodeFields());
+    }
+
+    @Test
     void ruleForMatchesHosturlByGlobInOrder(@TempDir Path home) {
         AppRules rules = new AppRules(List.of(), List.of(
                 new Rule("*/host/limit/*", null, List.of(), true),

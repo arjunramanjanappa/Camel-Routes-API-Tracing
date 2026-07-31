@@ -60,11 +60,22 @@ public class LogRulesService {
             return new AppRules(List.of(), List.of());
         }
 
-        /** The ordered code keys to try when reading a backend response code (always includes {@code responseCode}). */
+        /**
+         * The ordered code keys to try when reading a backend response code — {@code responseCode} first, then
+         * the app-wide {@code codeFields} fallbacks, then every rule's own {@code codeField}. Rule fields are
+         * included so a per-rule {@code codeField} (e.g. {@code resultCode}) is actually READ at parse time; the
+         * matching rule then judges success against its {@code successCodes}.
+         */
         public List<String> effectiveCodeFields() {
             List<String> out = new ArrayList<>();
             out.add("responseCode");
             for (String f : codeFields) {
+                if (f != null && !f.isBlank() && !out.contains(f.trim())) {
+                    out.add(f.trim());
+                }
+            }
+            for (Rule r : rules) {
+                String f = r.codeField();
                 if (f != null && !f.isBlank() && !out.contains(f.trim())) {
                     out.add(f.trim());
                 }

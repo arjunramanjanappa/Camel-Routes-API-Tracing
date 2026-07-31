@@ -460,15 +460,20 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
       {edits.map((e) => {
         const changedVals = e.changedValues || [];
         const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
+        const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
+        const hasBody = e.addedSteps.length > 0 || e.removedSteps.length > 0;
         return (
           <div key={e.route}>
-            {/* Header chip — uniform with the code-changed chip: route  — authors  [flag] */}
+            {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind + regression tags */}
             <span className="chg code" title="a BAU route the release edited in place — git-blame authors of its current lines">
               {e.route}
               {e.changedBy && e.changedBy.length > 0 && <span className="code-auth"> — {e.changedBy.join(', ')}</span>}
-              <span className={'bc-flag warn'} style={{ marginLeft: 6 }}
-                    title={incompat ? 'A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app' : 'A route already in production was changed — regression-test the old app'}>
-                {incompat ? 'backward-incompatible' : 'changes PROD'}
+              {hasPayload && <span className="chg-tag payload" title="the request payload this BAU route sends changed">Payload change</span>}
+              {hasBody && <span className="chg-tag body" title="a step in this BAU route changed">Route change</span>}
+              <span className="chg-tag regr" title={incompat
+                ? 'A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app'
+                : 'A route already in production was changed — regression-test the old app'}>
+                {incompat ? 'Regression needed · backward-incompatible' : 'Regression needed'}
               </span>
             </span>
             {/* Below the header: what changed (same +/- diff style as the code section) */}

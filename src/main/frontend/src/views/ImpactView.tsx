@@ -11,7 +11,6 @@ import { exportImpactPdf } from '../impactPdf';
 import Checklist from '../components/Checklist';
 import SplunkPanel from '../components/SplunkPanel';
 import LogAnalysisPanel, { type LogModule } from '../components/LogAnalysisPanel';
-import LogRulesEditor from '../components/LogRulesEditor';
 import ApiFlowModal from '../components/ApiFlowModal';
 import Loader, { IMPACT_MESSAGES } from '../components/Loader';
 import Collapsible from '../components/Collapsible';
@@ -388,9 +387,6 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
                             modules={logModules}
                             deps={depParams(deps)} needsReview={idx.needsReview}
                             onReport={setAnalysed} viewMode={viewMode} />
-          <div className="panel" style={{ marginTop: 12 }}>
-            <LogRulesEditor />
-          </div>
         </div>
         </>
       )}

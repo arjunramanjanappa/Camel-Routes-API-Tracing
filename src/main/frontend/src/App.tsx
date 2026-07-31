@@ -4,6 +4,7 @@ import ImpactView from './views/ImpactView';
 import ReleaseDiffView from './views/ReleaseDiffView';
 import AppPicker from './components/AppPicker';
 import ConfigMenu from './components/ConfigMenu';
+import RulesMenu from './components/RulesMenu';
 
 type View = 'trace' | 'impact' | 'diff';
 type Theme = 'light' | 'dark';
@@ -16,6 +17,7 @@ export default function App() {
   // Summary (for release managers/leads) vs Detailed (for devs/testers). Default Summary; remembered per user.
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem('tracer.viewMode') as ViewMode) || 'summary');
   const [showConfig, setShowConfig] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -54,7 +56,8 @@ export default function App() {
           {/* Utilities */}
           <div className="nav-group nav-util">
             <button className="tab" title="Switch application" onClick={() => setApp(null)}>⇄ App</button>
-            <button className="tab" title="Config — Bitbucket / npm tokens" onClick={() => setShowConfig(true)}>🔑 Config</button>
+            <button className="tab" title="Config — Bitbucket / npm tokens · Splunk URL" onClick={() => setShowConfig(true)}>🔑 Config</button>
+            <button className="tab" title="Host response-code rules — skip a backend or read a custom result code (log analysis)" onClick={() => setShowRules(true)}>⚙ Rules</button>
             <button className="tab theme-toggle" title="Toggle theme" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
               {theme === 'light' ? '🌙' : '☀️'}
             </button>
@@ -65,6 +68,7 @@ export default function App() {
       {view === 'impact' && <ImpactView app={app} colorMode={theme} viewMode={viewMode} />}
       {view === 'diff' && <ReleaseDiffView app={app} colorMode={theme} viewMode={viewMode} />}
       {showConfig && <ConfigMenu onClose={() => setShowConfig(false)} />}
+      {showRules && <RulesMenu onClose={() => setShowRules(false)} />}
     </div>
   );
 }

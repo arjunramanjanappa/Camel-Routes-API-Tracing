@@ -10,7 +10,6 @@ const EMPTY: AppLogRules = { codeFields: [], rules: [] };
  * skip the backend from the verdict (→ Skipped). Front-end lines are unaffected.
  */
 export default function LogRulesEditor() {
-  const [open, setOpen] = useState(false);
   const [map, setMap] = useState<LogRulesMap>({});
   const [app, setApp] = useState(APPS[0]);
   const [busy, setBusy] = useState(false);
@@ -18,18 +17,8 @@ export default function LogRulesEditor() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) fetchLogRules().then(setMap).catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [open]);
-
-  if (!open) {
-    return (
-      <button type="button" className="rdiff-toggle" onClick={() => setOpen(true)}>
-        <span className="collapse-caret">▸</span>
-        <span className="rdiff-toggle-title">⚙ Host response-code rules</span>
-        <span className="muted">alt code field · custom success · skip — saved to log-rules.json</span>
-      </button>
-    );
-  }
+    fetchLogRules().then(setMap).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
 
   const cur = useMemo<AppLogRules>(() => map[app] ?? EMPTY, [map, app]);
   const setCur = (next: AppLogRules) => { setMap((m) => ({ ...m, [app]: next })); setSaved(false); };
@@ -62,16 +51,12 @@ export default function LogRulesEditor() {
 
   return (
     <div className="cfg-field">
-      <button type="button" className="rdiff-toggle" onClick={() => setOpen(false)}>
-        <span className="collapse-caret">▾</span>
-        <span className="rdiff-toggle-title">⚙ Host response-code rules</span>
-        <span className="muted">saved to log-rules.json</span>
-      </button>
-      <div className="sub" style={{ marginTop: 4 }}>
+      <div className="sub" style={{ marginTop: 0 }}>
         For a matching backend <b>hosturl</b> (the path in a <code>[…HostMessage]</code> line — <b>not</b> the
         front-end API path), read the code from a different key (e.g. <code>resultCode</code>), treat a custom
         value as success, or <b>skip</b> it from the verdict (shown as <b>Skipped</b>). Front-end (controller)
-        lines are unaffected. After saving, <b>re-run the analysis</b> (re-attach the log) for it to apply.
+        lines are unaffected. After saving, use <b>↻ Re-run with current rules</b> on the Release Test tab —
+        no need to re-attach the log.
       </div>
 
       <div className="seg" style={{ marginTop: 6 }}>

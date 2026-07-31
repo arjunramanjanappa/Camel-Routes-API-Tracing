@@ -88,6 +88,13 @@ public class RouteTraverser {
     /** How many {@code <choice>} branches deep the current path is — {@code >0} means everything reached now
      *  (including sub-routes) is conditional, so a not-observed backend there is not a coverage gap. */
     private int branchDepth;
+    /** {@code >0} while walking the children of a {@code <loadBalance>} — those {@code <to>} targets are
+     *  interchangeable primary/secondary (failover / round-robin) endpoints of ONE logical backend. */
+    private int loadBalanceDepth;
+    /** True once a load-balanced host/terminal target has been emitted in the current route body. The
+     *  remaining alternatives (incl. the secondary branch of a choice-of-load-balancers) are the SAME
+     *  logical host, so they are not fanned out into extra host nodes each expecting their own log line. */
+    private boolean loadBalancedHostEmitted;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
     /** Resolved (existing) route from the most recent DEST_ROUTE-style setProperty — the dynamic toD target. */
     private String currentDestRoute;
@@ -177,6 +184,10 @@ public class RouteTraverser {
         }
         if (firstVisit) {
             response.getFlow().add(identity);
+            // The load-balanced-host collapse is scoped to this (non-host) route body — the widest scope a
+            // <loadBalance> (or a choice whose branches each load-balance) can span. Host bodies aren't
+            // walked, so visiting a load-balanced host target won't reset this mid-collapse.
+            loadBalancedHostEmitted = false;
             List<PendingApi> active = new ArrayList<>(inherited);
             // Leftover = api set in/inherited by this route that no downstream route
             // consumed → this route is itself the consumer.
@@ -219,6 +230,13 @@ public class RouteTraverser {
         for (PendingApi p : all) {
             addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute());   // host instance → backend
         }
+    }
+
+    /** A {@code <loadBalance>} (or {@code <loadBalancer>}) container — its {@code <to>} children are
+     *  interchangeable failover/round-robin endpoints of one logical backend, not separate calls. */
+    private static boolean isLoadBalance(String containerName) {
+        return containerName != null
+                && containerName.toLowerCase(java.util.Locale.ROOT).startsWith("loadbalance");
     }
 
     /** True if a route hands off to another route via direct:/seda:/vm: (i.e. it is not terminal). */
@@ -329,7 +347,17 @@ public class RouteTraverser {
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch, active, forward);
             } else if (el instanceof ContainerElement container) {
-                walk(container.children(), currentNodeId, branch, active, forward);
+                boolean lb = isLoadBalance(container.kind());
+                if (lb) {
+                    loadBalanceDepth++;
+                }
+                try {
+                    walk(container.children(), currentNodeId, branch, active, forward);
+                } finally {
+                    if (lb) {
+                        loadBalanceDepth--;
+                    }
+                }
             }
             // WhenElement never appears at this level (only inside ChoiceElement)
         }
@@ -392,6 +420,17 @@ public class RouteTraverser {
             RouteModel targetRoute = registry.lookup(target);
             boolean terminalConsumer = targetRoute != null
                     && (targetRoute.host() || !forwardsFurther(targetRoute.elements()));
+            // A load-balanced host/terminal call (inside a <loadBalance>, incl. a choice whose branches each
+            // load-balance to a primary/secondary route) is ONE logical backend. Follow the first such target
+            // in this route body; the rest are the same host under a different URL — don't fan them out into
+            // extra host nodes each expecting their own log response.
+            if (loadBalanceDepth > 0 && terminalConsumer) {
+                if (loadBalancedHostEmitted) {
+                    active.clear();
+                    return;
+                }
+                loadBalancedHostEmitted = true;
+            }
             if (forward && !active.isEmpty() && terminalConsumer) {
                 // This call hands a backend to a host / terminal route. Give it its OWN
                 // instance node so the route→host→backend chain is per-call, not an

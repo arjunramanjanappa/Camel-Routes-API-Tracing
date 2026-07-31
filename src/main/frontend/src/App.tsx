@@ -57,7 +57,7 @@ export default function App() {
           <div className="nav-group nav-util">
             <button className="tab" title="Switch application" onClick={() => setApp(null)}>⇄ App</button>
             <button className="tab" title="Config — Bitbucket / npm tokens · Splunk URL" onClick={() => setShowConfig(true)}>🔑 Config</button>
-            <button className="tab" title="Host response-code rules — skip a backend or read a custom result code (log analysis)" onClick={() => setShowRules(true)}>⚙ Rules</button>
+            <button className="tab" title="Host response-code rules — skip a backend or read a custom result code (log analysis)" onClick={() => setShowRules(true)}>🚦 Rules</button>
             <button className="tab theme-toggle" title="Toggle theme" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
               {theme === 'light' ? '🌙' : '☀️'}
             </button>

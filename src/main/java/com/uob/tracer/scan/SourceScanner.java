@@ -297,7 +297,14 @@ public class SourceScanner {
 
     private Optional<String> readQuietly(Path p) {
         try {
-            return Optional.of(Files.readString(p));
+            String s = Files.readString(p);
+            // Strip a leading UTF-8 BOM (common in Windows-saved XML). Left in, it is "content in prolog" and
+            // makes every XML parser fail at 1:1 — dropping the file's routes AND its <import>/<routeContext>
+            // metadata, which makes a <routeContextRef> to it look unresolved even though the file is present.
+            if (!s.isEmpty() && s.charAt(0) == 0xFEFF) {
+                s = s.substring(1);
+            }
+            return Optional.of(s);
         } catch (Exception e) {
             return Optional.empty();                          // unreadable / non-UTF8 — skip
         }

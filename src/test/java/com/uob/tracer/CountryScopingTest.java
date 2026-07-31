@@ -99,6 +99,28 @@ class CountryScopingTest {
     }
 
     @Test
+    void aBomPrefixedRouteContextFileStillResolvesItsRouteContextRef(@TempDir Path dir) throws Exception {
+        // A BOM-saved routeContext file must still register its <routeContext id> + routes — otherwise the
+        // <routeContextRef ref="sgContext"> in SG.xml reads as "Unresolved" even though the file is present.
+        Files.writeString(dir.resolve("SG.xml"), bootstrap("sgContext", null));
+        Files.createDirectories(dir.resolve("sg"));
+        Files.writeString(dir.resolve("sg/sg-routes.xml"),
+                ((char) 0xFEFF) + routeContext("sgContext", "sgOnlyRoute", "{{baseUrl}}/sg"));   // leading UTF-8 BOM
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @CommandHandler @PostMapping("/sg") public Object sgOnlyRoute(Object b){ return null; }
+                }
+                """);
+        RouteTraceService svc = new RouteTraceService(dir.toString());
+        TraceResponse sg = svc.trace(new TraceRequest("sgOnlyRoute", null, null, null, "SG"));
+        assertThat(sg.getFlow()).contains("sgOnlyRoute");
+        assertThat(sg.getWarnings()).noneMatch(w -> w.contains("Unresolved <routeContextRef"));
+        assertThat(sg.getWarnings()).noneMatch(w -> w.contains("Route not found"));
+    }
+
+    @Test
     void myScopeIncludesOnlyMyRoutes() {
         assertThat(trace("MY", "myOnlyRoute").getFlow()).contains("myOnlyRoute");
         assertThat(trace("MY", "sgOnlyRoute").getWarnings()).anyMatch(w -> w.contains("Route not found"));

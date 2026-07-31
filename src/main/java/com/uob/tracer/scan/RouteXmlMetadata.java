@@ -111,6 +111,14 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
         return out;
     }
 
+    // Rethrow parse failures (parse() catches them and degrades to empty metadata) but WITHOUT the default
+    // handler's noisy "[Fatal Error] …" print to stderr.
+    private static final org.xml.sax.ErrorHandler QUIET = new org.xml.sax.ErrorHandler() {
+        @Override public void warning(org.xml.sax.SAXParseException e) { }
+        @Override public void error(org.xml.sax.SAXParseException e) throws org.xml.sax.SAXException { throw e; }
+        @Override public void fatalError(org.xml.sax.SAXParseException e) throws org.xml.sax.SAXException { throw e; }
+    };
+
     private static Document parseSecure(String xml) throws Exception {
         DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
         f.setNamespaceAware(true);
@@ -118,6 +126,11 @@ public record RouteXmlMetadata(List<String> imports, List<String> contextRefs,
         f.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
         f.setExpandEntityReferences(false);
         DocumentBuilder b = f.newDocumentBuilder();
-        return b.parse(new InputSource(new StringReader(xml)));
+        b.setErrorHandler(QUIET);
+        // A leading UTF-8 BOM (a BOM-saved SG.xml / imported routeContext file) is "content in prolog" and
+        // fails parsing at 1:1 — which would drop this file's imports / routeContext ids and make a
+        // <routeContextRef> look unresolved. Strip it so the metadata (and the closure) resolve.
+        String cleaned = !xml.isEmpty() && xml.charAt(0) == 0xFEFF ? xml.substring(1) : xml;
+        return b.parse(new InputSource(new StringReader(cleaned)));
     }
 }

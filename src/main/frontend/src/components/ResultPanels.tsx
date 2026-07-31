@@ -81,9 +81,14 @@ function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'ca
 
   // Collapsed by default, so the catalog reads as an overview; the release group opens first,
   // N/A / no-route stay collapsed (they're base/noise for a concrete release).
-  const [open, setOpen] = useState<Set<string>>(() => new Set(
-    cat.groups.filter((g) => g.version !== 'N/A' && g.version !== '(no route found)').map((g) => g.version),
-  ));
+  const [open, setOpen] = useState<Set<string>>(() => {
+    const versioned = cat.groups.filter((g) => g.version !== 'N/A' && g.version !== '(no route found)');
+    const total = versioned.reduce((n, g) => n + g.traces.length, 0);
+    // Collapse to one-line "▸ Release 9.14 (12 APIs)" rows by default when there's a lot to scan (several groups
+    // or many APIs); a small single-group catalog stays open. The flow graph is the detail view.
+    const collapseAll = versioned.length > 1 || total > 10;
+    return new Set(collapseAll ? [] : versioned.map((g) => g.version));
+  });
   const toggle = (v: string) => setOpen((prev) => {
     const next = new Set(prev);
     if (next.has(v)) next.delete(v); else next.add(v);

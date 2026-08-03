@@ -182,6 +182,25 @@ public class LogRulesService {
         }
     }
 
+    /** The resolved config file — used by {@link ConfigSeeder} to locate the file and its seed baseline. */
+    public Path file() {
+        return file;
+    }
+
+    /** Atomically replace the whole rules file with pre-merged JSON (used by the seed 3-way merge). */
+    public void overwrite(byte[] json) {
+        synchronized (lock) {
+            try {
+                Files.createDirectories(home);
+                Path tmp = file.resolveSibling("log-rules.json.tmp");
+                Files.write(tmp, json);
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                LOG.warn("Could not write merged log rules to {} ({})", file, e.getMessage());
+            }
+        }
+    }
+
     private void writeAll(Map<String, AppRules> all) {
         try {
             Files.createDirectories(home);

@@ -88,6 +88,28 @@ public class AppConfigService {
         }
     }
 
+    /** The resolved config file — used by {@link ConfigSeeder} to locate the file and its seed baseline. */
+    public Path file() {
+        return file;
+    }
+
+    /** Atomically replace the whole module-config file with pre-merged JSON (used by the seed 3-way merge). */
+    public void overwrite(byte[] json) {
+        synchronized (lock) {
+            try {
+                Path parent = file.toAbsolutePath().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+                Files.write(tmp, json);
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                LOG.warn("Could not write merged app module config to {} ({})", file, e.getMessage());
+            }
+        }
+    }
+
     /**
      * First-run seed: if no module config exists yet (neither the machine-wide file nor the legacy
      * location), write the given JSON verbatim — a module-mapping bundle shipped with the app so a fresh

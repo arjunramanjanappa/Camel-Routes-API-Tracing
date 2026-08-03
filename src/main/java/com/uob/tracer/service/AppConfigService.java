@@ -26,9 +26,6 @@ public class AppConfigService {
     /** One configured module — the same shape the UI's ModuleSource uses, minus its client-side id. */
     public record ModuleEntry(String sourceType, String sourceDir, String repo, String branch) {}
 
-    /** Where the module config lived before it moved under the machine-wide home; read once for migration. */
-    private static final Path LEGACY_FILE = Path.of("config", "app-modules.json");
-
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AppConfigService.class);
 
     private final Path file;
@@ -52,16 +49,14 @@ public class AppConfigService {
     /** Every app's configured module list, keyed by app name. Empty map when the file doesn't exist yet. */
     public Map<String, List<ModuleEntry>> readAll() {
         synchronized (lock) {
-            Path src = Files.exists(file) ? file
-                    : (Files.exists(LEGACY_FILE) ? LEGACY_FILE : null);   // fall back to the pre-move location
-            if (src == null) {
+            if (!Files.exists(file)) {
                 return new LinkedHashMap<>();
             }
             try {
-                return mapper.readValue(Files.readAllBytes(src),
+                return mapper.readValue(Files.readAllBytes(file),
                         new TypeReference<LinkedHashMap<String, List<ModuleEntry>>>() {});
             } catch (IOException e) {
-                throw new IllegalArgumentException("Could not read the app config at " + src + ": " + e.getMessage());
+                throw new IllegalArgumentException("Could not read the app config at " + file + ": " + e.getMessage());
             }
         }
     }
@@ -111,18 +106,17 @@ public class AppConfigService {
     }
 
     /**
-     * First-run seed: if no module config exists yet (neither the machine-wide file nor the legacy
-     * location), write the given JSON verbatim — a module-mapping bundle shipped with the app so a fresh
-     * install starts with the team's module lists (a one-time setup). NEVER overwrites existing config:
-     * user edits always win. Holds no tokens (module lists carry only source type / dir / repo / branch).
-     * Returns true if it wrote.
+     * First-run seed: if no module config exists yet, write the given JSON verbatim — a module-mapping
+     * bundle shipped with the app so a fresh install starts with the team's module lists (a one-time setup).
+     * NEVER overwrites existing config: user edits always win. Holds no tokens (module lists carry only
+     * source type / dir / repo / branch). Returns true if it wrote.
      */
     public boolean seedIfAbsent(byte[] json) {
         if (json == null || json.length == 0) {
             return false;
         }
         synchronized (lock) {
-            if (Files.exists(file) || Files.exists(LEGACY_FILE)) {
+            if (Files.exists(file)) {
                 return false;
             }
             try {

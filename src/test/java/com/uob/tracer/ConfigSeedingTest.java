@@ -9,7 +9,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,15 +35,16 @@ class ConfigSeedingTest {
     }
 
     @Test
-    void moduleSeedNeverOverwritesExistingConfig(@TempDir Path dir) {
-        // Point at an explicit temp file so the assertion doesn't depend on the machine's ambient config.
-        AppConfigService modules = new AppConfigService("", dir.resolve("app-modules.json").toString(), mapper);
-        modules.save("Mighty", List.of(new AppConfigService.ModuleEntry("source", "/repo", null, null)));
+    void seedsModuleMappingsWhenAbsentButNeverOverwritesExisting(@TempDir Path dir) {
+        AppConfigService modules = new AppConfigService(dir.toString(), "", mapper);
+        byte[] seed = "{\"Mighty\":[{\"sourceType\":\"local\",\"sourceDir\":\"/repo\",\"repo\":null,\"branch\":null}]}".getBytes();
 
-        // A seed must be a no-op once config exists — the user's saved mappings win. Assert on a unique
-        // key so the check is independent of any ambient config on the build machine.
-        assertThat(modules.seedIfAbsent("{\"ZzzSeedApp\":[]}".getBytes())).isFalse();
-        assertThat(modules.readAll()).containsKey("Mighty").doesNotContainKey("ZzzSeedApp");
+        assertThat(modules.seedIfAbsent(seed)).isTrue();
+        assertThat(modules.readAll()).containsKey("Mighty");
+
+        // A second seed (e.g. a later app start) must NOT clobber the now-existing, possibly user-edited file.
+        assertThat(modules.seedIfAbsent("{\"SPL\":[]}".getBytes())).isFalse();
+        assertThat(modules.readAll()).containsKey("Mighty").doesNotContainKey("SPL");
     }
 
     @Test

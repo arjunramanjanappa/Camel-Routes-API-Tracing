@@ -88,13 +88,15 @@ public class RouteTraverser {
     /** How many {@code <choice>} branches deep the current path is — {@code >0} means everything reached now
      *  (including sub-routes) is conditional, so a not-observed backend there is not a coverage gap. */
     private int branchDepth;
-    /** {@code >0} while walking the children of a {@code <loadBalance>} — those {@code <to>} targets are
-     *  interchangeable primary/secondary (failover / round-robin) endpoints of ONE logical backend. */
-    private int loadBalanceDepth;
-    /** True once a load-balanced host/terminal target has been emitted in the current route body. The
-     *  remaining alternatives (incl. the secondary branch of a choice-of-load-balancers) are the SAME
-     *  logical host, so they are not fanned out into extra host nodes each expecting their own log line. */
-    private boolean loadBalancedHostEmitted;
+    /** True once a load-balanced arm (a {@code <to>} directly inside a {@code <loadBalance>}) has been followed
+     *  in the current route body. The remaining arms — sibling {@code <to>}s of the same {@code <loadBalance>}
+     *  AND the secondary branch of a choice-of-load-balancers — are interchangeable primary/secondary
+     *  (failover / round-robin) endpoints of ONE logical destination, so they are skipped ENTIRELY (the whole
+     *  arm route, not just its host), rather than fanned out into extra routes/hosts each expecting a log line. */
+    private boolean loadBalancedArmFollowed;
+    /** {@code >0} while traversing the subtree of a load-balanced arm we DID follow — so the arm's own body
+     *  (its downstream host hop, etc.) is traced normally and does not itself reset {@link #loadBalancedArmFollowed}. */
+    private int armFollowDepth;
     private String currentHosturl;   // the route's "hosturl" property — what MightyHostMessage logs
     /** Resolved (existing) route from the most recent DEST_ROUTE-style setProperty — the dynamic toD target. */
     private String currentDestRoute;
@@ -184,14 +186,13 @@ public class RouteTraverser {
         }
         if (firstVisit) {
             response.getFlow().add(identity);
-            // Arm the load-balanced-host collapse for THIS route body — the caller that owns the
-            // <loadBalance> (or the choice whose branches each load-balance). Only when we're not already
-            // inside a load-balancing region (loadBalanceDepth == 0): a load-balanced target may itself be
-            // a plain intermediate route that forwards one more hop to the host, and descending into it
-            // must NOT re-arm the flag, or the choice's secondary arm would emit a second host. The host
-            // reached deeper still sees loadBalanceDepth > 0 (it's an instance counter held across the hop).
-            if (loadBalanceDepth == 0) {
-                loadBalancedHostEmitted = false;
+            // Arm the load-balanced-arm collapse for THIS route body — the caller that owns the <loadBalance>
+            // (or the choice whose branches each load-balance). Only when we're NOT inside a followed arm's
+            // own subtree (armFollowDepth == 0): the followed arm and its downstream routes must trace
+            // normally without re-arming the flag, or the sibling/secondary arm wouldn't be recognised as a
+            // duplicate and would be drawn again.
+            if (armFollowDepth == 0) {
+                loadBalancedArmFollowed = false;
             }
             List<PendingApi> active = new ArrayList<>(inherited);
             // Leftover = api set in/inherited by this route that no downstream route
@@ -328,7 +329,7 @@ public class RouteTraverser {
                     // next setProperty api, or back-fills one set just before it (template after).
                     applyTemplateVersion(to.uri(), active, routeVersion(currentNodeId));
                 } else {
-                    handleTo(to.uri(), currentNodeId, branch, active, forward);
+                    handleTo(to.uri(), currentNodeId, branch, active, forward, false);
                 }
             } else if (el instanceof RecipientListElement rl) {
                 handleRecipient(rl.expression(), currentNodeId, branch);
@@ -352,16 +353,19 @@ public class RouteTraverser {
             } else if (el instanceof ChoiceElement choice) {
                 handleChoice(choice, currentNodeId, branch, active, forward);
             } else if (el instanceof ContainerElement container) {
-                boolean lb = isLoadBalance(container.kind());
-                if (lb) {
-                    loadBalanceDepth++;
-                }
-                try {
-                    walk(container.children(), currentNodeId, branch, active, forward);
-                } finally {
-                    if (lb) {
-                        loadBalanceDepth--;
+                if (isLoadBalance(container.kind())) {
+                    // The direct <to> children of a <loadBalance> are interchangeable arms — follow only the
+                    // first; the rest are the same logical destination and are skipped whole. Non-<to> children
+                    // (the balancer type <failover/>, a <setProperty>, …) are walked normally.
+                    for (RouteElement child : container.children()) {
+                        if (child instanceof ToElement arm && !isTemplateUri(arm.uri())) {
+                            handleTo(arm.uri(), currentNodeId, branch, active, forward, true);
+                        } else {
+                            walk(java.util.List.of(child), currentNodeId, branch, active, forward);
+                        }
                     }
+                } else {
+                    walk(container.children(), currentNodeId, branch, active, forward);
                 }
             }
             // WhenElement never appears at this level (only inside ChoiceElement)
@@ -386,7 +390,7 @@ public class RouteTraverser {
     }
 
     private void handleTo(String uri, String currentNodeId, String branch,
-                          List<PendingApi> active, boolean forward) {
+                          List<PendingApi> active, boolean forward, boolean loadBalancedArm) {
         if (uri == null || uri.isBlank()) {
             return;
         }
@@ -422,31 +426,42 @@ public class RouteTraverser {
             String edgeLabel = async
                     ? (branch != null && !branch.isBlank() ? branch + " · async" : "async")
                     : branch;
-            RouteModel targetRoute = registry.lookup(target);
-            boolean terminalConsumer = targetRoute != null
-                    && (targetRoute.host() || !forwardsFurther(targetRoute.elements()));
-            // A load-balanced host/terminal call (inside a <loadBalance>, incl. a choice whose branches each
-            // load-balance to a primary/secondary route) is ONE logical backend. Follow the first such target
-            // in this route body; the rest are the same host under a different URL — don't fan them out into
-            // extra host nodes each expecting their own log response.
-            if (loadBalanceDepth > 0 && terminalConsumer) {
-                if (loadBalancedHostEmitted) {
+            // A load-balanced arm (a <to> directly inside a <loadBalance>, incl. the single <to> in each
+            // branch of a choice-of-load-balancers) is ONE logical destination with its failover twin(s).
+            // Follow the FIRST arm and trace it in full (its route + downstream host); skip every other arm
+            // ENTIRELY — the sibling/secondary arm is not a separate route or host and expects no own log line.
+            if (loadBalancedArm) {
+                if (loadBalancedArmFollowed) {
                     active.clear();
                     return;
                 }
-                loadBalancedHostEmitted = true;
+                loadBalancedArmFollowed = true;
             }
-            if (forward && !active.isEmpty() && terminalConsumer) {
-                // This call hands a backend to a host / terminal route. Give it its OWN
-                // instance node so the route→host→backend chain is per-call, not an
-                // aggregated shared node where you cannot tell which route used which backend.
-                emitConsumerInstance(targetRoute, target, currentNodeId, edgeLabel, active);
-                active.clear();
-            } else if (forward) {
-                visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>(active));
-                active.clear();                              // handed off downstream
-            } else {
-                visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
+            RouteModel targetRoute = registry.lookup(target);
+            boolean terminalConsumer = targetRoute != null
+                    && (targetRoute.host() || !forwardsFurther(targetRoute.elements()));
+            // While descending the followed arm, mark it so its own body (and downstream routes) trace
+            // normally without re-arming the collapse — the sibling arm is still recognised as a duplicate.
+            if (loadBalancedArm) {
+                armFollowDepth++;
+            }
+            try {
+                if (forward && !active.isEmpty() && terminalConsumer) {
+                    // This call hands a backend to a host / terminal route. Give it its OWN
+                    // instance node so the route→host→backend chain is per-call, not an
+                    // aggregated shared node where you cannot tell which route used which backend.
+                    emitConsumerInstance(targetRoute, target, currentNodeId, edgeLabel, active);
+                    active.clear();
+                } else if (forward) {
+                    visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>(active));
+                    active.clear();                              // handed off downstream
+                } else {
+                    visitRoute(target, currentNodeId, edgeLabel, new ArrayList<>());
+                }
+            } finally {
+                if (loadBalancedArm) {
+                    armFollowDepth--;
+                }
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
             addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId)); // external call is itself a backend

@@ -142,14 +142,61 @@ class LoadBalanceHostTest {
         TraceResponse r = new RouteTraceService(dir.toString())
                 .trace(new TraceRequest("R5.3_authenticateusingSSOv5Route", "", null, null));
 
-        // The primary arm reaches its host; the secondary HOST is collapsed away — only ONE backend log
-        // response is expected. (The secondary arm route itself may be walked, but it is not a host, so it
-        // never expects a log line; what must not happen is a second host node / backend.)
+        // Only the primary arm is traced — the WHOLE secondary arm (its intermediate route AND its host) is
+        // skipped, not just the duplicate host. One backend log response is expected.
         assertThat(r.getFlow()).contains("callSSOv5route", "callssov5P", "sendPrimaryHost");
-        assertThat(r.getFlow()).doesNotContain("sendSecondaryHost");
+        assertThat(r.getFlow()).doesNotContain("callssov5S", "sendSecondaryHost");
 
         assertThat(r.getBackendApis()).containsExactly("/rest/auth/login");
-        assertThat(r.getBackendApis()).doesNotContain("/rest/auth/login/secondary");
-        assertThat(r.getGraph().getNodes()).noneMatch(n -> n.id().startsWith("route:sendSecondaryHost"));
+        assertThat(r.getGraph().getNodes()).noneMatch(n ->
+                n.id().startsWith("route:callssov5S") || n.id().startsWith("route:sendSecondaryHost"));
+    }
+
+    // The exact reported shape: ONE <loadBalance> with two arms (callSSOv5pRoute / callSSOv5sRoute) that BOTH
+    // forward to a shared terminal route (callSSORoute). Only the first arm may be traced; the second arm route
+    // must not appear at all.
+    private static final String SHARED_TAIL = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="ssoCtx">
+                <route id="R5.3_authenticateusingSSOv5Route">
+                  <from uri="direct:R5.3_authenticateusingSSOv5Route"/>
+                  <to uri="direct:callSSOv5route"/>
+                </route>
+                <route id="callSSOv5route">
+                  <from uri="direct:callSSOv5route"/>
+                  <loadBalance>
+                    <failover/>
+                    <to uri="direct:callSSOv5pRoute"/>
+                    <to uri="direct:callSSOv5sRoute"/>
+                  </loadBalance>
+                </route>
+                <route id="callSSOv5pRoute">
+                  <from uri="direct:callSSOv5pRoute"/>
+                  <to uri="direct:callSSORoute"/>
+                </route>
+                <route id="callSSOv5sRoute">
+                  <from uri="direct:callSSOv5sRoute"/>
+                  <to uri="direct:callSSORoute"/>
+                </route>
+                <route id="callSSORoute">
+                  <from uri="direct:callSSORoute"/>
+                  <setProperty name="api"><constant>/sso/rest/auth/login</constant></setProperty>
+                  <setHeader name="CamelHttpUri"><simple>${exchangeProperty.api}</simple></setHeader>
+                  <toD uri="${header.CamelHttpUri}"/>
+                </route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    @Test
+    void oneLoadBalanceWithTwoArmsToASharedRouteFollowsOnlyTheFirstArm(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("sso.xml"), SHARED_TAIL);
+        TraceResponse r = new RouteTraceService(dir.toString())
+                .trace(new TraceRequest("R5.3_authenticateusingSSOv5Route", "", null, null));
+
+        assertThat(r.getFlow()).contains("callSSOv5route", "callSSOv5pRoute", "callSSORoute");
+        assertThat(r.getFlow()).doesNotContain("callSSOv5sRoute");   // the secondary arm is gone entirely
+        assertThat(r.getGraph().getNodes()).noneMatch(n -> n.id().startsWith("route:callSSOv5sRoute"));
+        assertThat(r.getBackendApis()).containsExactly("/sso/rest/auth/login");
     }
 }

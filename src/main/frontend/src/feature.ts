@@ -4,9 +4,11 @@
  * across the summary views and PDFs so grouping + wording stay consistent.
  */
 
-/** Strip a {{placeholder}} prefix (backend URIs carry one) and any query string. */
+import { backendPath } from './spl';
+
+/** Strip a {{placeholder}} prefix (backend URIs carry one, incl. nested {{key:{{default}}}}) and any query. */
 function cleanPath(p: string): string {
-  return (p || '').replace(/^\{\{[^}]+\}\}/, '').split('?')[0];
+  return backendPath(p || '').split('?')[0];
 }
 
 /** The business feature of a path — the segment after /services/<country>/, else the first meaningful one. */

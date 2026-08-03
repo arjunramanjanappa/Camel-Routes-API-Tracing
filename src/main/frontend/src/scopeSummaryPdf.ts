@@ -1,11 +1,12 @@
 import type { CatalogResponse } from './types';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp } from './pdfReport';
 import { groupByFeature, versionLabel } from './feature';
+import { backendPath } from './spl';
 
 /** One module's catalog for the report (or an error) — same shape the detailed trace PDF takes. */
 export interface ScopeModule { name: string; cat: CatalogResponse | null; error?: string; }
 
-function displayPath(p: string): string { return (p || '').replace(/^\{\{[^}]+\}\}/, ''); }
+function displayPath(p: string): string { return backendPath(p || ''); }
 
 /** APIs per version group for one side (front-end paths / backend APIs), grouped by feature. */
 function bySide(cat: CatalogResponse, side: 'fe' | 'be') {

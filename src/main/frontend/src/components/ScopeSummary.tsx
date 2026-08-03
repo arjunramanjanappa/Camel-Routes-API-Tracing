@@ -1,5 +1,6 @@
 import type { CatalogResponse } from '../types';
 import { groupByFeature, versionLabel } from '../feature';
+import { backendPath } from '../spl';
 
 /**
  * The leadership Summary for the Release Scope tab: a plain "what's in this release" view — the APIs in
@@ -15,7 +16,7 @@ export default function ScopeSummary({ catalog, side = 'fe' }: { catalog: Catalo
     const items = side === 'fe'
       ? g.traces.map((t) => t.api)
       : g.traces.flatMap((t) => t.backendApis || []);
-    return { version: g.version, features: groupByFeature(items), count: new Set(items.map((x) => (x || '').replace(/^\{\{[^}]+\}\}/, '').split('?')[0]).filter(Boolean)).size };
+    return { version: g.version, features: groupByFeature(items), count: new Set(items.map((x) => backendPath(x || '').split('?')[0]).filter(Boolean)).size };
   }).filter((g) => g.count > 0);
 
   const total = perGroup.reduce((n, g) => n + g.count, 0);
@@ -62,4 +63,4 @@ export default function ScopeSummary({ catalog, side = 'fe' }: { catalog: Catalo
 }
 
 /** Strip a backend {{placeholder}} prefix for display (front-end paths are unaffected). */
-function displayPath(p: string): string { return p.replace(/^\{\{[^}]+\}\}/, ''); }
+function displayPath(p: string): string { return backendPath(p); }

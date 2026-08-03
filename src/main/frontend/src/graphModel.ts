@@ -1,4 +1,5 @@
 import type { RouteGraph } from './types';
+import { backendPath } from './spl';
 
 export const COLORS: Record<string, string> = {
   api: '#2563eb',
@@ -25,7 +26,9 @@ export function routeVersion(name: string): string | null {
 
 function displayLabel(type: string, label: string): string {
   if (type === 'ROUTE') return label; // keep version-bearing id
-  if (type === 'BACKEND') return label.replace(/^\{\{[^}]+\}\}/, '').replace(/^https?:\/\/[^/]+/, '') || label;
+  // Strip a leading Camel property placeholder (balanced {{...}}, incl. a nested {{key:{{default}}}} — a
+  // plain /^\{\{[^}]+\}\}/ stops at the first }} and leaves a dangling "}}...") then any scheme+host.
+  if (type === 'BACKEND') return backendPath(label).replace(/^https?:\/\/[^/]+/, '') || label;
   return label.replace(/\s*\[.*\]$/, '');
 }
 

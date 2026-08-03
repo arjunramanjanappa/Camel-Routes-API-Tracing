@@ -118,7 +118,14 @@ export class ReportDoc {
     let tsize = 34;
     while (tsize > 22 && this.width(title, 'bold', tsize) > CONTENT_W) { tsize -= 1; }
     this.text(title, M, 'bold', tsize, PAL.ink); this.y += Math.round(tsize * 1.35);
-    if (subtitle) { this.text(subtitle, M, 'normal', 15, PAL.accent); this.y += 26; }
+    if (subtitle) {
+      // Wrap the subtitle within the margins — a long app/commit-version list (e.g. "app 19.18.0, 19.10.1,
+      // 19.5.2") would otherwise run off the right edge as one line.
+      this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(15); this.st(PAL.accent);
+      const lines = this.doc.splitTextToSize(ascii(subtitle), CONTENT_W) as string[];
+      lines.forEach((ln) => { this.doc.text(ln, M, this.y); this.y += 21; });
+      this.y += 5;
+    }
     metaLines.forEach((m) => { this.text(m, M, 'normal', 10.5, PAL.muted); this.y += 17; });
     this.doc.addPage(); this.y = M;
   }

@@ -1,6 +1,18 @@
-/** Strip a {{placeholder}} prefix from a backend value to get the path/uri. */
+/**
+ * Strip a leading Camel property placeholder `{{...}}` from a backend value to get the path/uri.
+ * Handles a NESTED default like `{{am5.mock.url:{{am5.p.mfa.url}}}}${...}` by matching balanced `{{`/`}}`
+ * pairs — a plain `/^\{\{[^}]+\}\}/` regex stops at the first `}}` and leaves a dangling `}}...`. Only a
+ * fully-balanced leading placeholder is removed; anything else is returned unchanged.
+ */
 export function backendPath(v: string): string {
-  return v.replace(/^\{\{[^}]+\}\}/, '');
+  if (!v || !v.startsWith('{{')) return v;
+  let depth = 0, i = 0;
+  while (i < v.length) {
+    if (v.startsWith('{{', i)) { depth++; i += 2; }
+    else if (v.startsWith('}}', i)) { depth--; i += 2; if (depth === 0) break; }
+    else i++;
+  }
+  return depth === 0 ? v.slice(i) : v;   // balanced → strip it; unbalanced/malformed → leave as-is
 }
 
 /** Splunk relative-time presets for the query window (capped at 30 days). */

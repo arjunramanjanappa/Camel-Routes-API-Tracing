@@ -252,6 +252,19 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aNestedPlaceholderBackendStripsToItsPathTailAndCorrelates() throws IOException {
+        // A NESTED Camel property placeholder with a default — {{key:{{default}}}} — must strip to its path
+        // tail (/payee/remit/initiate), not leave a dangling "}}" (which would make the log-path match fail
+        // and the backend show Not Tested). Same fixture as the single-placeholder case above.
+        LogAnalysisReport r = analyzeBackends("analysis-remit.log", "9.18",
+                List.of("{{am5.mock.url:{{am5.p.mfa.url}}}}/payee/remit/initiate"));
+
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.tested()).isTrue();                       // would be Not Tested if "}}" leaked into the tail
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);
+    }
+
+    @Test
     void jwtHostRequestIsParsedAndColonSeparatedResponseMatches() throws IOException {
         // The real MightyHostMessage shapes: the Request carries the backend URL after a
         // "[jwt]: true,  -" prefix, and the JSON follows the direction with a ":" (not a

@@ -1698,11 +1698,7 @@ public class LogAnalysisService {
 
     /** The path tail of a backend: strip a leading {{...}} placeholder, scheme+host and query. */
     private static String backendPathPart(String backend) {
-        String s = backend;
-        int ph = s.indexOf("}}");
-        if (ph >= 0) {
-            s = s.substring(ph + 2);
-        }
+        String s = stripLeadingPlaceholder(backend);
         int scheme = s.indexOf("://");
         if (scheme >= 0) {
             int slash = s.indexOf('/', scheme + 3);
@@ -1716,6 +1712,34 @@ public class LogAnalysisService {
             s = "/" + s;
         }
         return s;
+    }
+
+    /**
+     * Strip a leading Camel property placeholder {@code {{...}}} — matching BALANCED {@code {{}}} pairs so a
+     * nested default like {@code {{am5.mock.url:{{am5.p.mfa.url}}}}${...}} loses the whole prefix and keeps
+     * the path tail. A first-{@code }}} scan would stop inside the nesting and leave a dangling {@code }}}.
+     * Only a fully-balanced leading placeholder is removed; anything else is returned unchanged.
+     */
+    private static String stripLeadingPlaceholder(String v) {
+        if (v == null || !v.startsWith("{{")) {
+            return v;
+        }
+        int depth = 0;
+        for (int i = 0; i < v.length(); ) {
+            if (v.startsWith("{{", i)) {
+                depth++;
+                i += 2;
+            } else if (v.startsWith("}}", i)) {
+                depth--;
+                i += 2;
+                if (depth == 0) {
+                    return v.substring(i);
+                }
+            } else {
+                i++;
+            }
+        }
+        return v;   // unbalanced / malformed — leave as-is
     }
 
     /** Split a " / "-joined version list into trimmed, non-empty parts. */

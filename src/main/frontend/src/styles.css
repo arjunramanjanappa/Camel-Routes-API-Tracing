@@ -1112,6 +1112,20 @@ button.impact-api.linkish:hover { color: #1e40af; }
 .sumv-unchanged { margin-top: 12px; font-size: 12.5px; color: #5b6b82; }
 .sumv-empty { margin-top: 16px; padding: 20px; text-align: center; color: #5b6b82; background: #fff; border: 1px solid #e4e9f0; border-radius: 12px; }
 
+/* New-app vs BAU-app split — two clearly-separated verify tracks. */
+.sumv-split { display: flex; flex-direction: column; gap: 18px; margin-top: 18px; }
+.sumv-section { border: 1px solid #e4e9f0; border-left-width: 4px; border-radius: 12px; padding: 14px 16px 6px; background: #fbfcfe; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.sumv-section.new { border-left-color: var(--accent, #2563eb); }
+.sumv-section.bau { border-left-color: #d97706; }
+.sumv-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sumv-section-title { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.sumv-section.new .sumv-section-title { color: var(--accent-num, #1d4ed8); }
+.sumv-section.bau .sumv-section-title { color: #b45309; }
+.sumv-section-count { font-size: 12px; font-weight: 650; color: #5b6b82; white-space: nowrap; }
+.sumv-section-sub { font-size: 12.5px; color: #5b6b82; margin: 3px 0 4px; }
+.sumv-section-empty { margin: 8px 0 10px; font-size: 13px; color: #15803d; }
+.sumv-section.bau .sumv-section-empty { color: #15803d; }
+
 /* dark */
 [data-theme="dark"] .sumv-tile, [data-theme="dark"] .sumv-ready, [data-theme="dark"] .sumv-table, [data-theme="dark"] .sumv-empty { background: #0e1729; border-color: #1c2942; }
 [data-theme="dark"] .sumv-tile .l, [data-theme="dark"] .sumv-legend, [data-theme="dark"] .sumv-unchanged { color: #93a3ba; }
@@ -1126,6 +1140,11 @@ button.impact-api.linkish:hover { color: #1e40af; }
 [data-theme="dark"] .sumv-risk.High { color: #f87171; } [data-theme="dark"] .sumv-risk.Medium { color: #fbbf24; } [data-theme="dark"] .sumv-risk.Low { color: #4ade80; }
 [data-theme="dark"] .sumv-tst.pass { background: #0c2a1b; color: #4ade80; } [data-theme="dark"] .sumv-tst.fail { background: #2c1416; color: #f87171; }
 [data-theme="dark"] .sumv-tst.none { background: #131f38; color: #93a3ba; border-color: #26364f; }
+[data-theme="dark"] .sumv-section { background: #0b1526; border-color: #1c2942; }
+[data-theme="dark"] .sumv-section-count, [data-theme="dark"] .sumv-section-sub { color: #93a3ba; }
+[data-theme="dark"] .sumv-section.new .sumv-section-title { color: #93b4fc; }
+[data-theme="dark"] .sumv-section.bau .sumv-section-title { color: #fbbf24; }
+[data-theme="dark"] .sumv-section-empty { color: #4ade80; }
 [data-theme="dark"] .sumv-empty { color: #93a3ba; }
 /* Summary/Detailed view switch (header) */
 .view-switch { display: inline-flex; background: rgba(148,163,184,.16); border-radius: 999px; padding: 3px; gap: 2px; margin-right: 8px; }

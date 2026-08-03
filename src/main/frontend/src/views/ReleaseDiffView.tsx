@@ -178,23 +178,24 @@ function riskReasons(a: ApiDiff): string[] {
 }
 
 /** One plain-English line summarising a card: risk + the single most important reason. */
+// The verdict line does NOT repeat the risk word — the risk pill (e.g. "Medium risk") already shows it, so
+// prefixing "Medium · …" here would just duplicate it on the card.
 function verdictLine(d: ApiDiff): string {
-  const risk = riskOf(d);
-  if (bauRouteModified(d)) return `${risk} · BAU route modified in place — regression needed`;
-  if (d.codeChanged) return `${risk} · shared BAU class changed — regression needed`;
-  if (d.status === 'NEW') return `${risk} · new API — new-app work, no BAU impact`;
-  if (d.backendVersionChanges?.length) return `${risk} · backend service version bumped (new route)`;
+  if (bauRouteModified(d)) return 'BAU route modified in place — regression needed';
+  if (d.codeChanged) return 'shared BAU class changed — regression needed';
+  if (d.status === 'NEW') return 'new API — new-app work, no BAU impact';
+  if (d.backendVersionChanges?.length) return 'backend service version bumped (new route)';
   const add = d.payloadChange?.addedKeys?.length ?? 0;
   const rem = d.payloadChange?.removedKeys?.length ?? 0;
   if (add || rem) {
     const parts = [rem ? `−${rem}` : '', add ? `+${add}` : ''].filter(Boolean).join(' ');
-    return `${risk} · new-version route · payload ${parts} field(s), no BAU impact`;
+    return `new-version route · payload ${parts} field(s), no BAU impact`;
   }
   if ((d.routeDiffs?.length ?? 0) > 0 || (d.addedRoutes?.length ?? 0) > 0 || (d.removedRoutes?.length ?? 0) > 0) {
-    return `${risk} · route/flow changed — new-version-scoped`;
+    return 'route/flow changed — new-version-scoped';
   }
   if (d.status === 'UNCHANGED') return 'version bumped — identical flow';
-  return `${risk} · changed`;
+  return 'changed';
 }
 
 /**
@@ -556,10 +557,11 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         </span>
       </div>
 
-      {/* Always-visible one-line verdict — click to expand the full detail (route diff, code/BAU, coverage). */}
+      {/* Always-visible one-line verdict — click to expand OR collapse the full detail. The hint always shows
+          a clear affordance so that, once expanded, there is an obvious way back. */}
       <button type="button" className="card-summary" onClick={() => setExpanded(!expanded)}>
         <span className="card-summary-text">{verdictLine(d)}</span>
-        <span className="card-summary-hint">{expanded ? '' : 'details ▸'}</span>
+        <span className="card-summary-hint">{expanded ? 'collapse ▴' : 'details ▸'}</span>
       </button>
 
       {expanded && (

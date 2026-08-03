@@ -29,6 +29,8 @@ public class AppConfigService {
     /** Where the module config lived before it moved under the machine-wide home; read once for migration. */
     private static final Path LEGACY_FILE = Path.of("config", "app-modules.json");
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AppConfigService.class);
+
     private final Path file;
     private final ObjectMapper mapper;
     private final Object lock = new Object();   // serialise read-modify-write of the shared file
@@ -82,6 +84,38 @@ public class AppConfigService {
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException e) {
                 throw new IllegalArgumentException("Could not save the app config to " + file + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * First-run seed: if no module config exists yet (neither the machine-wide file nor the legacy
+     * location), write the given JSON verbatim — a module-mapping bundle shipped with the app so a fresh
+     * install starts with the team's module lists (a one-time setup). NEVER overwrites existing config:
+     * user edits always win. Holds no tokens (module lists carry only source type / dir / repo / branch).
+     * Returns true if it wrote.
+     */
+    public boolean seedIfAbsent(byte[] json) {
+        if (json == null || json.length == 0) {
+            return false;
+        }
+        synchronized (lock) {
+            if (Files.exists(file) || Files.exists(LEGACY_FILE)) {
+                return false;
+            }
+            try {
+                Path parent = file.toAbsolutePath().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+                Files.write(tmp, json);
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+                LOG.info("Seeded app module config from the bundled config into {}", file);
+                return true;
+            } catch (IOException e) {
+                LOG.warn("Could not seed app module config to {} ({})", file, e.getMessage());
+                return false;
             }
         }
     }

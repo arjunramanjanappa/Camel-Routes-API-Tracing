@@ -154,6 +154,34 @@ public class LogRulesService {
         }
     }
 
+    /**
+     * First-run seed: if no rules file exists yet, write the given JSON verbatim — a rules bundle shipped
+     * with the app so a fresh install starts with the team's rules (a one-time setup). NEVER overwrites an
+     * existing file: user edits always win. Contains no tokens by construction (this file only holds rules).
+     * Returns true if it wrote.
+     */
+    public boolean seedIfAbsent(byte[] json) {
+        if (json == null || json.length == 0) {
+            return false;
+        }
+        synchronized (lock) {
+            if (Files.exists(file)) {
+                return false;
+            }
+            try {
+                Files.createDirectories(home);
+                Path tmp = file.resolveSibling("log-rules.json.tmp");
+                Files.write(tmp, json);
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+                LOG.info("Seeded log rules from the bundled config into {}", file);
+                return true;
+            } catch (IOException e) {
+                LOG.warn("Could not seed log rules to {} ({})", file, e.getMessage());
+                return false;
+            }
+        }
+    }
+
     private void writeAll(Map<String, AppRules> all) {
         try {
             Files.createDirectories(home);

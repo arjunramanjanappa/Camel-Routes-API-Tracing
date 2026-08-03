@@ -1,7 +1,10 @@
 package com.uob.tracer.service;
 
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.TransportConfigCallback;
+import org.eclipse.jgit.api.errors.CheckoutConflictException;
+import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.transport.RefSpec;
@@ -150,26 +153,43 @@ public class SourceResolver {
     }
 
     private void updateExisting(Path dir, String url, String rev, String key) throws Exception {
+        if (now() - lastFetch.getOrDefault(key, 0L) <= FETCH_THROTTLE_MS) {
+            return;   // fetched very recently — keep the warm working tree as-is
+        }
+        boolean rebuild = false;
         try (Git git = Git.open(dir.toFile())) {
-            if (now() - lastFetch.getOrDefault(key, 0L) > FETCH_THROTTLE_MS) {
-                git.fetch()
-                        .setRemote("origin")
-                        .setRefSpecs(new RefSpec("+refs/heads/*:refs/remotes/origin/*"))
-                        .setTagOpt(TagOpt.FETCH_TAGS)
-                        .setTransportConfigCallback(auth())
-                        .call();
-                // Only re-checkout when the ref actually advanced. A forced checkout rewrites every
-                // working-tree file (bumping mtimes), which would make the scan's fingerprint change
-                // and force a full re-scan on every request — so an unchanged branch stays warm.
+            git.fetch()
+                    .setRemote("origin")
+                    .setRefSpecs(new RefSpec("+refs/heads/*:refs/remotes/origin/*"))
+                    .setTagOpt(TagOpt.FETCH_TAGS)
+                    .setTransportConfigCallback(auth())
+                    .call();
+            // Only re-checkout when the ref actually advanced (skipIfSame) — an in-place update rewrites
+            // only the changed files, so an unchanged branch stays warm (mtimes stable, no full re-scan).
+            try {
                 checkoutTo(git, rev, true);
                 lastFetch.put(key, now());
+            } catch (CheckoutConflictException | JGitInternalException e) {
+                // The cached working tree could not be updated in place — a file the checkout had to
+                // replace/delete was locked or read-only (common on Windows), or an untracked file was in
+                // the way. It is a throwaway cache, so rebuild it clean. Deferred until AFTER the repo is
+                // closed (below) so Windows releases the .git file handles before we delete the dir.
+                LOG.warn("Cached checkout for {} @ {} could not be updated in place ({}); rebuilding clean.",
+                        url, rev, rootMessage(e));
+                rebuild = true;
             }
+        }
+        if (rebuild) {
+            cloneFresh(dir, url, rev, key);
         }
     }
 
     /**
-     * Detached checkout at whatever the branch / tag / sha resolves to. When {@code skipIfSame} and the
-     * working tree is already at that commit, leave the files untouched (so mtimes don't change).
+     * Force the detached working tree to whatever the branch / tag / sha resolves to. When
+     * {@code skipIfSame} and the working tree is already at that commit, leave the files untouched (so
+     * mtimes don't change). A hard reset + clean (rather than a plain forced checkout) reliably overwrites
+     * locally-changed tracked files AND removes untracked files that would otherwise conflict — the plain
+     * checkout leaves untracked files in place and then fails with a checkout conflict.
      */
     private void checkoutTo(Git git, String rev, boolean skipIfSame) throws Exception {
         Repository repo = git.getRepository();
@@ -180,12 +200,17 @@ public class SourceResolver {
         if (skipIfSame && id.equals(repo.resolve("HEAD"))) {
             return;   // already checked out at this commit — nothing to do, keep the working tree stable
         }
-        git.checkout().setName(id.getName()).setForced(true).call();
+        git.reset().setMode(ResetCommand.ResetType.HARD).setRef(id.getName()).call();
+        git.clean().setCleanDirectories(true).setForce(true).call();   // drop untracked files/dirs
     }
 
     private ObjectId resolveRev(Repository repo, String rev) throws IOException {
-        for (String cand : new String[]{rev, "origin/" + rev, "refs/tags/" + rev,
-                "refs/remotes/origin/" + rev, "refs/heads/" + rev}) {
+        // Prefer the remote-tracking ref: a fetch advances refs/remotes/origin/<branch>, NOT the local
+        // refs/heads/<branch> created at clone time — so resolving the local branch first would pin the
+        // cache to the clone-time commit and never pick up new pushes. Tags / SHAs don't have an
+        // origin/<x> ref, so they fall through to the plain rev.
+        for (String cand : new String[]{"refs/remotes/origin/" + rev, "origin/" + rev, rev,
+                "refs/tags/" + rev, "refs/heads/" + rev}) {
             ObjectId id = repo.resolve(cand);
             if (id != null) {
                 return id;
@@ -226,13 +251,24 @@ public class SourceResolver {
             return;
         }
         try (Stream<Path> s = Files.walk(dir)) {
-            s.sorted(Comparator.reverseOrder()).forEach(p -> {
+            s.sorted(Comparator.reverseOrder()).forEach(SourceResolver::deleteOne);
+        }
+    }
+
+    /** Delete one path, clearing the Windows read-only flag on failure. JGit writes {@code .git} pack/idx
+     *  and object files read-only, and Windows refuses to delete a read-only file — so retry once writable. */
+    private static void deleteOne(Path p) {
+        try {
+            Files.deleteIfExists(p);
+        } catch (IOException first) {
+            java.io.File f = p.toFile();
+            if (f.setWritable(true, false)) {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException ignore) {
                     // best-effort cleanup of a stale dir
                 }
-            });
+            }
         }
     }
 

@@ -72,6 +72,40 @@ class SourceResolverTest {
     }
 
     @Test
+    void aConflictingCachedWorkingTreeIsRecoveredNotFailed(@TempDir Path tmp) throws Exception {
+        // The reported failure: the cached checkout can't be updated in place (a file to replace is locked
+        // / read-only, or an untracked file conflicts) → a checkout-conflict exception. The resolver must
+        // recover (rebuild clean) and still return the working tree at the advanced commit.
+        Path remote = tmp.resolve("remote");
+        Files.createDirectories(remote);
+        try (Git git = Git.init().setDirectory(remote.toFile()).setInitialBranch("main").call()) {
+            Files.writeString(remote.resolve("common.txt"), "shared");
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("init").setAuthor("t", "t@t").setCommitter("t", "t@t").call();
+        }
+        String url = remote.toUri().toString();
+        SourceResolver resolver = new SourceResolver("", tmp.resolve("work").toString());
+
+        Path dir = resolver.resolve(url, "main");
+        // Simulate a dirtied cache: an untracked file that the next commit will add as a TRACKED file — a
+        // plain forced checkout would abort on this with a checkout conflict.
+        Files.writeString(dir.resolve("added.txt"), "locally created, untracked");
+
+        // Advance the remote branch, adding that same path as tracked content.
+        try (Git git = Git.open(remote.toFile())) {
+            Files.writeString(remote.resolve("added.txt"), "from remote");
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("adds added.txt").setAuthor("t", "t@t").setCommitter("t", "t@t").call();
+        }
+
+        Thread.sleep(2100);   // past the fetch throttle so the next resolve fetches + re-checks-out
+        Path dir2 = resolver.resolve(url, "main");   // must NOT throw — recovers and advances to the new commit
+
+        assertThat(dir2.resolve("common.txt")).exists();
+        assertThat(Files.readString(dir2.resolve("added.txt"))).isEqualTo("from remote");
+    }
+
+    @Test
     void aMissingBranchGivesAClearError(@TempDir Path tmp) throws Exception {
         Path remote = tmp.resolve("remote");
         Files.createDirectories(remote);

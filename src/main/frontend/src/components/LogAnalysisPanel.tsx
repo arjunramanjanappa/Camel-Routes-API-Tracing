@@ -719,7 +719,12 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
           {showFe && (
             <table className="grid">
               <thead>
-                <tr><th>Status</th><th>Front-end API</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
+                <tr>
+                  <th title="Overall verdict for this API — its front-end response AND every impacted backend flow. Can be Failed/Partial even when the front-end itself succeeded, if a backend flow failed or wasn't tested. Open 'details' to see which.">Status</th>
+                  <th>Front-end API</th>
+                  <th title="The front-end (controller) response only — its responseCode / description. This is the API's own reply, NOT the backend flows; see Status for the overall verdict.">FE result</th>
+                  <th>Latency</th><th>Attempts</th><th />
+                </tr>
               </thead>
               <tbody>
                 {shownApis.map((a) => {
@@ -736,7 +741,12 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
           {showBe && (
             <table className="grid">
               <thead>
-                <tr><th>Status</th><th>Backend</th><th>Result</th><th>Latency</th><th>Attempts</th><th /></tr>
+                <tr>
+                  <th title="This backend's verdict — its response code plus the service-version check. Can differ from Result (e.g. a 200/all-zeros response but a service-version mismatch reads as Failed).">Status</th>
+                  <th>Backend</th>
+                  <th title="This backend's response — its responseCode / description.">Result</th>
+                  <th>Latency</th><th>Attempts</th><th />
+                </tr>
               </thead>
               <tbody>
                 {shownBackends.map((b) => <BackendRow key={b.backend} b={b} />)}

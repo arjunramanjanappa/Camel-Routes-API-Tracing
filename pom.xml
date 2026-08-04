@@ -40,7 +40,7 @@
         <jpackage.executable>${java.home}/bin/jpackage</jpackage.executable>
         <exe.suffix></exe.suffix>
         <os.tag>unix</os.tag>
-        <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
+        <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.crypto.mscapi,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
     </properties>
 
     <dependencyManagement>

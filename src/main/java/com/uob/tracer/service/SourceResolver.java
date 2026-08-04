@@ -282,8 +282,11 @@ public class SourceResolver {
         }
         if (m.contains("pkix") || m.contains("certification path") || m.contains("certificate")
                 || m.contains("ssl") || m.contains("handshake")) {
-            return "  →  The Bitbucket server's TLS certificate is not trusted by the JVM. Import your internal CA "
-                    + "certificate into the JDK truststore (cacerts) and restart.";
+            return "  →  The Bitbucket server's TLS certificate isn't trusted. TraceGuard already trusts the "
+                    + "Windows system certificate store (where a corporate CA usually lives) — make sure the CA "
+                    + "is installed there (certmgr.msc → Trusted Root), then restart. If the cert isn't in the "
+                    + "OS store, import your CA into the JDK cacerts, or as a last resort set "
+                    + "'tracer.git.insecure-tls=true' (disables verification — trusted networks only).";
         }
         if (m.contains("unknownhost") || m.contains("unknown host") || m.contains("connect")
                 || m.contains("timed out") || m.contains("timeout") || m.contains("unreachable")) {

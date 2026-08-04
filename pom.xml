@@ -249,6 +249,23 @@
                                         <exec executable="${jlink.executable}" failonerror="true">
                                             <arg line="--add-modules ${jlink.modules} --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output &quot;${bundle}/jre&quot;"/>
                                         </exec>
+                                        <!-- Bake any corporate CA cert(s) in packaging/certs/ into the shipped JRE's cacerts,
+                                             so the bundle trusts an internal Bitbucket over HTTPS out of the box - injected
+                                             once at build time, shared by every user (no per-user cert import). No-op when the
+                                             folder is absent/empty; password is the JDK default 'changeit'. -->
+                                        <echo message="importing corporate CA cert(s) (packaging/certs/*) into ${bundle}/jre cacerts, if any"/>
+                                        <apply executable="${java.home}/bin/keytool${exe.suffix}" failonerror="false" parallel="false" skipemptyfilesets="true">
+                                            <arg value="-importcert"/>
+                                            <arg value="-noprompt"/>
+                                            <arg value="-trustcacerts"/>
+                                            <arg value="-storepass"/> <arg value="changeit"/>
+                                            <arg value="-keystore"/> <arg value="${bundle}/jre/lib/security/cacerts"/>
+                                            <arg value="-alias"/> <arg value="traceguard-corp-ca"/>
+                                            <arg value="-file"/> <srcfile/>
+                                            <fileset dir="${project.basedir}/packaging/certs" erroronmissingdir="false">
+                                                <include name="*.crt"/><include name="*.pem"/><include name="*.cer"/>
+                                            </fileset>
+                                        </apply>
                                         <!-- Generate the default CDS archive so JDK classes load as fast as on a full
                                              JDK (a jlink image ships without one). Non-fatal if it can't be created. -->
                                         <echo message="generating CDS archive (faster class loading)"/>
@@ -349,6 +366,23 @@
                                             <arg value="--win-console"/>
                                             <arg value="--dest"/>            <arg value="${out}"/>
                                         </exec>
+                                        <!-- Bake any corporate CA cert(s) in packaging/certs/ into the embedded runtime's
+                                             cacerts, so the .exe trusts an internal Bitbucket over HTTPS out of the box -
+                                             injected once at build time, shared by every user. No-op when the folder is
+                                             absent/empty; password is the JDK default 'changeit'. -->
+                                        <echo message="importing corporate CA cert(s) (packaging/certs/*) into the embedded runtime cacerts, if any"/>
+                                        <apply executable="${java.home}/bin/keytool${exe.suffix}" failonerror="false" parallel="false" skipemptyfilesets="true">
+                                            <arg value="-importcert"/>
+                                            <arg value="-noprompt"/>
+                                            <arg value="-trustcacerts"/>
+                                            <arg value="-storepass"/> <arg value="changeit"/>
+                                            <arg value="-keystore"/> <arg value="${out}/TraceGuard/runtime/lib/security/cacerts"/>
+                                            <arg value="-alias"/> <arg value="traceguard-corp-ca"/>
+                                            <arg value="-file"/> <srcfile/>
+                                            <fileset dir="${project.basedir}/packaging/certs" erroronmissingdir="false">
+                                                <include name="*.crt"/><include name="*.pem"/><include name="*.cer"/>
+                                            </fileset>
+                                        </apply>
                                         <!-- default CDS archive in the embedded runtime (used automatically at runtime) -->
                                         <echo message="generating CDS archive in the embedded runtime"/>
                                         <exec executable="${out}/TraceGuard/runtime/bin/java${exe.suffix}" failonerror="false">

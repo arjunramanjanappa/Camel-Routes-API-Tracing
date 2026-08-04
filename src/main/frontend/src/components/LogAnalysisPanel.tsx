@@ -396,15 +396,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
 
   const showReport = (rep: LogAnalysisReport | null) => {
     setReport(rep);
-    // Land on what needs attention: auto-expand the issue rows (not passed / skipped) that have detail to show;
-    // passed APIs stay collapsed.
-    const openKeys = new Set<string>();
-    (rep?.apis ?? []).forEach((a) => {
-      if (a.status !== 'SUCCESS' && a.status !== 'SKIPPED' && (a.backends.length > 0 || hasFailures(a.failuresByCode))) {
-        openKeys.add(a.api + a.operation);
-      }
-    });
-    setOpen(openKeys);
+    // Every row starts collapsed — the table is a scannable status overview; the user opens a row's
+    // "details" to drill into its backends / failure breakdown when they want it.
+    setOpen(new Set());
     setFilter('ALL');
     setSection((rep?.apis.length ?? 0) ? 'FE' : 'BE');   // default to whichever section has data
   };

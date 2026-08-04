@@ -126,9 +126,11 @@ public class LogRulesService {
                 return new LinkedHashMap<>();
             }
             try {
-                return mapper.readValue(Files.readAllBytes(file),
+                com.fasterxml.jackson.databind.JsonNode tree = mapper.readTree(Files.readAllBytes(file));
+                SeedMerge.stripCommentKeys(tree);   // ignore any "_comment" format-hint key
+                return mapper.convertValue(tree,
                         mapper.getTypeFactory().constructMapType(LinkedHashMap.class, String.class, AppRules.class));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 LOG.warn("Could not read log rules at {} ({}); treating as empty", file, e.getMessage());
                 return new LinkedHashMap<>();
             }

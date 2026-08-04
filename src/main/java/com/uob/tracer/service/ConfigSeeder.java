@@ -87,7 +87,11 @@ public class ConfigSeeder {
         }
     }
 
-    /** The bundled seed's bytes, or null when it is absent, blank, an empty {@code {}} placeholder, or not JSON. */
+    /**
+     * The bundled seed's bytes with any {@code "_comment"} documentation key removed, or null when it is
+     * absent, not JSON, or carries no real content (blank / {@code {}} / comment-only placeholder). A
+     * comment-only seed is treated exactly like {@code {}} — it documents the format but seeds nothing.
+     */
     private byte[] readMeaningfulSeed(String resource) {
         ClassPathResource res = new ClassPathResource(resource);
         if (!res.exists()) {
@@ -100,17 +104,17 @@ public class ConfigSeeder {
             LOG.warn("Could not read the bundled seed {} ({})", resource, e.getMessage());
             return null;
         }
-        String text = new String(bytes).trim();
-        if (text.isEmpty() || text.equals("{}")) {
-            return null;   // a placeholder seed — never treated as content (and never as "defaults removed")
-        }
         try {
-            mapper.readTree(bytes);   // validate it parses before we ever act on it
+            var tree = mapper.readTree(bytes);
+            SeedMerge.stripCommentKeys(tree);         // drop the "_comment" format hint before acting on it
+            if (!tree.isObject() || tree.isEmpty()) {
+                return null;   // placeholder / comment-only — documents the format but seeds nothing
+            }
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(tree);
         } catch (Exception e) {
             LOG.warn("Ignoring malformed bundled seed {} ({})", resource, e.getMessage());
             return null;
         }
-        return bytes;
     }
 
     private void writeBaseline(Path baseline, byte[] seed) {

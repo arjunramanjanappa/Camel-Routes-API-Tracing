@@ -53,8 +53,9 @@ public class AppConfigService {
                 return new LinkedHashMap<>();
             }
             try {
-                return mapper.readValue(Files.readAllBytes(file),
-                        new TypeReference<LinkedHashMap<String, List<ModuleEntry>>>() {});
+                com.fasterxml.jackson.databind.JsonNode tree = mapper.readTree(Files.readAllBytes(file));
+                SeedMerge.stripCommentKeys(tree);   // ignore any "_comment" format-hint key
+                return mapper.convertValue(tree, new TypeReference<LinkedHashMap<String, List<ModuleEntry>>>() {});
             } catch (IOException e) {
                 throw new IllegalArgumentException("Could not read the app config at " + file + ": " + e.getMessage());
             }

@@ -55,9 +55,9 @@ class ConfigSeedingTest {
     }
 
     @Test
-    void theBundledPlaceholderSeedCreatesNoConfig(@TempDir Path dir) {
-        // The committed seed resources are empty placeholders ({}), so a default build must seed nothing —
-        // it must not create empty config files on a fresh install.
+    void theBundledCommentOnlyPlaceholderSeedCreatesNoConfig(@TempDir Path dir) {
+        // The committed seed resources are comment-only placeholders ({"_comment": "...format..."}), which
+        // document the format but must seed nothing — no empty config files on a fresh install.
         LogRulesService rules = new LogRulesService(dir.toString(), mapper);
         AppConfigService modules = new AppConfigService(dir.toString(), "", mapper);
 
@@ -65,5 +65,24 @@ class ConfigSeedingTest {
 
         assertThat(Files.exists(dir.resolve("log-rules.json"))).isFalse();
         assertThat(Files.exists(dir.resolve("app-modules.json"))).isFalse();
+    }
+
+    @Test
+    void aCommentKeyIsIgnoredOnRead() throws Exception {
+        // A "_comment" format-hint key (JSON has no comments) must be ignored, not parsed as an app entry.
+        var tmp = java.nio.file.Files.createTempDirectory("traceguard-comment");
+        try {
+            LogRulesService rules = new LogRulesService(tmp.toString(), mapper);
+            Files.writeString(tmp.resolve("log-rules.json"),
+                    "{\"_comment\":\"format hint\",\"Mighty\":{\"codeFields\":[\"resultCode\"],\"rules\":[]}}");
+            assertThat(rules.readAll()).containsKey("Mighty").doesNotContainKey("_comment");
+
+            AppConfigService modules = new AppConfigService("", tmp.resolve("app-modules.json").toString(), mapper);
+            Files.writeString(tmp.resolve("app-modules.json"),
+                    "{\"_comment\":\"format hint\",\"Mighty\":[]}");
+            assertThat(modules.readAll()).containsKey("Mighty").doesNotContainKey("_comment");
+        } finally {
+            try (var s = Files.walk(tmp)) { s.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete()); }
+        }
     }
 }

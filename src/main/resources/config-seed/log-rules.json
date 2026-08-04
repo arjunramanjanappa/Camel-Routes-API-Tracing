@@ -1,1 +1,3 @@
-{}
+{
+  "_comment": "FORMAT (this _comment key is ignored by the tool). Keyed by app (Mighty | SPL | SPL-Secure); codeFields are fallback response-code keys, and each rule has match (host-path glob), codeField, successCodes and skip. Example: { \"Mighty\": { \"codeFields\": [\"resultCode\"], \"rules\": [ { \"match\": \"*/rest/auth/login\", \"codeField\": \"resultCode\", \"successCodes\": [\"000000\"], \"skip\": false } ] } }. Easiest: configure in the app (Rules editor > Save) and copy your ~/.traceguard/log-rules.json over this file. See README.md."
+}

@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 
 /**
  * 3-way merge of a config JSON object keyed by top-level entry (app name → rules / module list), used to
@@ -31,6 +33,25 @@ import java.util.Iterator;
 final class SeedMerge {
 
     private SeedMerge() {
+    }
+
+    /**
+     * Remove top-level "comment" keys — those starting with {@code _} — from a JSON object in place. JSON
+     * has no comment syntax, so the config files use an {@code "_comment"} key to document their format; it
+     * must be ignored on read (and never fed to the typed binder, which would choke on its string value).
+     * No-op for a non-object node.
+     */
+    static void stripCommentKeys(JsonNode tree) {
+        if (tree instanceof ObjectNode obj) {
+            List<String> remove = new ArrayList<>();
+            for (Iterator<String> it = obj.fieldNames(); it.hasNext(); ) {
+                String k = it.next();
+                if (k.startsWith("_")) {
+                    remove.add(k);
+                }
+            }
+            remove.forEach(obj::remove);
+        }
     }
 
     /** True when two JSON documents are structurally equal (whitespace / key-order independent). */

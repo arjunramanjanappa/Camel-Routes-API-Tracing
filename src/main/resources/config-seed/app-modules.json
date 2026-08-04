@@ -1,1 +1,3 @@
-{}
+{
+  "_comment": "FORMAT (this _comment key is ignored by the tool). Keyed by app name; each module is sourceType 'local' (uses sourceDir) or 'bitbucket' (uses repo + branch). Example: { \"Mighty\": [ { \"sourceType\": \"local\", \"sourceDir\": \"C:/repos/mighty-routes\", \"repo\": \"\", \"branch\": \"\" } ], \"SPL\": [ { \"sourceType\": \"bitbucket\", \"sourceDir\": \"\", \"repo\": \"https://bitbucket.org/team/spl-routes.git\", \"branch\": \"release/9.14\" } ] }. Easiest: configure in the app (Config menu > Save as default) and copy your ~/.traceguard/app-modules.json over this file. See README.md."
+}

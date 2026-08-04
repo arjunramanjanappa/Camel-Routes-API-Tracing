@@ -117,8 +117,10 @@ class LogAnalysisServiceTest {
 
         ApiLogResult v2 = api(r, V2);
         assertThat(v2.tested()).isTrue();
-        // Latest (C1) front-end + its own/submit flow succeeded; the other release branches
-        // (intra / inter / fraud-check) were never exercised, so the API rolls up to PARTIAL.
+        // The own/submit flow succeeded, but the other release branches (intra / inter / fraud-check) were
+        // never exercised — coverage is incomplete, so the API is PARTIAL regardless of the front-end pass
+        // rate (the pass-rate threshold only decides once every flow is tested at least once). The latest run
+        // (C1) supplies the headline latency / correlation id.
         assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);
         assertThat(v2.correlationId()).isEqualTo("C1");
         assertThat(v2.feLatencyMs()).isEqualTo(500);

@@ -720,9 +720,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
             <table className="grid">
               <thead>
                 <tr>
-                  <th title="Overall verdict for this API — its front-end response AND every impacted backend flow. Can be Failed/Partial even when the front-end itself succeeded, if a backend flow failed or wasn't tested. Open 'details' to see which.">Status</th>
+                  <th title="Overall verdict for this API. Coverage first: if any impacted backend flow wasn't tested it's Partial; if a flow failed it's Failed. Once every flow is tested, the front-end pass rate decides — Success at/above the threshold, else Failed. So it can differ from the Latest Result. Open 'details' to see why.">Status</th>
                   <th>Front-end API</th>
-                  <th title="The front-end (controller) response only — its responseCode / description. This is the API's own reply, NOT the backend flows; see Status for the overall verdict.">FE result</th>
+                  <th title="The LATEST run's front-end (controller) response — its responseCode / description. Just the most recent call's reply, NOT the aggregate verdict; see Status (and Attempts for the pass/fail counts).">Latest Result</th>
                   <th>Latency</th><th>Attempts</th><th />
                 </tr>
               </thead>

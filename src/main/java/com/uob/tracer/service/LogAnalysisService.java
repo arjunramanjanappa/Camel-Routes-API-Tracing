@@ -58,18 +58,46 @@ public class LogAnalysisService {
 
     private final RouteTraceService traceService;
     private final LogRulesService logRules;
+    private final SettingsService settings;   // nullable (test constructors) — runtime pass-threshold override
+
+    /**
+     * Default front-end pass-rate threshold: an API with many transactions is SUCCESS when at least this
+     * fraction of its front-end calls passed, else FAILED — so a handful of failures among many passes isn't a
+     * blanket fail, and one late failure doesn't dominate. Default 0.95 (95%); set an application-wide default
+     * with {@code tracer.log.pass-threshold}, or override at runtime in the Config menu (settings.json's
+     * {@code passThreshold}, which wins when present).
+     */
+    @org.springframework.beans.factory.annotation.Value("${tracer.log.pass-threshold:0.95}")
+    private double passThreshold = 0.95;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public LogAnalysisService(RouteTraceService traceService, LogRulesService logRules) {
+    public LogAnalysisService(RouteTraceService traceService, LogRulesService logRules, SettingsService settings) {
         this.traceService = traceService;
         this.logRules = logRules;
+        this.settings = settings;
+    }
+
+    /** Test constructor: rules configured, no runtime settings override (uses the default threshold). */
+    public LogAnalysisService(RouteTraceService traceService, LogRulesService logRules) {
+        this(traceService, logRules, null);
     }
 
     /** Back-compat / test constructor: no host response-code rules configured (points at an empty store). */
     public LogAnalysisService(RouteTraceService traceService) {
         this(traceService, new LogRulesService(
                 java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "traceguard-no-rules").toString(),
-                new com.fasterxml.jackson.databind.ObjectMapper()));
+                new com.fasterxml.jackson.databind.ObjectMapper()), null);
+    }
+
+    /** The active pass threshold: the Config-menu override (settings.json) when set & valid, else the default. */
+    private double effectiveThreshold() {
+        if (settings != null) {
+            Double override = settings.read().passThresholdFraction();
+            if (override != null) {
+                return override;
+            }
+        }
+        return passThreshold;
     }
 
     // timestamp [thread] LEVEL [marker][...fields...]-/path -Dir - json
@@ -421,12 +449,13 @@ public class LogAnalysisService {
 
         // Front-end section: the whole release when all=true, the selected APIs when chosen.
         List<ApiLogResult> apiResults = new ArrayList<>();
+        double threshold = effectiveThreshold();   // resolved once per report (Config override else default)
         if (all || apiSel) {
             for (ApiImpact api : idx.getApis()) {
                 if (!all && !selectedApis.contains(api.api())) {
                     continue;
                 }
-                apiResults.add(correlate(api, txns, version, hosturls, secure, rules));
+                apiResults.add(correlate(api, txns, version, hosturls, secure, rules, threshold));
             }
         }
 
@@ -1183,7 +1212,7 @@ public class LogAnalysisService {
     // --- per-API correlation ---
 
     private ApiLogResult correlate(ApiImpact api, List<Txn> txns, String version, Map<String, String> hosturls,
-                                   boolean secure, LogRulesService.AppRules rules) {
+                                   boolean secure, LogRulesService.AppRules rules, double passThreshold) {
         List<Txn> matched = new ArrayList<>();
         for (Txn t : txns) {
             if (t.fePath() != null && feMatches(t.fePath(), api.api())) {
@@ -1224,15 +1253,23 @@ public class LogAnalysisService {
 
         Txn latest = forVersion.stream().max(Comparator.comparing(Txn::ts)).orElseThrow();
 
-        // Per-run front-end tally (attempts / passed / failed) across all runs — kept for confidence.
+        // Per-run front-end tally (attempts / passed / failed) across all runs — this drives the pass-rate
+        // verdict below (not just the latest run), plus the failure breakdown and the dominant failing code.
         int success = 0;
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
+        Map<String, Integer> failCodeTally = new LinkedHashMap<>();   // raw responseCode → count (for the headline)
+        java.util.EnumSet<LogStatus> failModes = java.util.EnumSet.noneOf(LogStatus.class);
         for (Txn t : forVersion) {
             LogStatus fe = feStatus(t);
             if (fe == LogStatus.SUCCESS) {
                 success++;
             } else {
-                failuresByCode.merge(failureKey(fe, t.feResp() != null ? t.feResp().code() : null), 1, Integer::sum);
+                failModes.add(fe);
+                String code = t.feResp() != null ? t.feResp().code() : null;
+                failuresByCode.merge(failureKey(fe, code), 1, Integer::sum);
+                if (code != null) {
+                    failCodeTally.merge(code, 1, Integer::sum);
+                }
             }
         }
 
@@ -1240,46 +1277,66 @@ public class LogAnalysisService {
         // latest run that covered it (so a choice branch exercised in an earlier run still counts).
         List<BackendCallResult> rows = coverageRows(api, forVersion, hosturls, secure, rules);
 
-        // Verdict — driven only by the release CHANGE flows; BAU rows never move it.
-        LogStatus feLatest = feStatus(latest);
-        LogStatus status;
-        String note;
-        if (feLatest != LogStatus.SUCCESS) {
-            status = feLatest;
-            note = feLatest == LogStatus.TIMEOUT
-                    ? "Front-end request logged but no response — timeout or server down."
-                    : feLatest == LogStatus.INDETERMINATE
-                        ? "Front-end " + UNRECOGNISED_RESPONSE
-                          + (latest.feResp() != null && latest.feResp().desc() != null ? " (description: " + latest.feResp().desc() + ")" : "")
-                        : "Front-end responseCode " + (latest.feResp() != null ? latest.feResp().code() : "?")
-                          + (latest.feResp() != null && latest.feResp().desc() != null ? " (" + latest.feResp().desc() + ")." : ".");
-        } else {
-            List<String> failed = new ArrayList<>();
-            List<String> notTested = new ArrayList<>();
-            for (BackendCallResult b : rows) {
-                if (b.bau() || b.status() == LogStatus.SKIPPED) {
-                    continue;   // BAU reuse, or skipped-by-config — never part of the change verdict
-                }
-                if (b.status() == LogStatus.NOT_TESTED) {
-                    notTested.add(flowLabel(b));
-                } else if (b.status() != LogStatus.SUCCESS) {
-                    failed.add(flowLabel(b) + " — " + b.status().name().toLowerCase());
-                } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
-                    failed.add(flowLabel(b) + " — called svc " + b.loggedServiceVersion());
-                }
+        // Verdict order (coverage first, then pass rate):
+        //   1. A change flow was exercised but FAILED           → Failed
+        //   2. Some change flow was never exercised (uncovered) → Partial (can't judge pass/fail until every
+        //                                                          flow is tested at least once)
+        //   3. Every change flow tested & passed → the FRONT-END PASS RATE decides: >= passThreshold → Success,
+        //      else Failed (a few failures among many passes, or one late failure, doesn't blanket-fail it;
+        //      a clean single failure mode — all timeouts / unreadable — keeps its specific status).
+        // BAU rows never move the verdict.
+        int feTotal = forVersion.size();
+        int feFail = feTotal - success;
+        boolean fePassed = feTotal == 0 || (double) success / feTotal >= passThreshold;
+        String topFailCode = failCodeTally.entrySet().stream()
+                .max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
+
+        List<String> failed = new ArrayList<>();
+        List<String> notTested = new ArrayList<>();
+        for (BackendCallResult b : rows) {
+            if (b.bau() || b.status() == LogStatus.SKIPPED) {
+                continue;   // BAU reuse, or skipped-by-config — never part of the change verdict
             }
-            if (!failed.isEmpty()) {
-                status = LogStatus.FAILED;   // a change backend was exercised but failed / wrong version
-                note = "Change flow failed: " + String.join("; ", failed) + ".";
-            } else if (!notTested.isEmpty()) {
-                status = LogStatus.PARTIAL;  // a required change flow was never exercised in any run
-                note = "Change flow not tested: " + String.join("; ", notTested) + ".";
-            } else {
-                status = LogStatus.SUCCESS;
-                note = null;
+            if (b.status() == LogStatus.NOT_TESTED) {
+                notTested.add(flowLabel(b));
+            } else if (b.status() != LogStatus.SUCCESS) {
+                failed.add(flowLabel(b) + " — " + b.status().name().toLowerCase());
+            } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
+                failed.add(flowLabel(b) + " — called svc " + b.loggedServiceVersion());
             }
         }
 
+        LogStatus status;
+        String note;
+        if (success == 0 && feTotal > 0 && failModes.size() == 1
+                && (failModes.contains(LogStatus.TIMEOUT) || failModes.contains(LogStatus.INDETERMINATE))) {
+            // The front end itself never produced a usable response — every call the same clean way (all
+            // timeouts / all unreadable). That's an FE-level failure, kept as its specific signal, ahead of
+            // any backend-coverage judgement (the backends were never reached to be judged).
+            status = failModes.iterator().next();
+            note = status == LogStatus.TIMEOUT
+                    ? "Front-end request logged but no response — timeout or server down."
+                    : "Front-end " + UNRECOGNISED_RESPONSE + ".";
+        } else if (!failed.isEmpty()) {
+            status = LogStatus.FAILED;    // a change backend was exercised but failed / wrong version
+            note = "Change flow failed: " + String.join("; ", failed) + ".";
+        } else if (!notTested.isEmpty()) {
+            status = LogStatus.PARTIAL;   // a required change flow was never exercised — coverage incomplete
+            note = "Change flow not tested: " + String.join("; ", notTested) + ".";
+        } else if (fePassed) {
+            status = LogStatus.SUCCESS;   // all flows covered & passed, and the front end cleared the bar
+            note = null;
+        } else {
+            status = LogStatus.FAILED;    // all flows covered, but the front-end pass rate is below the bar
+            int passPct = (int) Math.round((double) success / feTotal * 100);
+            int thresholdPct = (int) Math.round(passThreshold * 100);
+            note = feFail + " of " + feTotal + " front-end call(s) failed — " + passPct
+                    + "% passed, below the " + thresholdPct + "% pass threshold"
+                    + (topFailCode != null ? "; most common code " + topFailCode : "") + ".";
+        }
+
+        // "Latest Result" column = the latest run's front-end response; the Status column carries the
+        // aggregate verdict above, so the two can legitimately differ.
         String feCode = latest.feResp() != null ? latest.feResp().code() : null;
         String feDesc = latest.feResp() != null ? latest.feResp().desc() : null;
         Integer feTook = latest.feResp() != null ? latest.feResp().tookMs() : null;

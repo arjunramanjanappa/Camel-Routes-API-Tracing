@@ -31,6 +31,8 @@ export interface AppSettings {
   npmTokenMasked: string;
   /** Splunk Web base URL up to (and including) `/services/search/jobs/` — used to build result-download links. Not a secret. */
   splunkUrl: string;
+  /** Front-end pass-rate threshold for the log-analysis verdict, as a fraction string (e.g. "0.95") or "" for the default. */
+  passThreshold: string;
 }
 
 /** Read the config-menu state: where the machine-wide config lives and which tokens are set. */
@@ -44,7 +46,7 @@ export async function fetchSettings(): Promise<AppSettings> {
  * Save the Bitbucket / npm tokens. Only the fields present are changed — pass a string to set it
  * (empty string clears), or omit a field to leave it as-is. Returns the refreshed masked state.
  */
-export async function saveSettings(patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string }): Promise<AppSettings> {
+export async function saveSettings(patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string; passThreshold?: string }): Promise<AppSettings> {
   const res = await fetch('/internal/settings', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
   });

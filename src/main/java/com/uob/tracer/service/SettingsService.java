@@ -34,13 +34,30 @@ public class SettingsService {
     private static final Logger LOG = LoggerFactory.getLogger(SettingsService.class);
 
     /** The persisted settings. Fields are never null once read (empty string = not set). */
-    public record Settings(String bitbucketToken, String npmToken, String splunkUrl) {
+    public record Settings(String bitbucketToken, String npmToken, String splunkUrl, String passThreshold) {
         public Settings {
             bitbucketToken = bitbucketToken == null ? "" : bitbucketToken.trim();
             npmToken = npmToken == null ? "" : npmToken.trim();
             splunkUrl = splunkUrl == null ? "" : splunkUrl.trim();
+            passThreshold = passThreshold == null ? "" : passThreshold.trim();
         }
-        static Settings empty() { return new Settings("", "", ""); }
+        static Settings empty() { return new Settings("", "", "", ""); }
+
+        /** The pass threshold as a fraction 0&lt;t&le;1, or null when unset/invalid — accepts "0.95" or "95". */
+        public Double passThresholdFraction() {
+            if (passThreshold == null || passThreshold.isBlank()) {
+                return null;
+            }
+            try {
+                double d = Double.parseDouble(passThreshold.trim());
+                if (d > 1) {
+                    d = d / 100.0;   // a percentage like 95 → 0.95
+                }
+                return d > 0 && d <= 1 ? d : null;
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
     }
 
     private final Path home;
@@ -67,7 +84,8 @@ public class SettingsService {
             }
             try {
                 Map<String, Object> raw = mapper.readValue(Files.readAllBytes(file), Map.class);
-                return new Settings(str(raw.get("bitbucketToken")), str(raw.get("npmToken")), str(raw.get("splunkUrl")));
+                return new Settings(str(raw.get("bitbucketToken")), str(raw.get("npmToken")),
+                        str(raw.get("splunkUrl")), str(raw.get("passThreshold")));
             } catch (IOException e) {
                 LOG.warn("Could not read settings at {} ({}); treating as empty", file, e.getMessage());
                 return Settings.empty();
@@ -79,20 +97,22 @@ public class SettingsService {
      * Merge-save: a {@code null} field is left unchanged (so saving one token never wipes the other),
      * while a non-null value — including {@code ""} — is written (empty string clears that token).
      */
-    public Settings save(String bitbucketToken, String npmToken, String splunkUrl) {
+    public Settings save(String bitbucketToken, String npmToken, String splunkUrl, String passThreshold) {
         synchronized (lock) {
             Settings cur = read();
             Settings next = new Settings(
                     bitbucketToken == null ? cur.bitbucketToken() : bitbucketToken,
                     npmToken == null ? cur.npmToken() : npmToken,
-                    splunkUrl == null ? cur.splunkUrl() : splunkUrl);
+                    splunkUrl == null ? cur.splunkUrl() : splunkUrl,
+                    passThreshold == null ? cur.passThreshold() : passThreshold);
             try {
                 Files.createDirectories(home);
                 Path tmp = file.resolveSibling("settings.json.tmp");
                 mapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), Map.of(
                         "bitbucketToken", next.bitbucketToken(),
                         "npmToken", next.npmToken(),
-                        "splunkUrl", next.splunkUrl()));
+                        "splunkUrl", next.splunkUrl(),
+                        "passThreshold", next.passThreshold()));
                 lockDownPerms(tmp);
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
                 lockDownPerms(file);

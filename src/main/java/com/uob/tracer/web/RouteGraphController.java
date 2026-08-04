@@ -214,6 +214,7 @@ public class RouteGraphController {
         out.put("npmTokenSet", !s.npmToken().isBlank());
         out.put("npmTokenMasked", mask(s.npmToken()));
         out.put("splunkUrl", s.splunkUrl());   // a URL, not a secret — returned in full so it can be edited
+        out.put("passThreshold", s.passThreshold());   // front-end pass-rate threshold (blank = use the default)
         return out;
     }
 
@@ -227,7 +228,8 @@ public class RouteGraphController {
         settings.save(
                 body.containsKey("bitbucketToken") ? nz(body.get("bitbucketToken")) : null,
                 body.containsKey("npmToken") ? nz(body.get("npmToken")) : null,
-                body.containsKey("splunkUrl") ? nz(body.get("splunkUrl")) : null);
+                body.containsKey("splunkUrl") ? nz(body.get("splunkUrl")) : null,
+                body.containsKey("passThreshold") ? nz(body.get("passThreshold")) : null);
         return settings();
     }
 

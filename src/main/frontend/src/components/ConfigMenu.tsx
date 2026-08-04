@@ -14,13 +14,14 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
   const [bb, setBb] = useState('');
   const [npm, setNpm] = useState('');
   const [sp, setSp] = useState('');
+  const [pt, setPt] = useState('');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     let alive = true;
     fetchSettings()
-      .then((s) => { if (alive) { setState(s); setSp(s.splunkUrl || ''); } })
+      .then((s) => { if (alive) { setState(s); setSp(s.splunkUrl || ''); setPt(s.passThreshold || ''); } })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
   }, []);
@@ -31,12 +32,12 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onEsc);
   }, [onClose]);
 
-  const apply = async (patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string }) => {
+  const apply = async (patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string; passThreshold?: string }) => {
     setBusy(true); setError(null); setSaved(false);
     try {
       const next = await saveSettings(patch);
       setState(next);
-      setBb(''); setNpm(''); setSp(next.splunkUrl || '');
+      setBb(''); setNpm(''); setSp(next.splunkUrl || ''); setPt(next.passThreshold || '');
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -46,12 +47,13 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
   };
 
   const onSave = () => {
-    const patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string } = {};
+    const patch: { bitbucketToken?: string; npmToken?: string; splunkUrl?: string; passThreshold?: string } = {};
     if (bb.trim()) patch.bitbucketToken = bb.trim();
     if (npm.trim()) patch.npmToken = npm.trim();
-    // The Splunk URL is a plain field (not a secret), always sent so an edit or a clear takes effect.
+    // The Splunk URL and pass threshold are plain fields (not secrets), sent when changed so an edit or clear takes effect.
     if (sp.trim() !== (state?.splunkUrl || '')) patch.splunkUrl = sp.trim();
-    if (Object.keys(patch).length === 0) { setError('Nothing to save — enter a token or change the Splunk URL.'); return; }
+    if (pt.trim() !== (state?.passThreshold || '')) patch.passThreshold = pt.trim();
+    if (Object.keys(patch).length === 0) { setError('Nothing to save — enter a token or change the Splunk URL / pass threshold.'); return; }
     apply(patch);
   };
 
@@ -98,6 +100,14 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
                        placeholder="https://host:8000/en-US/splunkd/__raw/services/search/jobs/" value={sp}
                        onChange={(e) => setSp(e.target.value)} />
                 <div className="sub">Not a secret. TraceGuard only builds the paginated <code>…/&lt;SID&gt;/results?output_mode=csv…</code> download links; your browser session does the download.</div>
+              </div>
+
+              <div className="cfg-field">
+                <label>Log-analysis pass threshold <span className="muted">(front-end pass rate for a Success verdict — e.g. <code>0.95</code> or <code>95</code>; blank = default 95%)</span></label>
+                <input type="text" autoComplete="off" spellCheck={false}
+                       placeholder="0.95" value={pt}
+                       onChange={(e) => setPt(e.target.value)} />
+                <div className="sub">Once every impacted flow is tested at least once, an API is <b>Success</b> when this fraction of its front-end calls passed, else <b>Failed</b>. Takes effect on the next analysis / re-run.</div>
               </div>
 
               <div className="cfg-actions">

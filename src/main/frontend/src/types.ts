@@ -248,6 +248,17 @@ export interface VersionDiffReport {
   apis: ApiDiff[];
   warnings: string[];
   needsReview?: string[];
+  /** Validation findings on impacted .ftl request-body templates (FTL syntax / rendered-JSON structure). */
+  templateIssues?: TemplateIssue[];
+}
+
+/** A validation finding on an impacted .ftl template. kind: 'SYNTAX' (won't parse) or 'STRUCTURE' (bad JSON). */
+export interface TemplateIssue {
+  api: string;
+  file: string;
+  kind: 'SYNTAX' | 'STRUCTURE';
+  message: string;
+  line: number;
 }
 
 // --- log / Splunk correlation ---

@@ -15,6 +15,7 @@ import com.uob.tracer.api.RouteGraph;
 import com.uob.tracer.api.RouteStepDiff;
 import com.uob.tracer.api.TraceRequest;
 import com.uob.tracer.api.TraceResponse;
+import com.uob.tracer.api.TemplateIssue;
 import com.uob.tracer.api.VersionDiffReport;
 import com.uob.tracer.api.VersionGroup;
 import com.uob.tracer.loader.RouteRegistry;
@@ -363,6 +364,8 @@ public class RouteTraceService {
         Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(roots);
         var templateVersion = templateVersionResolver(request);
         var templateKeys = templateKeysResolver(request);
+        var templateContent = templateContentResolver(request);
+        Set<String> validatedTemplates = new HashSet<>();   // validate each impacted .ftl once across the report
         RouteRegistry registry = prepared.registry();
         boolean unversioned = registry.allVersions().isEmpty();   // no R<ver>_ routes → analyse at N/A (snapshot)
         report.setUnversioned(unversioned);
@@ -450,6 +453,10 @@ public class RouteTraceService {
             ApiDiff diff = buildApiDiff(op, targetResolved, effTarget, lowerResolved, lowerLabel,
                     targetTrace, lowerTrace, bodies, locations, templateKeys);
             report.getApis().add(diff);
+            // Validate this API's target (latest) .ftl request-body templates — FTL syntax + rendered-JSON
+            // structure. Runs for every API in the comparison (a .vm -> .ftl migration keeps the same keys, so
+            // the API can read UNCHANGED yet still carry a template defect); each distinct .ftl is done once.
+            validateTemplates(op.path(), targetTrace, templateContent, validatedTemplates, report);
             if (ApiDiff.CHANGED.equals(diff.status())) {
                 changed++;
             } else {
@@ -2084,6 +2091,46 @@ public class RouteTraceService {
             String content = readTemplateContent(files, u);
             return content == null ? List.of() : PayloadKeys.extract(content);
         });
+    }
+
+    /** Resolves a template {@code <to>} uri to its file content (or null), for FTL validation. */
+    private java.util.function.Function<String, String> templateContentResolver(TraceRequest request) {
+        List<Path> files;
+        try {
+            files = scanCached(resolveRoots(request)).allFiles();
+        } catch (RuntimeException e) {
+            return uri -> null;
+        }
+        return uri -> readTemplateContent(files, uri);
+    }
+
+    /** Validate an impacted API's target {@code .ftl} request-body templates (FTL syntax + rendered JSON),
+     *  adding any finding to the report. Each distinct template file is validated once across the report. */
+    private void validateTemplates(String api, TraceResponse targetTrace,
+                                   java.util.function.Function<String, String> content,
+                                   Set<String> validated, VersionDiffReport report) {
+        for (String uri : targetTrace.getTemplateUris()) {
+            if (uri == null) {
+                continue;
+            }
+            String noQuery = uri.contains("?") ? uri.substring(0, uri.indexOf('?')) : uri;
+            String low = noQuery.toLowerCase(java.util.Locale.ROOT);
+            if (!low.endsWith(".ftl") && !low.endsWith(".ftlh")) {
+                continue;   // only FreeMarker templates — a Velocity .vm can't be FTL-parsed/rendered
+            }
+            if (!validated.add(noQuery)) {
+                continue;   // dedup by full path — distinct templates can share a basename
+            }
+            String file = noQuery.substring(noQuery.lastIndexOf('/') + 1);
+            String c = content.apply(uri);
+            if (c == null || c.isBlank()) {
+                continue;
+            }
+            for (FtlValidator.Issue issue : FtlValidator.validate(file, c)) {
+                report.getTemplateIssues().add(
+                        new TemplateIssue(api, file, issue.kind(), issue.message(), issue.line()));
+            }
+        }
     }
 
     private String resolveOperation(String api, OperationResolver resolver, TraceResponse response) {

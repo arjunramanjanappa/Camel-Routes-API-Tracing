@@ -710,6 +710,25 @@ tr.lsub.bau td, tr.lrow.bau td { opacity: .8; }
 .rd-chip { font-size: 12px; color: var(--muted, #64748b); background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px; padding: 4px 12px; }
 .rd-chip b { font-variant-numeric: tabular-nums; font-size: 13px; margin-right: 3px; }
 .rd-chip.total b { color: #1d4ed8; }
+
+/* Impacted-template validation findings (Release Impact) */
+.tpl-issues { margin-top: 12px; border: 1px solid #f6d38a; border-left: 4px solid #d97706; border-radius: 10px; background: #fffbf2; padding: 10px 14px; }
+.tpl-issues-head { font-size: 13px; font-weight: 700; color: #b45309; }
+.tpl-issues-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tpl-issue { border-top: 1px solid #f1e3c4; padding-top: 8px; }
+.tpl-issue:first-child { border-top: 0; padding-top: 0; }
+.tpl-issue-kind { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; margin-right: 8px; }
+.tpl-issue.syntax .tpl-issue-kind { background: #fee2e2; color: #b91c1c; }
+.tpl-issue.structure .tpl-issue-kind { background: #fef1d6; color: #b45309; }
+.tpl-issue-file { font-size: 12.5px; font-weight: 600; }
+.tpl-issue-api { font-size: 11.5px; margin-left: 8px; }
+.tpl-issue-msg { font-size: 12px; color: #5b6b82; margin-top: 3px; font-family: SFMono-Regular, Consolas, monospace; }
+[data-theme="dark"] .tpl-issues { background: #241a08; border-color: #4d3b12; }
+[data-theme="dark"] .tpl-issues-head { color: #fbbf24; }
+[data-theme="dark"] .tpl-issue { border-color: #3a2e10; }
+[data-theme="dark"] .tpl-issue.syntax .tpl-issue-kind { background: #2c1416; color: #f87171; }
+[data-theme="dark"] .tpl-issue.structure .tpl-issue-kind { background: #2c2109; color: #fbbf24; }
+[data-theme="dark"] .tpl-issue-msg { color: #93a3ba; }
 .rd-chip.high { background: #fef2f2; border-color: #fecaca; } .rd-chip.high b { color: #b91c1c; }
 .rd-chip.code b { color: #6d28d9; }
 .rd-chip.bc b { color: #b45309; }

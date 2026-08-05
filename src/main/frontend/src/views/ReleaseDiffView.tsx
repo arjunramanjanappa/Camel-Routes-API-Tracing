@@ -394,6 +394,33 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
 }
 
 /**
+ * Validation findings on the impacted .ftl request-body templates (FTL syntax + rendered-JSON structure) —
+ * catches e.g. an unclosed directive or a missing comma introduced during a .vm -> .ftl migration. Nothing
+ * renders when every impacted template is clean.
+ */
+function TemplateIssuesPanel({ report }: { report: VersionDiffReport }) {
+  const issues = report.templateIssues ?? [];
+  if (issues.length === 0) return null;
+  const hasStructure = issues.some((i) => i.kind === 'STRUCTURE');
+  return (
+    <div className="tpl-issues">
+      <div className="tpl-issues-head">⚠ Template issues <span className="muted">— impacted .ftl request-body templates ({issues.length})</span></div>
+      <ul className="tpl-issues-list">
+        {issues.map((i, k) => (
+          <li key={k} className={'tpl-issue ' + i.kind.toLowerCase()}>
+            <span className="tpl-issue-kind">{i.kind === 'SYNTAX' ? 'FTL syntax' : 'JSON structure'}</span>
+            <code className="tpl-issue-file">{i.file}{i.line > 0 ? ':' + i.line : ''}</code>
+            <span className="muted tpl-issue-api">{i.api}</span>
+            <div className="tpl-issue-msg">{i.message}</div>
+          </li>
+        ))}
+      </ul>
+      {hasStructure && <div className="sub">JSON-structure findings are rendered with stub data — a real defect (missing/trailing comma, unbalanced brace) or, rarely, a data-dependent conditional. Verify the template.</div>}
+    </div>
+  );
+}
+
+/**
  * Top-of-report executive callout: every BAU (in-production) route the release modified in place — the highest
  * severity signal (existing PROD routes changed). Collapsible; each row summarises what changed and links to
  * the API's flow. Nothing renders when no BAU route was touched.
@@ -1020,6 +1047,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
           <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
           <CodeChangeSummary report={report} />
           <BauRouteCallout report={report} />
+          <TemplateIssuesPanel report={report} />
           <div className="testlog-bar" style={{ marginTop: 10 }}>
             <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">
               {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</> : '⤒ Attach test log'}
@@ -1135,6 +1163,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
             </div>
             <CodeChangeSummary report={report} />
             <BauRouteCallout report={report} onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })} />
+            <TemplateIssuesPanel report={report} />
 
             <div className="diff-main-head row between">
               <h2 style={{ margin: 0 }}>{GROUP_LABEL[activeGroup]} APIs <span className="muted">{visible.length}</span></h2>

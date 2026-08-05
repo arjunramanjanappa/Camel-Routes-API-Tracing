@@ -38,6 +38,8 @@ public class VersionDiffReport {
     private int backwardCompatCount;
     private final List<ApiDiff> apis = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
+    /** Validation findings on the impacted .ftl request-body templates (FTL syntax / JSON structure). */
+    private final List<TemplateIssue> templateIssues = new ArrayList<>();
     /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
     private final List<String> needsReview = new ArrayList<>();
 
@@ -87,6 +89,7 @@ public class VersionDiffReport {
     public void setBackwardCompatCount(int backwardCompatCount) { this.backwardCompatCount = backwardCompatCount; }
 
     public List<ApiDiff> getApis() { return apis; }
+    public List<TemplateIssue> getTemplateIssues() { return templateIssues; }
     public List<String> getWarnings() { return warnings; }
     public List<String> getNeedsReview() { return needsReview; }
 }

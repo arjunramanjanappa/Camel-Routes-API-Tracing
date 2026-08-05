@@ -86,6 +86,15 @@
             <version>${jgit.version}</version>
         </dependency>
 
+        <!-- FreeMarker: used ONLY to validate impacted .ftl request-body templates in the Release Impact
+             diff — parse for FTL syntax, then render (stub data model) and JSON-parse the output to catch
+             structural defects (e.g. a missing comma). Self-contained, no transitive deps. -->
+        <dependency>
+            <groupId>org.freemarker</groupId>
+            <artifactId>freemarker</artifactId>
+            <version>2.3.33</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

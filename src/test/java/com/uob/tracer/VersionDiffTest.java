@@ -24,6 +24,20 @@ class VersionDiffTest {
     }
 
     @Test
+    void aMalformedTargetFtlTemplateIsReportedAsATemplateIssue() {
+        // The 9.14 request template has a missing comma between two fields — valid FTL, invalid JSON once
+        // rendered. It must surface as a STRUCTURE template issue for the impacted API's .ftl.
+        RouteTraceService svc = new RouteTraceService("src/test/resources/ftl-broken");
+        VersionDiffReport report = svc.versionDiff(new TraceRequest(null, "9.14", null, null));
+
+        assertThat(report.getTemplateIssues()).anySatisfy(t -> {
+            assertThat(t.kind()).isEqualTo("STRUCTURE");
+            assertThat(t.file()).isEqualTo("precapture.ftl");
+            assertThat(t.api()).contains("/svc/broken");
+        });
+    }
+
+    @Test
     void comparesTheResolvedFlowAgainstTheImmediateLowerVersion() {
         VersionDiffReport report = service.versionDiff(new TraceRequest(null, "9.4", null, null));
         assertThat(report.getVersion()).isEqualTo("9.4");

@@ -62,6 +62,15 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 /** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
  *  alters a route already in production, so it directly impacts the old/PROD app. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
+/** A short, still-disambiguating template path: the tail after `templates/` (e.g. `sg/v1/enquiry.ftl`, which
+ *  tells v1 from v2), else the last two path segments. The full repo-relative path is shown on hover. */
+function shortTemplate(p: string): string {
+  const norm = (p || '').replace(/\\/g, '/');
+  const t = norm.match(/\/templates\/(.+)$/i);
+  if (t) return t[1];
+  const parts = norm.split('/').filter(Boolean);
+  return parts.slice(-2).join('/') || norm;
+}
 /** Backward compatibility must be verified only when a change reaches BAU: a shared BAU class changed, or a BAU
  *  route was edited in place. A version-diff payload change (fields added OR removed) is between two DIFFERENT
  *  version routes — new-app-scoped — so the old app keeps calling the unchanged lower route: no BC needed. */
@@ -530,10 +539,11 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
               </span>
             </span>
             {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
-            {/* Which template the payload result came from, so the reviewer knows the exact .ftl/.vm. */}
+            {/* Which template the payload result came from, so the reviewer knows the exact .ftl/.vm. Short,
+                disambiguating tail (sg/v1/enquiry.ftl) is shown; hover reveals the full repo-relative path. */}
             {hasPayload && payloadFiles.length > 0 && (
-              <div className="bau-payload-file" title="the request-body template file whose keys/values the release changed">
-                Payload template: {payloadFiles.map((f, i) => <code key={i}>{f}</code>)}
+              <div className="bau-payload-file">
+                Payload template: {payloadFiles.map((f, i) => <code key={i} title={f}>{shortTemplate(f)}</code>)}
               </div>
             )}
             {/* Below the header: what changed (same +/- diff style as the code section) */}

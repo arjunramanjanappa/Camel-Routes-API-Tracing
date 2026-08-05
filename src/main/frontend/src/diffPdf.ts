@@ -20,6 +20,15 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 }
 /** The release edited a BAU route at all — its body OR its payload changed → it alters existing PROD behaviour. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
+/** Short, still-disambiguating template path: the tail after `templates/` (e.g. `sg/v1/enquiry.ftl`), else the
+ *  last two path segments — the PDF has no hover, so this is the visible form. */
+function shortTemplate(p: string): string {
+  const norm = (p || '').replace(/\\/g, '/');
+  const t = norm.match(/\/templates\/(.+)$/i);
+  if (t) return t[1];
+  const parts = norm.split('/').filter(Boolean);
+  return parts.slice(-2).join('/') || norm;
+}
 function sectionMeta(s: DiffStatus): { title: string; ramp: Ramp; blurb: string } {
   if (s === 'CHANGED') return { title: 'Changed APIs', ramp: PAL.amber,
     blurb: 'Existing APIs whose Camel flow differs from the previous version - review and regression-test these.' };
@@ -354,7 +363,8 @@ function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
     const payloadFiles = e.payloadFiles || [];
     const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
     if (hasPayload && payloadFiles.length) {
-      r.para('Payload template: ' + payloadFiles.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.muted, 11);
+      // No hover in a PDF, so show the short but disambiguating tail (sg/v1/enquiry.ftl); it wraps via para().
+      r.para('Payload template: ' + payloadFiles.map(shortTemplate).join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.muted, 11);
     }
     r.diffLines(e.removedSteps, e.addedSteps);
     r.diffLines(e.removedKeys.map((k) => 'payload key: ' + k), e.addedKeys.map((k) => 'payload key: ' + k));

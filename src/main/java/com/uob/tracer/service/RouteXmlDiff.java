@@ -160,7 +160,7 @@ final class RouteXmlDiff {
             if (local(child).equals("from")) {
                 continue;   // route identity / version-bearing — not a step
             }
-            appendCanonical(child, 0, lines);
+            appendCanonical(child, lines);
         }
         return lines;
     }
@@ -174,11 +174,14 @@ final class RouteXmlDiff {
      */
     private static final Pattern VERSION_TOKEN = Pattern.compile("R\\d+(?:\\.\\d+)*_");
 
-    private static void appendCanonical(Element el, int depth, List<String> out) {
-        String line = "  ".repeat(depth) + describe(el);
-        out.add(VERSION_TOKEN.matcher(line).replaceAll("R{v}_"));
+    // NO leading indentation: the canonical line is the pure step token. Nesting/indentation is NOT part of
+    // the diff — a re-indent or a step moved a level in/out doesn't read as a change; a genuine structural
+    // change still surfaces via the wrapper element's own line (a <choice>/<loadBalance> added/removed) and
+    // step order. This is what stops a whitespace/tab-only formatting commit being flagged as a route change.
+    private static void appendCanonical(Element el, List<String> out) {
+        out.add(VERSION_TOKEN.matcher(describe(el)).replaceAll("R{v}_"));
         for (Element child : childElements(el)) {
-            appendCanonical(child, depth + 1, out);
+            appendCanonical(child, out);
         }
     }
 

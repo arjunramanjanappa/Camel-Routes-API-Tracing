@@ -528,8 +528,8 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
           <div key={e.route}>
             {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind + regression tags */}
             <span className="chg code" title={removed
-              ? 'a BAU route the release DELETED — the old app that still calls it breaks; git-blame authors of its last lines'
-              : 'a BAU route the release edited in place — git-blame authors of its current lines'}>
+              ? 'a BAU route the release DELETED — the old app that still calls it breaks; author(s) of the release commit(s)'
+              : 'a BAU route the release edited in place — author(s) of the release commit(s) that changed it'}>
               {e.route}
               {e.changedBy && e.changedBy.length > 0 && <span className="code-auth"> — {e.changedBy.join(', ')}</span>}
               {removed && <span className="chg-tag body" title="the release deleted this whole BAU route">Route removed</span>}

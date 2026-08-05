@@ -820,6 +820,7 @@ public class RouteTraceService {
             //    attributed to the release.
             List<String> addedSteps = List.of();
             List<String> removedSteps = List.of();
+            String bodyGitPath = null;   // the route's XML file, when the release changed its body (for authorship)
             RouteXmlDiff.RouteLocation loc = locations.get(routeId);
             if (loc != null) {
                 String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
@@ -828,6 +829,9 @@ public class RouteTraceService {
                             rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef);
                     addedSteps = d.added();
                     removedSteps = d.removed();
+                    if (!addedSteps.isEmpty() || !removedSteps.isEmpty()) {
+                        bodyGitPath = gitPath;
+                    }
                 }
             }
 
@@ -869,10 +873,21 @@ public class RouteTraceService {
                     && addedKeys.isEmpty() && removedKeys.isEmpty() && changedValues.isEmpty()) {
                 continue;   // neither this route's body nor its payload changed in place
             }
+            // WHO made this BAU change = the author(s) of the release (19.14.0) commit(s) that changed THIS route's
+            // XML and/or the template(s) it sends — the person to ask, since it altered a live PROD route. Falls
+            // back to git-blame of the route's current lines only if commit authorship is somehow unavailable.
+            LinkedHashSet<String> commitAuthors = new LinkedHashSet<>();
+            if (bodyGitPath != null) {
+                commitAuthors.addAll(rc.fileAuthors().getOrDefault(bodyGitPath, List.of()));
+            }
+            for (String pf : payloadFiles) {
+                commitAuthors.addAll(rc.fileAuthors().getOrDefault(pf, List.of()));
+            }
+            List<String> changedBy = !commitAuthors.isEmpty() ? new ArrayList<>(commitAuthors)
+                    : (loc != null ? blameAuthors(loc) : List.of());
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                     .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, addedKeys, removedKeys,
-                            changedValues, loc != null ? blameAuthors(loc) : List.of(), false,
-                            new ArrayList<>(payloadFiles)));
+                            changedValues, changedBy, false, new ArrayList<>(payloadFiles)));
         }
 
         // 3) REMOVED BAU routes: a route the release DELETED is gone from the current registry, so the loop above

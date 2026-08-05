@@ -200,6 +200,34 @@ class GitChangeServiceTest {
         assertThat(after).isNull();   // gone at the release's newest touch → the removal pass sees zero routes after
     }
 
+    @Test
+    void onlyRequestedVersionCommitsOnAFileAreListedForReplay(@TempDir Path dir) throws Exception {
+        // A file touched by four commits at different versions (mirrors the reported c934507/cwer975/cwyerhh/
+        // cjsdgr34 layout): only the two [19.14.0] commits must be listed for replay, chronological; the
+        // [19.10.0] and [19.8.0] commits are excluded even though they touched the same file.
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("payee.ftl"), "{ \"a\": \"1\" }\n");
+        commit(dir, "[JIRA-1][SG][19.8.0] base");                                  // cjsdgr34 — excluded
+        Files.writeString(dir.resolve("payee.ftl"), "{ \"a\": \"1\", \"b\": \"2\" }\n");
+        commit(dir, "[JIRA-2][SG][19.14.0] add b");                               // cwyerhh — included (older)
+        Files.writeString(dir.resolve("payee.ftl"), "{ \"a\": \"1\", \"b\": \"2\", \"c\": \"3\" }\n");
+        commit(dir, "[JIRA-3][SG][19.10.0] add c");                               // cwer975 — excluded
+        Files.writeString(dir.resolve("payee.ftl"), "{ \"a\": \"1\", \"b\": \"2\", \"c\": \"3\", \"d\": \"4\" }\n");
+        commit(dir, "[JIRA-4][SG][19.14.0] add d");                               // c934507 — included (newest)
+
+        GitChangeService svc = new GitChangeService();
+        GitChangeService.ReleaseChanges rc = svc.changedFor(dir, "19.14.0");
+        List<String> commits = rc.fileReleaseCommits().get("payee.ftl");
+        assertThat(commits).hasSize(2);   // ONLY the two [19.14.0] commits, not [19.10.0] / [19.8.0]
+
+        // Chronological (oldest-first): first is the 'add b' commit, second is the 'add d' commit.
+        assertThat(String.join("\n", svc.fileAtRef(dir, commits.get(0), "payee.ftl")))
+                .contains("\"b\"").doesNotContain("\"d\"");
+        assertThat(String.join("\n", svc.fileAtRef(dir, commits.get(1), "payee.ftl")))
+                .contains("\"d\"");
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

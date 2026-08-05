@@ -85,6 +85,26 @@ class PayloadAccumulationTest {
     }
 
     @Test
+    void twoReleaseCommitsOnOneFileAreBothCaptured_interleavedOtherVersionExcluded() {
+        // Commit 1 [19.14.0] adds fieldA. Then a [19.4.0] commit (NOT replayed) changes fieldZ z1 -> z2.
+        // Commit 2 [19.14.0] adds fieldB. Both release fields must show; the 19.4.0 fieldZ change must not.
+        String baseline = "{ \"fieldZ\": \"z1\" }";
+        String afterC1 = "{ \"fieldZ\": \"z1\", \"fieldA\": \"a\" }";
+        String beforeC2 = "{ \"fieldZ\": \"z2\", \"fieldA\": \"a\" }";   // fieldZ already z2 from the 19.4.0 commit
+        String afterC2 = "{ \"fieldZ\": \"z2\", \"fieldA\": \"a\", \"fieldB\": \"b\" }";
+
+        List<String> added = new ArrayList<>();
+        List<String> removed = new ArrayList<>();
+        List<PayloadValueChange> vals = new ArrayList<>();
+        RouteTraceService.accumulatePayload(List.of(pair(baseline, afterC1), pair(beforeC2, afterC2)),
+                added, removed, vals);
+
+        assertThat(added).contains("fieldA", "fieldB");   // BOTH release commits captured
+        assertThat(vals).noneMatch(v -> v.key().toLowerCase().contains("fieldz"));   // the 19.4.0 change excluded
+        assertThat(vals).isEmpty();
+    }
+
+    @Test
     void aKeyTheReleaseAddedThenRemovedNetsToNothing() {
         String base = "{ \"a\": \"1\" }";
         String withB = "{ \"a\": \"1\", \"b\": \"2\" }";

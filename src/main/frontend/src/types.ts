@@ -199,6 +199,9 @@ export interface BauRouteEdit {
   /** True when the release DELETED the whole BAU route (not just edited it) — a hard, backward-incompatible
    *  removal: the old app that still calls it breaks. The removed* lists then carry its pre-release body. */
   routeRemoved?: boolean;
+  /** The request-body template file(s) (repo-relative, e.g. `…/sg/v1/enquiry.ftl`) whose payload the release
+   *  changed — named next to the key/value diff so the reviewer knows which .ftl/.vm the result came from. */
+  payloadFiles?: string[];
 }
 
 /** A scalar payload value the release changed in place for a key present on both sides — `key: before → after`. */

@@ -34,11 +34,14 @@ import java.util.List;
  * @param changedValues scalar payload values the release changed in place (key present on both sides)
  * @param changedBy     git-blame authors of the route's current lines (empty when not a git work tree)
  * @param routeRemoved  true when the release deleted the whole BAU route (not just edited it) — a hard removal
+ * @param payloadFiles  the request-body template file(s) whose payload the release changed (repo-relative), so the
+ *                      report can name the exact {@code .ftl/.vm} the key/value diff came from
  */
 public record BauRouteEdit(String route, List<String> path,
                            List<String> addedSteps, List<String> removedSteps,
                            List<String> addedKeys, List<String> removedKeys,
                            List<PayloadValueChange> changedValues,
                            List<String> changedBy,
-                           boolean routeRemoved) {
+                           boolean routeRemoved,
+                           List<String> payloadFiles) {
 }

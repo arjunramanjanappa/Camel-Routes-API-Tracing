@@ -511,6 +511,7 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
         const incompat = removed || e.removedSteps.length > 0 || e.removedKeys.length > 0;
         const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
         const hasBody = e.addedSteps.length > 0 || e.removedSteps.length > 0;
+        const payloadFiles = e.payloadFiles || [];
         return (
           <div key={e.route}>
             {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind + regression tags */}
@@ -529,14 +530,20 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
               </span>
             </span>
             {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
+            {/* Which template the payload result came from, so the reviewer knows the exact .ftl/.vm. */}
+            {hasPayload && payloadFiles.length > 0 && (
+              <div className="bau-payload-file" title="the request-body template file whose keys/values the release changed">
+                Payload template: {payloadFiles.map((f, i) => <code key={i}>{f}</code>)}
+              </div>
+            )}
             {/* Below the header: what changed (same +/- diff style as the code section) */}
             <pre className="rdiff-body">
               {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
               {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
-              {e.removedKeys.map((k, i) => <div key={'rk' + i} className="dl del">- payload key: {k}</div>)}
-              {e.addedKeys.map((k, i) => <div key={'ak' + i} className="dl add">+ payload key: {k}</div>)}
+              {e.removedKeys.map((k, i) => <div key={'rk' + i} className="dl del wrap">- payload key: {k}</div>)}
+              {e.addedKeys.map((k, i) => <div key={'ak' + i} className="dl add wrap">+ payload key: {k}</div>)}
               {changedVals.map((v, i) => (
-                <div key={'cv' + i} className="dl" title="payload value changed in place — the old app now sends a different value">
+                <div key={'cv' + i} className="dl wrap" title="payload value changed in place — the old app now sends a different value">
                   ~ payload {v.key}: <span className="del">{v.before}</span> → <span className="add">{v.after}</span>
                 </div>
               ))}

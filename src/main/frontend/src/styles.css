@@ -998,8 +998,15 @@ button.impact-api.linkish:hover { color: #1e40af; }
 [data-theme="dark"] .diff-added-by { color: var(--accent-num); }
 .rdiff-body { margin: 0; padding: 8px 10px; font-size: 12px; line-height: 1.5; overflow-x: auto; background: #fff; }
 .rdiff-body .dl { white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* Payload key / value lines: wrap instead of running off the card (a long value like a bank address). */
+.rdiff-body .dl.wrap { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .rdiff-body .dl.add { background: #f0fdf4; color: #166534; }
 .rdiff-body .dl.del { background: #fef2f2; color: #991b1b; }
+/* Which .ftl/.vm the payload diff came from — sits above the diff, wraps on long paths. */
+.bau-payload-file { font-size: 11px; color: #64748b; margin: 3px 0 2px; overflow-wrap: anywhere; }
+.bau-payload-file code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #334155; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; margin-left: 4px; }
+[data-theme="dark"] .bau-payload-file { color: #94a3b8; }
+[data-theme="dark"] .bau-payload-file code { color: #cbd5e1; background: #1e293b; }
 
 [data-theme="dark"] .diff-card { background: #1e293b; border-color: #334155; border-left-color: #475569; }
 [data-theme="dark"] .diff-card.changed { border-left-color: #f59e0b; }

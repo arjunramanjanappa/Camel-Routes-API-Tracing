@@ -850,6 +850,7 @@ public class RouteTraceService {
             List<String> addedKeys = new ArrayList<>();
             List<String> removedKeys = new ArrayList<>();
             List<PayloadValueChange> changedValues = new ArrayList<>();
+            LinkedHashSet<String> payloadFiles = new LinkedHashSet<>();   // the template file(s) whose payload changed
             for (String uri : templateRefs(rm)) {
                 // Match the release-changed set by THIS template's FULL path (META-INF/templates/sg/v1/enquiry.ftl),
                 // not by the resolved file's loose suffix — two same-named templates under sg/v1 and sg/v2 must not
@@ -866,12 +867,16 @@ public class RouteTraceService {
                     List<String> content = gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp);
                     return content == null ? "" : String.join("\n", content);
                 });
+                int before1 = addedKeys.size() + removedKeys.size() + changedValues.size();
                 PayloadKeys.PayloadDiff pd = PayloadKeys.diff(PayloadKeys.extract(after), PayloadKeys.extract(before));
                 pd.added().forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
                 pd.removed().forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
                 for (PayloadKeys.ValueChange vc : PayloadKeys.valueDiff(
                         PayloadKeys.extractValues(before), PayloadKeys.extractValues(after))) {
                     changedValues.add(new PayloadValueChange(vc.key(), vc.before(), vc.after()));
+                }
+                if (addedKeys.size() + removedKeys.size() + changedValues.size() > before1) {
+                    payloadFiles.add(tGit);   // this template actually contributed a change — name it in the report
                 }
             }
 
@@ -881,7 +886,8 @@ public class RouteTraceService {
             }
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                     .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, addedKeys, removedKeys,
-                            changedValues, loc != null ? blameAuthors(loc) : List.of(), false));
+                            changedValues, loc != null ? blameAuthors(loc) : List.of(), false,
+                            new ArrayList<>(payloadFiles)));
         }
 
         // 3) REMOVED BAU routes: a route the release DELETED is gone from the current registry, so the loop above
@@ -918,7 +924,7 @@ public class RouteTraceService {
                 flaggedRoutes.add(rid);
                 byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                         .add(new BauRouteEdit(rid, owner.path(), List.of(), before.get(rid),
-                                List.of(), List.of(), List.of(), List.of(), true));
+                                List.of(), List.of(), List.of(), List.of(), true, List.of()));
             }
         }
 

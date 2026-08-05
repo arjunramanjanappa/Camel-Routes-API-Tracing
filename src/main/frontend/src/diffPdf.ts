@@ -351,6 +351,11 @@ function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
     if (e.changedBy && e.changedBy.length) {
       r.para('Changed by: ' + e.changedBy.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.accent, 11);
     }
+    const payloadFiles = e.payloadFiles || [];
+    const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
+    if (hasPayload && payloadFiles.length) {
+      r.para('Payload template: ' + payloadFiles.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.muted, 11);
+    }
     r.diffLines(e.removedSteps, e.addedSteps);
     r.diffLines(e.removedKeys.map((k) => 'payload key: ' + k), e.addedKeys.map((k) => 'payload key: ' + k));
     changedVals.forEach((v) => r.para(`~ payload ${v.key}: ${v.before} -> ${v.after}`,

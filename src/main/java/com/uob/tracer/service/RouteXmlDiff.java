@@ -193,16 +193,22 @@ final class RouteXmlDiff {
             if (n.startsWith("xmlns")) {
                 continue;   // namespace declarations aren't behavioural
             }
-            attrs.put(n, a.getNodeValue());
+            attrs.put(n, normWs(a.getNodeValue()));   // ignore whitespace/tab differences inside a value
         }
         attrs.forEach((n, v) -> sb.append(' ').append(n).append("=\"").append(v).append('"'));
         if (!hasElementChild(el)) {
             String text = el.getTextContent();
             if (text != null && !text.trim().isEmpty()) {
-                sb.append(" : ").append(text.trim().replaceAll("\\s+", " "));
+                sb.append(" : ").append(normWs(text));
             }
         }
         return sb.toString();
+    }
+
+    /** Trim and collapse whitespace runs — so a re-indent / tab-vs-space / stray-space edit (an attribute
+     *  value or a leaf text that reads identically) is NOT reported as a route change. */
+    private static String normWs(String s) {
+        return s == null ? "" : s.trim().replaceAll("\\s+", " ");
     }
 
     /** Added (in target, not lower) and removed (in lower, not target) lines, via LCS. */

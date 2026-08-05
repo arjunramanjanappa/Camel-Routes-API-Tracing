@@ -252,6 +252,24 @@ public class GitChangeService {
         return run(repoDir, 15, "show", ref + ":" + relPath.replace('\\', '/'));
     }
 
+    /**
+     * The commit immediately BEFORE {@code commit} in the git history OF {@code relPath} — the previous entry in
+     * {@code git log -- <file>}, i.e. the file's prior version. This is NOT the same as the commit-graph parent
+     * ({@code commit^}): with merges or commits that don't touch the file in between, the graph parent can point at
+     * a tree where the file looks different. Diffing a release commit against THIS gives exactly the change that
+     * commit made to the file. Null when {@code commit} is the file's first commit (it created the file).
+     */
+    public String previousFileCommit(Path repoDir, String commit, String relPath) {
+        if (repoDir == null || commit == null || relPath == null || relPath.isBlank()) {
+            return null;
+        }
+        // git log <commit> -- <file> lists the file's history newest-first starting at commit; skip commit itself,
+        // take the next = the previous version's commit.
+        List<String> out = run(repoDir, 15, "log", "--format=%H", "--skip=1", "-1", commit, "--",
+                relPath.replace('\\', '/'));
+        return out != null && !out.isEmpty() && !out.get(0).isBlank() ? out.get(0).trim() : null;
+    }
+
     /** Split the field into the distinct version tokens the user entered (comma/whitespace-separated), trimmed. */
     static Set<String> parseVersions(String field) {
         Set<String> out = new LinkedHashSet<>();

@@ -785,6 +785,7 @@ public class RouteTraceService {
         // referenced by several commits or routes.
         Map<String, String> rawByRef = new LinkedHashMap<>();                          // ref::path → file content
         Map<String, Map<String, List<String>>> bodiesByRef = new LinkedHashMap<>();    // ref::path → route bodies
+        Map<String, String> prevByCommit = new LinkedHashMap<>();                      // commit::path → prev file commit
         // Span endpoints (before = <oldest release touch>^, after = <newest release touch>) — used ONLY to detect a
         // whole route REMOVED by the release (present at the before endpoint, gone at the after endpoint).
         Map<String, Map<String, List<String>>> beforeBodyByFile = new LinkedHashMap<>();
@@ -826,7 +827,7 @@ public class RouteTraceService {
                 String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
                 if (gitPath != null) {
                     RouteXmlDiff.Diff d = releaseBodyDiff(repo, gitPath, routeId,
-                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef);
+                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef, prevByCommit);
                     addedSteps = d.added();
                     removedSteps = d.removed();
                     if (!addedSteps.isEmpty() || !removedSteps.isEmpty()) {
@@ -859,7 +860,7 @@ public class RouteTraceService {
                 List<String> tRemoved = new ArrayList<>();
                 List<PayloadValueChange> tVals = new ArrayList<>();
                 accumulateReleasePayload(repo, tGit, rc.fileReleaseCommits().getOrDefault(tGit, List.of()),
-                        tAdded, tRemoved, tVals, rawByRef);
+                        tAdded, tRemoved, tVals, rawByRef, prevByCommit);
                 if (tAdded.isEmpty() && tRemoved.isEmpty() && tVals.isEmpty()) {
                     continue;   // the release's commits changed OTHER keys in this file, none this payload sends
                 }
@@ -977,18 +978,20 @@ public class RouteTraceService {
     }
 
     /**
-     * Net route-body diff from ONLY the release's own commits on a file: replay each release commit against its
-     * OWN parent (so a commit at a different version — even one interleaved between two release commits on the same
-     * file — is invisible) and accumulate added/removed step lines, cancelling a line one release commit adds and
-     * a later one removes.
+     * Net route-body diff from ONLY the release's own commits on a file: diff each release commit against the
+     * PREVIOUS commit in the file's own history (not the commit-graph parent — merges/intervening non-file commits
+     * would otherwise skew it) and accumulate added/removed step lines, cancelling a line one release commit adds
+     * and a later one removes. So a commit at a different version, wherever it sits, is invisible.
      */
     private RouteXmlDiff.Diff releaseBodyDiff(Path repo, String gitPath, String routeId, List<String> commitsChrono,
                                               Map<String, Map<String, List<String>>> bodiesByRef,
-                                              Map<String, String> rawByRef) {
+                                              Map<String, String> rawByRef, Map<String, String> prevByCommit) {
         List<String> added = new ArrayList<>();
         List<String> removed = new ArrayList<>();
         for (String c : commitsChrono) {
-            List<String> beforeBody = bodiesAt(repo, c + "^", gitPath, bodiesByRef, rawByRef).get(routeId);
+            String prev = prevFileRef(repo, c, gitPath, prevByCommit);
+            List<String> beforeBody = prev.isEmpty() ? null
+                    : bodiesAt(repo, prev, gitPath, bodiesByRef, rawByRef).get(routeId);
             List<String> afterBody = bodiesAt(repo, c, gitPath, bodiesByRef, rawByRef).get(routeId);
             if (beforeBody == null || afterBody == null) {
                 continue;   // the route wasn't present on both sides of THIS commit — not an in-place edit by it
@@ -1009,18 +1012,31 @@ public class RouteTraceService {
     }
 
     /**
-     * Net payload key/value change from ONLY the release's own commits on a template file — each commit vs its own
-     * parent, accumulated. A key the release adds (then perhaps value-tweaks) reads as added; a value a
-     * different-version commit changed is never reported (that commit isn't in {@code commitsChrono}).
+     * Net payload key/value change from ONLY the release's own commits on a template file — each commit vs the
+     * PREVIOUS commit in the file's own history (not the commit-graph parent), accumulated. A key the release adds
+     * (then perhaps value-tweaks) reads as added; a value a different-version commit changed is never reported
+     * (that commit isn't in {@code commitsChrono}).
      */
     private void accumulateReleasePayload(Path repo, String gitPath, List<String> commitsChrono,
                                           List<String> outAdded, List<String> outRemoved,
-                                          List<PayloadValueChange> outVals, Map<String, String> rawByRef) {
-        List<String[]> commitDiffs = new ArrayList<>();   // per release commit: {parentContent, selfContent}
+                                          List<PayloadValueChange> outVals, Map<String, String> rawByRef,
+                                          Map<String, String> prevByCommit) {
+        List<String[]> commitDiffs = new ArrayList<>();   // per release commit: {previousFileVersion, thisCommit}
         for (String c : commitsChrono) {
-            commitDiffs.add(new String[]{rawAt(repo, c + "^", gitPath, rawByRef), rawAt(repo, c, gitPath, rawByRef)});
+            String prev = prevFileRef(repo, c, gitPath, prevByCommit);
+            String before = prev.isEmpty() ? "" : rawAt(repo, prev, gitPath, rawByRef);
+            commitDiffs.add(new String[]{before, rawAt(repo, c, gitPath, rawByRef)});
         }
         accumulatePayload(commitDiffs, outAdded, outRemoved, outVals);
+    }
+
+    /** The previous commit in the file's own history before {@code commit} (cached); empty when it's the file's
+     *  first commit. Used as the diff baseline so a release commit is compared to the file's prior version. */
+    private String prevFileRef(Path repo, String commit, String gitPath, Map<String, String> prevByCommit) {
+        return prevByCommit.computeIfAbsent(commit + "::" + gitPath, k -> {
+            String p = gitChange.previousFileCommit(repo, commit, gitPath);
+            return p == null ? "" : p;
+        });
     }
 
     /**

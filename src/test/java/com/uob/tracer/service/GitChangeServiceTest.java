@@ -228,6 +228,35 @@ class GitChangeServiceTest {
                 .contains("\"d\"");
     }
 
+    @Test
+    void previousFileCommitFollowsTheFileHistoryNotTheGraphParent(@TempDir Path dir) throws Exception {
+        // The baseline for a release commit's diff must be the file's PREVIOUS version, not the commit-graph parent
+        // — an intervening commit that doesn't touch the file is the graph parent but not the file's prior version.
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\" }\n");
+        commit(dir, "[JIRA-1][SG][19.8.0] a v1");
+        String aV1 = head(dir);
+        Files.writeString(dir.resolve("other.txt"), "unrelated\n");
+        commit(dir, "[JIRA-2][SG][19.9.0] unrelated file — graph parent of the next, but doesn't touch a.ftl");
+        Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\", \"y\": \"2\" }\n");
+        commit(dir, "[JIRA-3][SG][19.14.0] a v2");
+        String aV2 = head(dir);
+
+        GitChangeService svc = new GitChangeService();
+        // Its graph parent is the 'unrelated file' commit; its FILE-history previous is a v1.
+        assertThat(svc.previousFileCommit(dir, aV2, "a.ftl")).isEqualTo(aV1);
+    }
+
+    private static String head(Path dir) throws Exception {
+        Process p = new ProcessBuilder("git", "-C", dir.toString(), "rev-parse", "HEAD").start();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            String h = br.readLine();
+            p.waitFor(10, TimeUnit.SECONDS);
+            return h == null ? null : h.trim();
+        }
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

@@ -156,6 +156,31 @@ class GitChangeServiceTest {
         assertThat(after).contains("fieldA").contains("fieldB").doesNotContain("fieldC");
     }
 
+    @Test
+    void aFileDeletedByTheReleaseIsAChangeWithAnEmptyAfterSide(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        // A BAU route file (or a template) exists before the release.
+        Files.writeString(dir.resolve("enquiry.xml"),
+                "<routes><route id=\"R9.10_enquiry\"><from uri=\"direct:R9.10_enquiry\"/><to uri=\"bean:x\"/></route></routes>\n");
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+        // The 19.18.0 release DELETES it — the old app that still calls R9.10 breaks.
+        Files.delete(dir.resolve("enquiry.xml"));
+        commit(dir, "[JIRA-2][SG][19.18.0] delete the BAU route file");
+
+        GitChangeService svc = new GitChangeService();
+        GitChangeService.ReleaseChanges rc = svc.changedFor(dir, "19.18.0");
+        // A deletion is a change, and it is reported as a deleted file.
+        assertThat(rc.changedFiles()).contains("enquiry.xml");
+        assertThat(rc.deletedFiles()).contains("enquiry.xml");
+        // before = the pre-release content (route present); after = the deletion commit → file gone → null.
+        List<String> before = svc.fileAtRef(dir, rc.beforeRefFor("enquiry.xml"), "enquiry.xml");
+        List<String> after = svc.fileAtRef(dir, rc.afterRefFor("enquiry.xml"), "enquiry.xml");
+        assertThat(before).isNotNull();
+        assertThat(String.join("\n", before)).contains("R9.10_enquiry");
+        assertThat(after).isNull();   // gone at the release's newest touch → the removal pass sees zero routes after
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

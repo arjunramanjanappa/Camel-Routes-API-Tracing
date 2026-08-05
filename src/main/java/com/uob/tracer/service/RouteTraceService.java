@@ -564,11 +564,13 @@ public class RouteTraceService {
         return a.codeChanged() || bauRouteModified(a);
     }
 
-    /** True when the release REMOVED a step or a payload key from a BAU route — backward-incompatible (for messaging). */
+    /** True when the release REMOVED a step or a payload key from a BAU route, or deleted the whole route —
+     *  backward-incompatible (for messaging). */
     private static boolean bauRouteRemoval(ApiDiff a) {
         List<BauRouteEdit> edits = a.bauRouteEdits();
         return edits != null && edits.stream().anyMatch(e ->
-                (e.removedSteps() != null && !e.removedSteps().isEmpty())
+                e.routeRemoved()
+                        || (e.removedSteps() != null && !e.removedSteps().isEmpty())
                         || (e.removedKeys() != null && !e.removedKeys().isEmpty()));
     }
 
@@ -785,6 +787,14 @@ public class RouteTraceService {
         // Template content per changed file at each end of the release span, for the payload key + value diffs.
         Map<String, String> beforeTemplateByFile = new LinkedHashMap<>();
         Map<String, String> afterTemplateByFile = new LinkedHashMap<>();
+        // API family by version-stripped base name (R9.14_enquiry → enquiry → its API). The NEW app resolves to
+        // R9.14 and never falls back to R9.10, so R9.10 is not in the new app's reachable `ownership` — but the
+        // OLD (BAU) app still calls R9.10 directly. So a BAU route is attributed to its family here even when the
+        // new dispatch no longer reaches it, ensuring R9.10 is still checked for release impact.
+        Map<String, RouteOwner> baseOwner = new LinkedHashMap<>();
+        for (var e : ownership.entrySet()) {
+            baseOwner.putIfAbsent(baseName(e.getKey()), e.getValue());
+        }
 
         for (RouteModel rm : registry.all()) {
             if (registry.isAmbient(rm)) {
@@ -797,9 +807,9 @@ public class RouteTraceService {
             if (v != null && compareVersions(v, release) >= 0) {
                 continue;
             }
-            RouteOwner owner = ownership.get(routeId);
+            RouteOwner owner = bauOwner(routeId, ownership, baseOwner);
             if (owner == null) {
-                continue;   // not reachable from an in-scope API entry
+                continue;   // not part of any in-scope API family (nor reachable) — out of scope
             }
 
             // 1) Route BODY: did the release's OWN commits change THIS route's own XML? Diff the route body at
@@ -871,8 +881,47 @@ public class RouteTraceService {
             }
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                     .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, addedKeys, removedKeys,
-                            changedValues, loc != null ? blameAuthors(loc) : List.of()));
+                            changedValues, loc != null ? blameAuthors(loc) : List.of(), false));
         }
+
+        // 3) REMOVED BAU routes: a route the release DELETED is gone from the current registry, so the loop above
+        //    never sees it. Reconstruct each release-touched XML file's routes at both ends of its release span; a
+        //    route present before but absent after was removed by the release. Attribute it to its API by base
+        //    name (its family's current route) — so a lower route the OLD app still calls is flagged even when the
+        //    new dispatch no longer reaches it. Backward-incompatible removal → High + backward-compat.
+        Set<String> flaggedRoutes = new LinkedHashSet<>();
+        byApi.values().forEach(list -> list.forEach(ed -> flaggedRoutes.add(ed.route())));
+        for (String gitFile : rc.changedFiles()) {
+            if (!gitFile.toLowerCase(java.util.Locale.ROOT).endsWith(".xml")) {
+                continue;
+            }
+            Map<String, List<String>> before = beforeBodyByFile.computeIfAbsent(gitFile, gp -> {
+                List<String> content = gitChange.fileAtRef(repo, rc.beforeRefFor(gp), gp);
+                return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
+            });
+            Map<String, List<String>> after = afterBodyByFile.computeIfAbsent(gitFile, gp -> {
+                List<String> content = gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp);
+                return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
+            });
+            for (String rid : before.keySet()) {
+                if (after.containsKey(rid) || flaggedRoutes.contains(rid)) {
+                    continue;   // still present (an in-place edit, handled above) or already flagged
+                }
+                String rv = routeVersionOf(rid);
+                if (rv != null && compareVersions(rv, release) >= 0) {
+                    continue;   // the release's own / a future route — removing it doesn't touch the old app
+                }
+                RouteOwner owner = bauOwner(rid, ownership, baseOwner);
+                if (owner == null) {
+                    continue;   // not part of any in-scope API family
+                }
+                flaggedRoutes.add(rid);
+                byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
+                        .add(new BauRouteEdit(rid, owner.path(), List.of(), before.get(rid),
+                                List.of(), List.of(), List.of(), List.of(), true));
+            }
+        }
+
         if (byApi.isEmpty()) {
             return;
         }
@@ -903,6 +952,22 @@ public class RouteTraceService {
             report.setUnchangedCount(Math.max(0, report.getUnchangedCount() - unchangedToChanged));
             report.setChangedCount(report.getChangedCount() + promoted);
         }
+    }
+
+    /**
+     * The in-scope API a BAU route belongs to. First the exact reachable owner (the route is on the new app's
+     * resolved flow); else the route's API <em>family</em> by version-stripped base name — so a lower route the
+     * OLD (BAU) app still calls (R9.10 when the new app resolves to R9.14) is still attributed and checked, with
+     * its own id as the display path. Null when the route is part of no in-scope API family.
+     */
+    static RouteOwner bauOwner(String routeId, Map<String, RouteOwner> ownership,
+                               Map<String, RouteOwner> baseOwner) {
+        RouteOwner owner = ownership.get(routeId);
+        if (owner != null) {
+            return owner;
+        }
+        RouteOwner fam = baseOwner.get(baseName(routeId));
+        return fam == null ? null : new RouteOwner(fam.api(), List.of(routeId));
     }
 
     /** Request-body template {@code <to>} uris a route sends (template-component scheme or {@code .ftl/.vm/…}). */
@@ -1028,7 +1093,7 @@ public class RouteTraceService {
     }
 
     /** A route's owning API path and the entry-route → … → route chain that reaches it. */
-    private record RouteOwner(String api, List<String> path) {}
+    record RouteOwner(String api, List<String> path) {}
 
     /**
      * For every route, the API that owns it and the entry-route → … → route chain, so the code-change re-test

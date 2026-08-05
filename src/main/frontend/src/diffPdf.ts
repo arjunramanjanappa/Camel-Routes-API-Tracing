@@ -16,7 +16,7 @@ function needsBC(a: ApiDiff): boolean {
 }
 /** A step or payload key removed from a BAU route the old app still runs — backward-incompatible. */
 function bauRouteRemoval(a: ApiDiff): boolean {
-  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length || e.removedKeys?.length);
+  return !!a.bauRouteEdits?.some((e) => e.routeRemoved || e.removedSteps?.length || e.removedKeys?.length);
 }
 /** The release edited a BAU route at all — its body OR its payload changed → it alters existing PROD behaviour. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
@@ -340,11 +340,12 @@ function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
   edits.forEach((e) => {
     r.ensure(18);
     const changedVals = e.changedValues || [];
-    const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
+    const removed = !!e.routeRemoved;
+    const incompat = removed || e.removedSteps.length > 0 || e.removedKeys.length > 0;
     const add = e.addedSteps.length + e.addedKeys.length;
     const del = e.removedSteps.length + e.removedKeys.length;
-    const tally = `(+${add}  -${del}${changedVals.length ? '  ~' + changedVals.length : ''})`;
-    r.text(`${e.route}   ${tally}${incompat ? '  backward-incompatible' : '  changes PROD'}`,
+    const tally = removed ? '(route deleted)' : `(+${add}  -${del}${changedVals.length ? '  ~' + changedVals.length : ''})`;
+    r.text(`${e.route}   ${tally}${removed ? '  ROUTE REMOVED - backward-incompatible' : incompat ? '  backward-incompatible' : '  changes PROD'}`,
       M + 4, 'bold', 9, incompat ? PAL.delText : PAL.ink);
     r.y += 12;
     if (e.changedBy && e.changedBy.length) {

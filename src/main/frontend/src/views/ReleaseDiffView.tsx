@@ -57,7 +57,7 @@ function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
 /** A step or payload key removed from a BAU route the old app still runs — backward-incompatible (found by
  *  git-diffing that route's own definition across the release). */
 function bauRouteRemoval(a: ApiDiff): boolean {
-  return !!a.bauRouteEdits?.some((e) => e.removedSteps?.length || e.removedKeys?.length);
+  return !!a.bauRouteEdits?.some((e) => e.routeRemoved || e.removedSteps?.length || e.removedKeys?.length);
 }
 /** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
  *  alters a route already in production, so it directly impacts the old/PROD app. */
@@ -441,7 +441,7 @@ function BauRouteCallout({ report, onOpenApi }: { report: VersionDiffReport; onO
       {open && (
         <div className="bau-callout-body">
           {apis.map((a) => {
-            const incompat = (a.bauRouteEdits || []).some((e) => e.removedSteps.length > 0 || e.removedKeys.length > 0);
+            const incompat = (a.bauRouteEdits || []).some((e) => e.routeRemoved || e.removedSteps.length > 0 || e.removedKeys.length > 0);
             return (
               <div key={a.api} className="bau-callout-row">
                 {onOpenApi
@@ -507,23 +507,28 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
       <span className="diff-code-label">⚑ BAU route modified — existing PROD behaviour changed (High)</span>
       {edits.map((e) => {
         const changedVals = e.changedValues || [];
-        const incompat = e.removedSteps.length > 0 || e.removedKeys.length > 0;
+        const removed = !!e.routeRemoved;
+        const incompat = removed || e.removedSteps.length > 0 || e.removedKeys.length > 0;
         const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
         const hasBody = e.addedSteps.length > 0 || e.removedSteps.length > 0;
         return (
           <div key={e.route}>
             {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind + regression tags */}
-            <span className="chg code" title="a BAU route the release edited in place — git-blame authors of its current lines">
+            <span className="chg code" title={removed
+              ? 'a BAU route the release DELETED — the old app that still calls it breaks; git-blame authors of its last lines'
+              : 'a BAU route the release edited in place — git-blame authors of its current lines'}>
               {e.route}
               {e.changedBy && e.changedBy.length > 0 && <span className="code-auth"> — {e.changedBy.join(', ')}</span>}
-              {hasPayload && <span className="chg-tag payload" title="the request payload this BAU route sends changed">Payload change</span>}
-              {hasBody && <span className="chg-tag body" title="a step in this BAU route changed">Route change</span>}
+              {removed && <span className="chg-tag body" title="the release deleted this whole BAU route">Route removed</span>}
+              {!removed && hasPayload && <span className="chg-tag payload" title="the request payload this BAU route sends changed">Payload change</span>}
+              {!removed && hasBody && <span className="chg-tag body" title="a step in this BAU route changed">Route change</span>}
               <span className="chg-tag regr" title={incompat
                 ? 'A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app'
                 : 'A route already in production was changed — regression-test the old app'}>
                 {incompat ? 'Regression needed · backward-incompatible' : 'Regression needed'}
               </span>
             </span>
+            {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
             {/* Below the header: what changed (same +/- diff style as the code section) */}
             <pre className="rdiff-body">
               {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}

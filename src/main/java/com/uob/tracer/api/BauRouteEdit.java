@@ -20,6 +20,11 @@ import java.util.List;
  * removed payload key is backward-INCOMPATIBLE (the old app loses/omits something it relied on); an added one
  * still changes PROD behaviour and must be verified.
  *
+ * <p>The most severe form is {@code routeRemoved}: the release DELETED the whole BAU route (its {@code <route>}
+ * dropped from the XML, or its file removed). The old app that still calls it by version breaks outright — a
+ * backward-incompatible removal, always High + backward-compat. In that case the step/key lists carry the route's
+ * pre-release body (everything it lost) for context.
+ *
  * @param route        the BAU route id whose definition changed (e.g. {@code R9.8_getStatusRoute})
  * @param path         the owning API's entry → … → route chain (for display)
  * @param addedSteps   canonical route-body step lines present after the release but not before
@@ -28,10 +33,12 @@ import java.util.List;
  * @param removedKeys   request-payload keys the release removed from a template this route sends
  * @param changedValues scalar payload values the release changed in place (key present on both sides)
  * @param changedBy     git-blame authors of the route's current lines (empty when not a git work tree)
+ * @param routeRemoved  true when the release deleted the whole BAU route (not just edited it) — a hard removal
  */
 public record BauRouteEdit(String route, List<String> path,
                            List<String> addedSteps, List<String> removedSteps,
                            List<String> addedKeys, List<String> removedKeys,
                            List<PayloadValueChange> changedValues,
-                           List<String> changedBy) {
+                           List<String> changedBy,
+                           boolean routeRemoved) {
 }

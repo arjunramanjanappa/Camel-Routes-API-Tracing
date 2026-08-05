@@ -196,6 +196,9 @@ export interface BauRouteEdit {
   changedValues: PayloadValueChange[];
   /** Git-blame authors of the route's current lines. */
   changedBy: string[];
+  /** True when the release DELETED the whole BAU route (not just edited it) — a hard, backward-incompatible
+   *  removal: the old app that still calls it breaks. The removed* lists then carry its pre-release body. */
+  routeRemoved?: boolean;
 }
 
 /** A scalar payload value the release changed in place for a key present on both sides — `key: before → after`. */

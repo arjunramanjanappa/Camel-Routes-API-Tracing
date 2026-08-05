@@ -432,44 +432,6 @@ function TemplateIssuesPanel({ report }: { report: VersionDiffReport }) {
   );
 }
 
-/**
- * Top-of-report executive callout: every BAU (in-production) route the release modified in place — the highest
- * severity signal (existing PROD routes changed). Collapsible; each row summarises what changed and links to
- * the API's flow. Nothing renders when no BAU route was touched.
- */
-function BauRouteCallout({ report, onOpenApi }: { report: VersionDiffReport; onOpenApi?: (api: string) => void }) {
-  const [open, setOpen] = useState(true);
-  // One row per API (an API may modify several BAU routes — list the API once). Details are in its card below.
-  const apis = report.apis.filter((a) => a.bauRouteEdits?.length);
-  if (!apis.length) return null;
-  return (
-    <div className="bau-callout" role="note">
-      <button type="button" className="bau-callout-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="collapse-caret">{open ? '▾' : '▸'}</span>
-        <span className="bau-callout-icon" aria-hidden="true">⚑</span>
-        <b>{apis.length} API{apis.length === 1 ? '' : 's'} modified a BAU route in place</b>
-        <span className="muted">existing PROD routes changed — High risk, regression-test the old app</span>
-      </button>
-      {open && (
-        <div className="bau-callout-body">
-          {apis.map((a) => {
-            const incompat = (a.bauRouteEdits || []).some((e) => e.routeRemoved || e.removedSteps.length > 0 || e.removedKeys.length > 0);
-            return (
-              <div key={a.api} className="bau-callout-row">
-                {onOpenApi
-                  ? <button type="button" className="linkish bau-callout-api" title="Open this API's flow" onClick={() => onOpenApi(a.api)}>{a.api}</button>
-                  : <code className="bau-callout-api">{a.api}</code>}
-                <span className="bc-flag warn" title={incompat ? 'A step or payload key the old app relied on was removed — backward-incompatible' : 'A route already in production was changed — regression-test the old app'}>
-                  {incompat ? 'backward-incompatible' : 'changes PROD'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /** At-a-glance change chips: which routes were edited / added / removed. */
 function changeChips(d: ApiDiff) {
@@ -520,7 +482,6 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
       {edits.map((e) => {
         const changedVals = e.changedValues || [];
         const removed = !!e.routeRemoved;
-        const incompat = removed || e.removedSteps.length > 0 || e.removedKeys.length > 0;
         const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
         const hasBody = e.addedSteps.length > 0 || e.removedSteps.length > 0;
         const payloadFiles = e.payloadFiles || [];
@@ -535,10 +496,8 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
               {removed && <span className="chg-tag body" title="the release deleted this whole BAU route">Route removed</span>}
               {!removed && hasPayload && <span className="chg-tag payload" title="the request payload this BAU route sends changed">Payload change</span>}
               {!removed && hasBody && <span className="chg-tag body" title="a step in this BAU route changed">Route change</span>}
-              <span className="chg-tag regr" title={incompat
-                ? 'A step or payload key the old app relied on was removed — backward-incompatible; regression-test the old app'
-                : 'A route already in production was changed — regression-test the old app'}>
-                {incompat ? 'Regression needed · backward-incompatible' : 'Regression needed'}
+              <span className="chg-tag bc" title="A live PROD (BAU) route was changed — backward-compatibility with the old app must be verified">
+                BC needed
               </span>
             </span>
             {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
@@ -941,8 +900,12 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         if (filters.has('failed')) { const l = activeLog?.[a.api]; if (!(l?.tested && l.status !== 'SUCCESS')) return false; }
         return true;
       })
-      // Highest test-priority first, so the list reads as a prioritised checklist; stable within a risk band.
-      .slice().sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
+      // BAU-route-modified APIs first (a live PROD route was changed — the top signal), then highest test-priority,
+      // so the list reads as a prioritised checklist; stable within each band.
+      .slice().sort((a, b) => {
+        const bau = (bauRouteModified(b) ? 1 : 0) - (bauRouteModified(a) ? 1 : 0);
+        return bau !== 0 ? bau : RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)];
+      });
   }, [report, activeGroup, query, filters, activeLog]);
 
   // N/A snapshot: every API resolved to its latest/base route — a flat list, not the diff nav.
@@ -1071,7 +1034,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         <div className="impact-body" style={{ display: 'block', padding: '0 18px 20px' }}>
           <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
           <CodeChangeSummary report={report} />
-          <BauRouteCallout report={report} />
           <TemplateIssuesPanel report={report} />
           <div className="testlog-bar" style={{ marginTop: 10 }}>
             <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">
@@ -1187,7 +1149,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               )}
             </div>
             <CodeChangeSummary report={report} />
-            <BauRouteCallout report={report} onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })} />
             <TemplateIssuesPanel report={report} />
 
             <div className="diff-main-head row between">

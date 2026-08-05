@@ -902,9 +902,11 @@ tr.lsub.bau td, tr.lrow.bau td { opacity: .8; }
 .chg-tag.payload { background: #dbeafe; color: #1e40af; }
 .chg-tag.body { background: #fef3c7; color: #92400e; }
 .chg-tag.regr { background: #fee2e2; color: #b91c1c; }
+.chg-tag.bc { background: #ffedd5; color: #9a3412; }
 [data-theme="dark"] .chg-tag.payload { background: #1e3a8a; color: #bfdbfe; }
 [data-theme="dark"] .chg-tag.body { background: #78350f; color: #fde68a; }
 [data-theme="dark"] .chg-tag.regr { background: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .chg-tag.bc { background: #7c2d12; color: #fed7aa; }
 [data-theme="dark"] .code-ver { background: #7c3aed; color: #f5f3ff; }
 [data-theme="dark"] .code-auth { color: #a892d6; }
 .diff-code { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 8px; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 6px; padding: 5px 9px; }

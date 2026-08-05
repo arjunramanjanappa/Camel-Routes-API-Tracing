@@ -30,10 +30,14 @@ class FtlValidatorTest {
     }
 
     @Test
-    void aMissingCommaBetweenFieldsIsAStructureIssue() {
-        // No comma between "a" and "b" — valid FTL, but the rendered output isn't valid JSON.
-        String ftl = "{ \"a\": \"${x}\" \"b\": \"${y}\" }";
-        assertThat(validate(ftl)).anySatisfy(i -> assertThat(i.kind()).isEqualTo("STRUCTURE"));
+    void aMissingCommaBetweenFieldsIsAStructureIssueWithLine() {
+        // No comma after "a" (line 3) — valid FTL, but the rendered output isn't valid JSON. The finding must
+        // carry the line where the JSON parser trips (line 4, the "b" that needed a comma before it).
+        String ftl = "{\n  \"a\": \"${x}\"\n  \"b\": \"${y}\"\n}";
+        assertThat(validate(ftl)).anySatisfy(i -> {
+            assertThat(i.kind()).isEqualTo("STRUCTURE");
+            assertThat(i.line()).isEqualTo(3);   // JSON parser reports the token that broke the expectation
+        });
     }
 
     @Test

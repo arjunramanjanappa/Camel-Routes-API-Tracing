@@ -415,7 +415,7 @@ function TemplateIssuesPanel({ report }: { report: VersionDiffReport }) {
           </li>
         ))}
       </ul>
-      {hasStructure && <div className="sub">JSON-structure findings are rendered with stub data — a real defect (missing/trailing comma, unbalanced brace) or, rarely, a data-dependent conditional. Verify the template.</div>}
+      {hasStructure && <div className="sub">JSON-structure findings show the line in the template where the rendered output stops being valid JSON (a missing/trailing comma, unbalanced brace). The line matches the source; it can drift after a <code>&lt;#list&gt;</code> whose body spans lines. Verify the template.</div>}
     </div>
   );
 }

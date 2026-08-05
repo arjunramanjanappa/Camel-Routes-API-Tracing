@@ -57,6 +57,10 @@ public final class FtlValidator {
         cfg.setNumberFormat("computer");            // ${n} -> "1" (no locale grouping)
         cfg.setBooleanFormat("true,false");         // ${b} -> true/false (valid JSON)
         cfg.setLogTemplateExceptions(false);
+        // Keep directive-only lines as blank lines instead of removing them, so the rendered output keeps the
+        // SAME line numbering as the template — a JSON error's line then maps to the source line. (It can
+        // still drift AFTER a <#list> whose body spans lines, since the body repeats; noted in the finding.)
+        cfg.setWhitespaceStripping(false);
         // Keep rendering through a stub-model hiccup (an odd built-in) so we still get full output to JSON-parse.
         cfg.setTemplateExceptionHandler((te, env, out) -> {
             try {
@@ -93,8 +97,16 @@ public final class FtlValidator {
         if (!rendered.isBlank()) {
             try {
                 JSON.readTree(rendered);
-            } catch (Exception je) {
-                issues.add(new Issue("STRUCTURE", "rendered output is not valid JSON — " + firstLine(je.getMessage()), 0));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException je) {
+                int line = je.getLocation() != null ? je.getLocation().getLineNr() : 0;
+                int col = je.getLocation() != null ? je.getLocation().getColumnNr() : 0;
+                String msg = "rendered output is not valid JSON — " + firstLine(je.getOriginalMessage());
+                if (col > 0) {
+                    msg += " (col " + col + ")";
+                }
+                issues.add(new Issue("STRUCTURE", msg, Math.max(line, 0)));
+            } catch (Exception e) {
+                issues.add(new Issue("STRUCTURE", "rendered output is not valid JSON — " + firstLine(e.getMessage()), 0));
             }
         }
         return issues;

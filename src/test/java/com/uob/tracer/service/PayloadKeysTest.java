@@ -2,10 +2,44 @@ package com.uob.tracer.service;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** The JSON-key extraction + diff that drives the release-diff "Payload change". */
 class PayloadKeysTest {
+
+    private static PayloadKeys.KeyValue kv(String name, String value) {
+        return new PayloadKeys.KeyValue("", name, value);
+    }
+
+    @Test
+    void leafValueExtractsTheLastIdentifierOrLiteral() {
+        assertThat(PayloadKeys.leafValue("${a.productType}")).isEqualTo("productType");
+        assertThat(PayloadKeys.leafValue("${product.accountInformation.productType}")).isEqualTo("productType");
+        assertThat(PayloadKeys.leafValue("$a.productType")).isEqualTo("productType");             // velocity bare ref
+        assertThat(PayloadKeys.leafValue("$!{a.b.productType}")).isEqualTo("productType");          // velocity quiet ref
+        assertThat(PayloadKeys.leafValue("${a.b.productType?string}")).isEqualTo("productType");    // freemarker built-in
+        assertThat(PayloadKeys.leafValue("${a.productType!\"\"}")).isEqualTo("productType");         // freemarker default
+        assertThat(PayloadKeys.leafValue("${a.list[0].productType}")).isEqualTo("productType");      // array index
+        assertThat(PayloadKeys.leafValue("OW")).isEqualTo("OW");                                     // literal
+    }
+
+    @Test
+    void reRootingTheObjectPathAcrossAMigrationIsNotAValueChange() {
+        // The .vm -> .ftl migration only re-roots the object path; the leaf (productType) is unchanged.
+        List<PayloadKeys.KeyValue> before = List.of(kv("productType", "${a.productType}"));
+        List<PayloadKeys.KeyValue> now = List.of(kv("productType", "${product.accountInformation.productType}"));
+        assertThat(PayloadKeys.valueDiff(before, now)).isEmpty();
+    }
+
+    @Test
+    void aDifferentLeafOrLiteralIsAValueChange() {
+        List<PayloadKeys.KeyValue> before = List.of(kv("productType", "${a.productType}"));
+        assertThat(PayloadKeys.valueDiff(before, List.of(kv("productType", "${product.accountInformation.productDesc}"))))
+                .singleElement().satisfies(c -> assertThat(c.key()).isEqualTo("productType"));
+        assertThat(PayloadKeys.valueDiff(before, List.of(kv("productType", "OW")))).hasSize(1);
+    }
 
     @Test
     void sameKeysAcrossVelocityAndFreemarkerIsNotAChange() {

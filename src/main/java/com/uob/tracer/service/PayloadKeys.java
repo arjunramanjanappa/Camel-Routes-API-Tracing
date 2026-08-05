@@ -249,7 +249,13 @@ final class PayloadKeys {
         return out;
     }
 
-    /** For keys present on BOTH sides (matched by object+name), the ones whose scalar value changed. */
+    /**
+     * For keys present on BOTH sides (matched by object+name), the ones whose scalar value changed — compared
+     * by the value's LEAF, so a {@code .vm -> .ftl} migration that only re-roots the object path is NOT a
+     * change. E.g. {@code ${a.productType}} vs {@code ${product.accountInformation.productType}} share the leaf
+     * {@code productType} (no change); a different leaf ({@code productDesc}) or a literal ({@code OW}) is a
+     * change. The raw before/after expressions are still reported for display.
+     */
     static List<ValueChange> valueDiff(List<KeyValue> before, List<KeyValue> now) {
         Map<String, String> b = new LinkedHashMap<>();
         for (KeyValue kv : before) {
@@ -263,12 +269,67 @@ final class PayloadKeys {
                 continue;   // one change per key
             }
             String was = b.get(key);
-            if (was != null && !was.equals(kv.value())) {
+            if (was != null && !leafValue(was).equals(leafValue(kv.value()))) {
                 out.add(new ValueChange(key, was, kv.value()));
             }
         }
         out.sort(java.util.Comparator.comparing(ValueChange::key));
         return out;
+    }
+
+    private static final java.util.regex.Pattern INTERP =
+            java.util.regex.Pattern.compile("^\\$!?\\{(.*)\\}$", java.util.regex.Pattern.DOTALL);
+
+    /**
+     * The comparable LEAF of a template value. For an interpolation — FreeMarker {@code ${a.b.productType}} /
+     * {@code $!{..}} or a Velocity {@code $a.b.productType} — it is the last identifier segment
+     * ({@code productType}); for a plain literal it is the literal itself. So re-rooting the object path across
+     * a {@code .vm -> .ftl} migration doesn't count as a value change, while the leaf actually changing does.
+     */
+    static String leafValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        String v = value.trim();
+        if (v.isEmpty()) {
+            return "";
+        }
+        java.util.regex.Matcher m = INTERP.matcher(v);
+        if (m.matches()) {
+            return lastIdent(m.group(1));
+        }
+        if (v.startsWith("$")) {
+            return lastIdent(v.startsWith("$!") ? v.substring(2) : v.substring(1));
+        }
+        return normalize(v);   // a literal / free text — compared as-is
+    }
+
+    /**
+     * The last identifier of a dotted expression, dropping a FreeMarker built-in ({@code ?string}), a default
+     * ({@code !"x"}) and any {@code [idx]} / {@code (args)} suffixes:
+     * {@code a.list[0].getProductType()?string} → {@code getProductType}.
+     */
+    private static String lastIdent(String expr) {
+        if (expr == null) {
+            return "";
+        }
+        String e = expr.trim();
+        int q = e.indexOf('?');
+        if (q >= 0) {
+            e = e.substring(0, q);
+        }
+        int bang = e.indexOf('!');
+        if (bang >= 0) {
+            e = e.substring(0, bang);
+        }
+        String[] parts = e.split("\\.");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String p = parts[i].replaceAll("[\\[(].*$", "").trim();
+            if (!p.isEmpty()) {
+                return p;
+            }
+        }
+        return e.trim();
     }
 
     private static String qualified(KeyValue kv) {

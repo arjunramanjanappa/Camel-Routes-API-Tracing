@@ -77,6 +77,25 @@ class GitChangeServiceTest {
     }
 
     @Test
+    void a19_4_0CommitIsNotPickedFora19_14_0Release(@TempDir Path dir) throws Exception {
+        // The exact user concern: 19.14.0 must NOT match 19.4.0 (no substring / regex). Two commits, two files;
+        // only the [19.14.0] commit's file counts, the [19.4.0] one is ignored entirely.
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("Wanted.java"), "class Wanted { int a = 1; }\n");
+        Files.writeString(dir.resolve("Other.java"), "class Other { int b = 1; }\n");
+        commit(dir, "[JIRA-1][SG][19.9.0] baseline");
+        Files.writeString(dir.resolve("Other.java"), "class Other { int b = 2; }\n");
+        commit(dir, "[JIRA-2][SG][19.4.0] change Other (different release)");
+        Files.writeString(dir.resolve("Wanted.java"), "class Wanted { int a = 2; }\n");
+        commit(dir, "[JIRA-3][SG][19.14.0] change Wanted");
+
+        GitChangeService.ReleaseChanges rc = new GitChangeService().changedFor(dir, "19.14.0");
+        assertThat(rc.matchedCommits()).isEqualTo(1);                 // only the [19.14.0] commit
+        assertThat(rc.changedFiles()).containsExactly("Wanted.java"); // NOT Other.java from [19.4.0]
+    }
+
+    @Test
     void versionMatchIsExactNoTrailingZeroEquivalence(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");
         initRepo(dir);

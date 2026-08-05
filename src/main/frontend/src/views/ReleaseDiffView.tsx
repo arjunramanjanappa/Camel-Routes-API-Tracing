@@ -62,12 +62,15 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 /** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
  *  alters a route already in production, so it directly impacts the old/PROD app. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
-/** A short, still-disambiguating template path: the tail after `templates/` (e.g. `sg/v1/enquiry.ftl`, which
- *  tells v1 from v2), else the last two path segments. The full repo-relative path is shown on hover. */
+/** A short, still-disambiguating template path: from `META-INF/` (the recognisable resource path that matches the
+ *  route's own `freemarker:META-INF/...` uri, keeping `templates/`), else from `templates/`, else the last two
+ *  segments. Drops only the long `src/main/resources/...` prefix. The full repo-relative path is shown on hover. */
 function shortTemplate(p: string): string {
   const norm = (p || '').replace(/\\/g, '/');
+  const mi = norm.search(/META-INF\//i);
+  if (mi >= 0) return norm.slice(mi);
   const t = norm.match(/\/templates\/(.+)$/i);
-  if (t) return t[1];
+  if (t) return 'templates/' + t[1];
   const parts = norm.split('/').filter(Boolean);
   return parts.slice(-2).join('/') || norm;
 }

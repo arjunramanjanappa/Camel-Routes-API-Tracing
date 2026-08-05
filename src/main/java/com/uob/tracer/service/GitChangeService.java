@@ -38,9 +38,11 @@ public class GitChangeService {
                                  Set<String> deletedFiles,
                                  String baselineRef,
                                  Map<String, String> fileBeforeRef,
-                                 Map<String, String> fileAfterRef) {
+                                 Map<String, String> fileAfterRef,
+                                 Map<String, List<String>> fileReleaseCommits) {
         public static ReleaseChanges none() {
-            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of(), null, Map.of(), Map.of());
+            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of(), null,
+                    Map.of(), Map.of(), Map.of());
         }
 
         /** Pre-release commit-ish for THIS file (parent of the OLDEST matched commit that touched it), so a diff
@@ -103,7 +105,8 @@ public class GitChangeService {
             }
         }
         if (matched.isEmpty()) {
-            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of(), null, Map.of(), Map.of());   // no commit matched any version
+            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of(), null,
+                    Map.of(), Map.of(), Map.of());   // no commit matched any version
         }
 
         // 2. Candidate files + their authors + the version(s) that touched them: non-whitespace changes across
@@ -118,6 +121,10 @@ public class GitChangeService {
         // the diff to the release's OWN commits on each file (excludes history before, and later/uncommitted edits).
         Map<String, String> fileNewest = new LinkedHashMap<>();
         Map<String, String> fileOldest = new LinkedHashMap<>();
+        // Every matched commit that touched each file (newest-first, as encountered), so a caller can diff each
+        // release commit against its OWN parent and accumulate — capturing ONLY the release's changes, never an
+        // unrelated commit interleaved between two release commits on the same file.
+        Map<String, List<String>> fileCommits = new LinkedHashMap<>();
         List<String> showArgs = new ArrayList<>(List.of("show", "--format=@@@%H|%an", "-w", "-M", "--numstat"));
         showArgs.addAll(matched);
         List<String> stat = run(repoDir, 30, showArgs.toArray(new String[0]));
@@ -151,6 +158,10 @@ public class GitChangeService {
                     if (curHash != null) {
                         fileNewest.putIfAbsent(file, curHash);   // first seen (newest-first order) = newest touch
                         fileOldest.put(file, curHash);           // overwritten each time → ends on the oldest touch
+                        List<String> fc = fileCommits.computeIfAbsent(file, k -> new ArrayList<>());
+                        if (fc.isEmpty() || !fc.get(fc.size() - 1).equals(curHash)) {
+                            fc.add(curHash);   // newest-first; one entry per matched commit that touched the file
+                        }
                     }
                 }
             }
@@ -206,6 +217,9 @@ public class GitChangeService {
         // before or after the release, nor uncommitted working-tree state.
         Map<String, String> fileBeforeRef = new LinkedHashMap<>();
         Map<String, String> fileAfterRef = new LinkedHashMap<>();
+        // Per-file matched commits, CHRONOLOGICAL (oldest-first), so a caller can replay each release commit's own
+        // diff in order and accumulate the net effect of ONLY the release's commits on the file.
+        Map<String, List<String>> fileReleaseCommits = new LinkedHashMap<>();
         for (String f : candidates) {
             String oldest = fileOldest.get(f);
             String newest = fileNewest.get(f);
@@ -215,9 +229,15 @@ public class GitChangeService {
             if (newest != null) {
                 fileAfterRef.put(f, newest);
             }
+            List<String> cs = fileCommits.get(f);
+            if (cs != null && !cs.isEmpty()) {
+                List<String> chrono = new ArrayList<>(cs);
+                java.util.Collections.reverse(chrono);   // newest-first → oldest-first
+                fileReleaseCommits.put(f, chrono);
+            }
         }
         return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted, baselineRef,
-                fileBeforeRef, fileAfterRef);
+                fileBeforeRef, fileAfterRef, fileReleaseCommits);
     }
 
     /**

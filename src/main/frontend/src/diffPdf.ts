@@ -20,12 +20,14 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 }
 /** The release edited a BAU route at all — its body OR its payload changed → it alters existing PROD behaviour. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
-/** Short, still-disambiguating template path: the tail after `templates/` (e.g. `sg/v1/enquiry.ftl`), else the
- *  last two path segments — the PDF has no hover, so this is the visible form. */
+/** Short, still-disambiguating template path: from `META-INF/` (keeps `templates/`, matches the route uri), else
+ *  from `templates/`, else the last two segments — the PDF has no hover, so this is the visible form. */
 function shortTemplate(p: string): string {
   const norm = (p || '').replace(/\\/g, '/');
+  const mi = norm.search(/META-INF\//i);
+  if (mi >= 0) return norm.slice(mi);
   const t = norm.match(/\/templates\/(.+)$/i);
-  if (t) return t[1];
+  if (t) return 'templates/' + t[1];
   const parts = norm.split('/').filter(Boolean);
   return parts.slice(-2).join('/') || norm;
 }

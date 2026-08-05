@@ -779,14 +779,16 @@ public class RouteTraceService {
         Path repo = roots.primary();
 
         Map<String, List<BauRouteEdit>> byApi = new LinkedHashMap<>();
-        // Body index per changed route file at each end of the release span, so a file holding several routes is
-        // fetched/parsed once. before = <oldest release touch>^, after = <newest release touch> — so the diff is
-        // exactly what the release's OWN commits did to the route, never edits from before or after the release.
+        // The in-place body + payload diffs replay each release commit on a file against its OWN parent and
+        // accumulate, so a commit tagged with a DIFFERENT version, interleaved between two release commits on the
+        // same file, never leaks in. Two caches (keyed by "<ref>::<path>") avoid re-fetching/re-parsing a blob
+        // referenced by several commits or routes.
+        Map<String, String> rawByRef = new LinkedHashMap<>();                          // ref::path → file content
+        Map<String, Map<String, List<String>>> bodiesByRef = new LinkedHashMap<>();    // ref::path → route bodies
+        // Span endpoints (before = <oldest release touch>^, after = <newest release touch>) — used ONLY to detect a
+        // whole route REMOVED by the release (present at the before endpoint, gone at the after endpoint).
         Map<String, Map<String, List<String>>> beforeBodyByFile = new LinkedHashMap<>();
         Map<String, Map<String, List<String>>> afterBodyByFile = new LinkedHashMap<>();
-        // Template content per changed file at each end of the release span, for the payload key + value diffs.
-        Map<String, String> beforeTemplateByFile = new LinkedHashMap<>();
-        Map<String, String> afterTemplateByFile = new LinkedHashMap<>();
         // API family by version-stripped base name (R9.14_enquiry → enquiry → its API). The NEW app resolves to
         // R9.14 and never falls back to R9.10, so R9.10 is not in the new app's reachable `ownership` — but the
         // OLD (BAU) app still calls R9.10 directly. So a BAU route is attributed to its family here even when the
@@ -812,9 +814,9 @@ public class RouteTraceService {
                 continue;   // not part of any in-scope API family (nor reachable) — out of scope
             }
 
-            // 1) Route BODY: did the release's OWN commits change THIS route's own XML? Diff the route body at
-            //    each end of the release span for its file (<oldest touch>^ .. <newest touch>), so a structural
-            //    change made by an unrelated commit before/after the release — or in the working tree — is not
+            // 1) Route BODY: did the release's OWN commits change THIS route's own XML? Replay each release commit
+            //    on the file against its own parent and accumulate — so a structural edit made by a commit at a
+            //    DIFFERENT version (even one interleaved between two release commits on the same file) is never
             //    attributed to the release.
             List<String> addedSteps = List.of();
             List<String> removedSteps = List.of();
@@ -822,23 +824,10 @@ public class RouteTraceService {
             if (loc != null) {
                 String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
                 if (gitPath != null) {
-                    Map<String, List<String>> before = beforeBodyByFile.computeIfAbsent(gitPath, gp -> {
-                        List<String> content = gitChange.fileAtRef(repo, rc.beforeRefFor(gp), gp);
-                        return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
-                    });
-                    Map<String, List<String>> after = afterBodyByFile.computeIfAbsent(gitPath, gp -> {
-                        List<String> content = gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp);
-                        return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
-                    });
-                    List<String> beforeBody = before.get(routeId);
-                    List<String> afterBody = after.get(routeId);
-                    // Present on BOTH sides of the release span = an in-place edit to an existing route. Absent on
-                    // one side = added/removed by the release, not a BAU in-place modification.
-                    if (beforeBody != null && afterBody != null) {
-                        RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, afterBody);
-                        addedSteps = d.added();
-                        removedSteps = d.removed();
-                    }
+                    RouteXmlDiff.Diff d = releaseBodyDiff(repo, gitPath, routeId,
+                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef);
+                    addedSteps = d.added();
+                    removedSteps = d.removed();
                 }
             }
 
@@ -859,25 +848,21 @@ public class RouteTraceService {
                 if (tGit == null) {
                     continue;   // THIS exact template (not a same-named sibling) wasn't touched by the release
                 }
-                String before = beforeTemplateByFile.computeIfAbsent(tGit, gp -> {
-                    List<String> content = gitChange.fileAtRef(repo, rc.beforeRefFor(gp), gp);
-                    return content == null ? "" : String.join("\n", content);
-                });
-                String after = afterTemplateByFile.computeIfAbsent(tGit, gp -> {
-                    List<String> content = gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp);
-                    return content == null ? "" : String.join("\n", content);
-                });
-                int before1 = addedKeys.size() + removedKeys.size() + changedValues.size();
-                PayloadKeys.PayloadDiff pd = PayloadKeys.diff(PayloadKeys.extract(after), PayloadKeys.extract(before));
-                pd.added().forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
-                pd.removed().forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
-                for (PayloadKeys.ValueChange vc : PayloadKeys.valueDiff(
-                        PayloadKeys.extractValues(before), PayloadKeys.extractValues(after))) {
-                    changedValues.add(new PayloadValueChange(vc.key(), vc.before(), vc.after()));
+                // Accumulate ONLY the release's own commits' key/value changes to this template — each commit vs its
+                // parent — so a field a DIFFERENT-version commit changed (e.g. a 19.4.0 edit interleaved between two
+                // 19.14.0 commits) never shows up.
+                List<String> tAdded = new ArrayList<>();
+                List<String> tRemoved = new ArrayList<>();
+                List<PayloadValueChange> tVals = new ArrayList<>();
+                accumulateReleasePayload(repo, tGit, rc.fileReleaseCommits().getOrDefault(tGit, List.of()),
+                        tAdded, tRemoved, tVals, rawByRef);
+                if (tAdded.isEmpty() && tRemoved.isEmpty() && tVals.isEmpty()) {
+                    continue;   // the release's commits changed OTHER keys in this file, none this payload sends
                 }
-                if (addedKeys.size() + removedKeys.size() + changedValues.size() > before1) {
-                    payloadFiles.add(tGit);   // this template actually contributed a change — name it in the report
-                }
+                payloadFiles.add(tGit);   // this template actually changed — name it in the report
+                tAdded.forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
+                tRemoved.forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
+                changedValues.addAll(tVals);
             }
 
             if (addedSteps.isEmpty() && removedSteps.isEmpty()
@@ -974,6 +959,116 @@ public class RouteTraceService {
         }
         RouteOwner fam = baseOwner.get(baseName(routeId));
         return fam == null ? null : new RouteOwner(fam.api(), List.of(routeId));
+    }
+
+    /**
+     * Net route-body diff from ONLY the release's own commits on a file: replay each release commit against its
+     * OWN parent (so a commit at a different version — even one interleaved between two release commits on the same
+     * file — is invisible) and accumulate added/removed step lines, cancelling a line one release commit adds and
+     * a later one removes.
+     */
+    private RouteXmlDiff.Diff releaseBodyDiff(Path repo, String gitPath, String routeId, List<String> commitsChrono,
+                                              Map<String, Map<String, List<String>>> bodiesByRef,
+                                              Map<String, String> rawByRef) {
+        List<String> added = new ArrayList<>();
+        List<String> removed = new ArrayList<>();
+        for (String c : commitsChrono) {
+            List<String> beforeBody = bodiesAt(repo, c + "^", gitPath, bodiesByRef, rawByRef).get(routeId);
+            List<String> afterBody = bodiesAt(repo, c, gitPath, bodiesByRef, rawByRef).get(routeId);
+            if (beforeBody == null || afterBody == null) {
+                continue;   // the route wasn't present on both sides of THIS commit — not an in-place edit by it
+            }
+            RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, afterBody);
+            for (String l : d.added()) {
+                if (!removed.remove(l)) {
+                    added.add(l);
+                }
+            }
+            for (String l : d.removed()) {
+                if (!added.remove(l)) {
+                    removed.add(l);
+                }
+            }
+        }
+        return new RouteXmlDiff.Diff(added, removed);
+    }
+
+    /**
+     * Net payload key/value change from ONLY the release's own commits on a template file — each commit vs its own
+     * parent, accumulated. A key the release adds (then perhaps value-tweaks) reads as added; a value a
+     * different-version commit changed is never reported (that commit isn't in {@code commitsChrono}).
+     */
+    private void accumulateReleasePayload(Path repo, String gitPath, List<String> commitsChrono,
+                                          List<String> outAdded, List<String> outRemoved,
+                                          List<PayloadValueChange> outVals, Map<String, String> rawByRef) {
+        List<String[]> commitDiffs = new ArrayList<>();   // per release commit: {parentContent, selfContent}
+        for (String c : commitsChrono) {
+            commitDiffs.add(new String[]{rawAt(repo, c + "^", gitPath, rawByRef), rawAt(repo, c, gitPath, rawByRef)});
+        }
+        accumulatePayload(commitDiffs, outAdded, outRemoved, outVals);
+    }
+
+    /**
+     * Accumulate the NET payload change over a sequence of release commits' own diffs, each given as
+     * {@code {parentContent, selfContent}} in chronological order. A key added by any commit reads as added (a
+     * later value tweak on it folds in); a value change is reported only if some release commit itself made it —
+     * a key/value only a DIFFERENT-version (interleaved) commit touched is absent from every pair, so it never
+     * surfaces. Added-then-removed and changed-then-reverted net to nothing.
+     */
+    static void accumulatePayload(List<String[]> commitDiffs, List<String> outAdded, List<String> outRemoved,
+                                  List<PayloadValueChange> outVals) {
+        LinkedHashSet<String> added = new LinkedHashSet<>();
+        LinkedHashSet<String> removed = new LinkedHashSet<>();
+        Map<String, String[]> vchg = new LinkedHashMap<>();   // key → {firstBefore, lastAfter}
+        for (String[] ba : commitDiffs) {
+            String before = ba[0];
+            String after = ba[1];
+            PayloadKeys.PayloadDiff pd = PayloadKeys.diff(PayloadKeys.extract(after), PayloadKeys.extract(before));
+            for (String k : pd.added()) {
+                removed.remove(k);
+                added.add(k);
+                vchg.remove(k);
+            }
+            for (String k : pd.removed()) {
+                if (!added.remove(k)) {   // a key the release added then removed nets to nothing
+                    removed.add(k);
+                }
+                vchg.remove(k);
+            }
+            for (PayloadKeys.ValueChange vc : PayloadKeys.valueDiff(
+                    PayloadKeys.extractValues(before), PayloadKeys.extractValues(after))) {
+                if (added.contains(vc.key())) {
+                    continue;   // value tweak on a key the release just added — folds into the add
+                }
+                String[] ex = vchg.get(vc.key());
+                vchg.put(vc.key(), new String[]{ex != null ? ex[0] : vc.before(), vc.after()});
+            }
+        }
+        added.forEach(k -> { if (!outAdded.contains(k)) outAdded.add(k); });
+        removed.forEach(k -> { if (!outRemoved.contains(k)) outRemoved.add(k); });
+        vchg.forEach((k, v) -> {
+            if (!java.util.Objects.equals(v[0], v[1])) {   // release changed then changed back → net nothing
+                outVals.add(new PayloadValueChange(k, v[0], v[1]));
+            }
+        });
+    }
+
+    /** File content at a git ref (cached by {@code "<ref>::<path>"}); empty string when absent at that ref. */
+    private String rawAt(Path repo, String ref, String gitPath, Map<String, String> rawByRef) {
+        return rawByRef.computeIfAbsent(ref + "::" + gitPath, k -> {
+            List<String> content = gitChange.fileAtRef(repo, ref, gitPath);
+            return content == null ? "" : String.join("\n", content);
+        });
+    }
+
+    /** Parsed route bodies at a git ref (cached), so a file with many routes isn't re-parsed per route/commit. */
+    private Map<String, List<String>> bodiesAt(Path repo, String ref, String gitPath,
+                                               Map<String, Map<String, List<String>>> bodiesByRef,
+                                               Map<String, String> rawByRef) {
+        return bodiesByRef.computeIfAbsent(ref + "::" + gitPath, k -> {
+            String content = rawAt(repo, ref, gitPath, rawByRef);
+            return content.isEmpty() ? Map.of() : RouteXmlDiff.bodiesFromXml(content);
+        });
     }
 
     /** Request-body template {@code <to>} uris a route sends (template-component scheme or {@code .ftl/.vm/…}). */

@@ -200,8 +200,11 @@ export interface BauRouteEdit {
    *  removal: the old app that still calls it breaks. The removed* lists then carry its pre-release body. */
   routeRemoved?: boolean;
   /** The request-body template file(s) (repo-relative, e.g. `…/sg/v1/enquiry.ftl`) whose payload the release
-   *  changed — named next to the key/value diff so the reviewer knows which .ftl/.vm the result came from. */
+   *  changed — named next to the diff so the reviewer knows which .ftl/.vm the result came from. */
   payloadFiles?: string[];
+  /** The ACTUAL changed lines (git `diff -w` output, each keeping its `+`/`-` prefix) the release commit(s) made
+   *  to the template(s) — the real file difference, not a parsed key summary. */
+  payloadDiff?: string[];
 }
 
 /** A scalar payload value the release changed in place for a key present on both sides — `key: before → after`. */

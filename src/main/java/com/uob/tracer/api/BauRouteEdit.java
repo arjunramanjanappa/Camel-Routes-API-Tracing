@@ -36,6 +36,8 @@ import java.util.List;
  * @param routeRemoved  true when the release deleted the whole BAU route (not just edited it) — a hard removal
  * @param payloadFiles  the request-body template file(s) whose payload the release changed (repo-relative), so the
  *                      report can name the exact {@code .ftl/.vm} the key/value diff came from
+ * @param payloadDiff   the ACTUAL changed lines (git {@code diff -w} {@code +}/{@code -} lines, prefix kept) the
+ *                      release commit(s) made to the template(s) — the real file difference, not a parsed summary
  */
 public record BauRouteEdit(String route, List<String> path,
                            List<String> addedSteps, List<String> removedSteps,
@@ -43,5 +45,6 @@ public record BauRouteEdit(String route, List<String> path,
                            List<PayloadValueChange> changedValues,
                            List<String> changedBy,
                            boolean routeRemoved,
-                           List<String> payloadFiles) {
+                           List<String> payloadFiles,
+                           List<String> payloadDiff) {
 }

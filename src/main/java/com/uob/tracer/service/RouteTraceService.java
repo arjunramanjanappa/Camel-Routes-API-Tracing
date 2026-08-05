@@ -836,14 +836,11 @@ public class RouteTraceService {
                 }
             }
 
-            // 2) PAYLOAD: did the release's OWN commits change a request-body template this BAU route sends? Diff
-            //    the SAME template file at each end of the release span (<oldest touch>^ .. <newest touch>) — keys
-            //    (added/removed) AND scalar values (changed in place). Because both sides are the same file
-            //    bracketing only the release's commits, the diff is exactly the fields the release changed — not a
-            //    comparison against another route's template, and not edits from commits outside the release.
-            List<String> addedKeys = new ArrayList<>();
-            List<String> removedKeys = new ArrayList<>();
-            List<PayloadValueChange> changedValues = new ArrayList<>();
+            // 2) PAYLOAD: what did THE release commit(s) actually change in a request-body template this BAU route
+            //    sends? Show the REAL file difference — the git-diff (whitespace-ignored) +/- lines of each release
+            //    commit against the template's PREVIOUS file-history version — not a parsed key summary. Only the
+            //    release version's commits are diffed, so an edit at another version never appears.
+            List<String> payloadDiff = new ArrayList<>();
             LinkedHashSet<String> payloadFiles = new LinkedHashSet<>();   // the template file(s) whose payload changed
             for (String uri : templateRefs(rm)) {
                 // Match the release-changed set by THIS template's FULL path (META-INF/templates/sg/v1/enquiry.ftl),
@@ -853,25 +850,23 @@ public class RouteTraceService {
                 if (tGit == null) {
                     continue;   // THIS exact template (not a same-named sibling) wasn't touched by the release
                 }
-                // Accumulate ONLY the release's own commits' key/value changes to this template — each commit vs its
-                // parent — so a field a DIFFERENT-version commit changed (e.g. a 19.4.0 edit interleaved between two
-                // 19.14.0 commits) never shows up.
-                List<String> tAdded = new ArrayList<>();
-                List<String> tRemoved = new ArrayList<>();
-                List<PayloadValueChange> tVals = new ArrayList<>();
-                accumulateReleasePayload(repo, tGit, rc.fileReleaseCommits().getOrDefault(tGit, List.of()),
-                        tAdded, tRemoved, tVals, rawByRef, prevByCommit);
-                if (tAdded.isEmpty() && tRemoved.isEmpty() && tVals.isEmpty()) {
-                    continue;   // the release's commits changed OTHER keys in this file, none this payload sends
+                List<String> tDiff = new ArrayList<>();
+                for (String c : rc.fileReleaseCommits().getOrDefault(tGit, List.of())) {
+                    String prev = prevFileRef(repo, c, tGit, prevByCommit);
+                    for (String line : gitChange.diffLines(repo, prev.isEmpty() ? null : prev, c, tGit)) {
+                        if (!tDiff.contains(line)) {
+                            tDiff.add(line);   // union the real changed lines across the release's commits
+                        }
+                    }
+                }
+                if (tDiff.isEmpty()) {
+                    continue;   // the release's commits changed nothing in this template
                 }
                 payloadFiles.add(tGit);   // this template actually changed — name it in the report
-                tAdded.forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
-                tRemoved.forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
-                changedValues.addAll(tVals);
+                payloadDiff.addAll(tDiff);
             }
 
-            if (addedSteps.isEmpty() && removedSteps.isEmpty()
-                    && addedKeys.isEmpty() && removedKeys.isEmpty() && changedValues.isEmpty()) {
+            if (addedSteps.isEmpty() && removedSteps.isEmpty() && payloadDiff.isEmpty()) {
                 continue;   // neither this route's body nor its payload changed in place
             }
             // WHO made this BAU change = the author(s) of the release (19.14.0) commit(s) that changed THIS route's
@@ -887,8 +882,8 @@ public class RouteTraceService {
             List<String> changedBy = !commitAuthors.isEmpty() ? new ArrayList<>(commitAuthors)
                     : (loc != null ? blameAuthors(loc) : List.of());
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
-                    .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, addedKeys, removedKeys,
-                            changedValues, changedBy, false, new ArrayList<>(payloadFiles)));
+                    .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, List.of(), List.of(),
+                            List.of(), changedBy, false, new ArrayList<>(payloadFiles), payloadDiff));
         }
 
         // 3) REMOVED BAU routes: a route the release DELETED is gone from the current registry, so the loop above
@@ -925,7 +920,7 @@ public class RouteTraceService {
                 flaggedRoutes.add(rid);
                 byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                         .add(new BauRouteEdit(rid, owner.path(), List.of(), before.get(rid),
-                                List.of(), List.of(), List.of(), List.of(), true, List.of()));
+                                List.of(), List.of(), List.of(), List.of(), true, List.of(), List.of()));
             }
         }
 
@@ -1009,25 +1004,6 @@ public class RouteTraceService {
             }
         }
         return new RouteXmlDiff.Diff(added, removed);
-    }
-
-    /**
-     * Net payload key/value change from ONLY the release's own commits on a template file — each commit vs the
-     * PREVIOUS commit in the file's own history (not the commit-graph parent), accumulated. A key the release adds
-     * (then perhaps value-tweaks) reads as added; a value a different-version commit changed is never reported
-     * (that commit isn't in {@code commitsChrono}).
-     */
-    private void accumulateReleasePayload(Path repo, String gitPath, List<String> commitsChrono,
-                                          List<String> outAdded, List<String> outRemoved,
-                                          List<PayloadValueChange> outVals, Map<String, String> rawByRef,
-                                          Map<String, String> prevByCommit) {
-        List<String[]> commitDiffs = new ArrayList<>();   // per release commit: {previousFileVersion, thisCommit}
-        for (String c : commitsChrono) {
-            String prev = prevFileRef(repo, c, gitPath, prevByCommit);
-            String before = prev.isEmpty() ? "" : rawAt(repo, prev, gitPath, rawByRef);
-            commitDiffs.add(new String[]{before, rawAt(repo, c, gitPath, rawByRef)});
-        }
-        accumulatePayload(commitDiffs, outAdded, outRemoved, outVals);
     }
 
     /** The previous commit in the file's own history before {@code commit} (cached); empty when it's the file's

@@ -270,6 +270,36 @@ public class GitChangeService {
         return out != null && !out.isEmpty() && !out.get(0).isBlank() ? out.get(0).trim() : null;
     }
 
+    /**
+     * The actual changed lines a commit made to a file, whitespace ignored ({@code git diff -w fromRef toRef}) —
+     * the {@code +}/{@code -} lines only, hunk headers and unchanged context dropped, so it reads as the real file
+     * difference. {@code fromRef} null (the commit created the file) → the whole file shows as added.
+     */
+    public List<String> diffLines(Path repoDir, String fromRef, String toRef, String relPath) {
+        if (repoDir == null || toRef == null || relPath == null || relPath.isBlank()) {
+            return List.of();
+        }
+        String path = relPath.replace('\\', '/');
+        // -w ignores whitespace inside a line; --ignore-blank-lines ignores added/removed blank lines — together a
+        // pure reindent/retab of the template produces no change lines at all.
+        List<String> out = (fromRef == null || fromRef.isBlank())
+                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--no-color", "--format=", toRef, "--", path)
+                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--no-color", "-U0", fromRef, toRef, "--", path);
+        if (out == null) {
+            return List.of();
+        }
+        List<String> changes = new ArrayList<>();
+        for (String l : out) {
+            if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("@@")) {
+                continue;   // file headers / hunk markers — not content
+            }
+            if ((l.startsWith("+") || l.startsWith("-")) && !l.substring(1).trim().isEmpty()) {
+                changes.add(l);   // keep the +/- prefix so the UI can colour add vs remove; skip blank/ws-only lines
+            }
+        }
+        return changes;
+    }
+
     /** Split the field into the distinct version tokens the user entered (comma/whitespace-separated), trimmed. */
     static Set<String> parseVersions(String field) {
         Set<String> out = new LinkedHashSet<>();

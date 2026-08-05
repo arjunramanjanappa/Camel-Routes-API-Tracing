@@ -234,8 +234,9 @@ class CodeChangeImpactTest {
                 new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
 
         ApiDiff pay = apiByRoute(report, "pay");
+        // The raw git-diff of the template shows fieldB removed (a '-' line mentioning fieldB).
         assertThat(pay.bauRouteEdits()).anyMatch(e -> e.route().contains("R9.8_pay")
-                && e.removedKeys().contains("fieldB"));
+                && e.payloadDiff().stream().anyMatch(l -> l.startsWith("-") && l.contains("fieldB")));
         assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_HIGH);
         assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
     }
@@ -281,12 +282,13 @@ class CodeChangeImpactTest {
         VersionDiffReport report = runPay918(dir);
 
         ApiDiff pay = apiByRoute(report, "pay");
+        // The raw git-diff shows the channel line changed: a '-' MOBILE line and a '+' APP line.
         assertThat(pay.bauRouteEdits()).anyMatch(e -> e.route().contains("R9.8_pay")
-                && e.changedValues().stream().anyMatch(v -> v.key().equals("channel")
-                        && v.before().equals("MOBILE") && v.after().equals("APP")));
-        // Only channel changed — amount's value (${ctx.amount}) is identical on both sides.
+                && e.payloadDiff().stream().anyMatch(l -> l.startsWith("-") && l.contains("MOBILE"))
+                && e.payloadDiff().stream().anyMatch(l -> l.startsWith("+") && l.contains("APP")));
+        // Only channel changed — amount's line is identical on both sides, so it's not in the diff.
         assertThat(pay.bauRouteEdits()).allSatisfy(e ->
-                assertThat(e.changedValues()).noneMatch(v -> v.key().equals("amount")));
+                assertThat(e.payloadDiff()).noneMatch(l -> l.contains("amount")));
         assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_HIGH);
         assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
     }

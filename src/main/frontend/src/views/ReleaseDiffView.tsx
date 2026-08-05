@@ -480,14 +480,15 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
     <div className="diff-code" title="Changes the release made inside a pre-existing (BAU) route the old app still runs — its steps and/or its request payload — found by git-diffing that route against its own pre-release version. High risk: it changes existing PROD behaviour.">
       <span className="diff-code-label">⚑ BAU route modified — existing PROD behaviour changed (High)</span>
       {edits.map((e) => {
-        const changedVals = e.changedValues || [];
         const removed = !!e.routeRemoved;
-        const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
+        const payloadDiff = e.payloadDiff || [];
+        const hasPayload = payloadDiff.length > 0;
         const hasBody = e.addedSteps.length > 0 || e.removedSteps.length > 0;
         const payloadFiles = e.payloadFiles || [];
         return (
           <div key={e.route}>
-            {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind + regression tags */}
+            {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind tags. BC is shown
+                once at the card level, not repeated here. */}
             <span className="chg code" title={removed
               ? 'a BAU route the release DELETED — the old app that still calls it breaks; author(s) of the release commit(s)'
               : 'a BAU route the release edited in place — author(s) of the release commit(s) that changed it'}>
@@ -496,28 +497,21 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
               {removed && <span className="chg-tag body" title="the release deleted this whole BAU route">Route removed</span>}
               {!removed && hasPayload && <span className="chg-tag payload" title="the request payload this BAU route sends changed">Payload change</span>}
               {!removed && hasBody && <span className="chg-tag body" title="a step in this BAU route changed">Route change</span>}
-              <span className="chg-tag bc" title="A live PROD (BAU) route was changed — backward-compatibility with the old app must be verified">
-                BC needed
-              </span>
             </span>
             {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
-            {/* Which template the payload result came from, so the reviewer knows the exact .ftl/.vm. Short,
-                disambiguating tail (sg/v1/enquiry.ftl) is shown; hover reveals the full repo-relative path. */}
+            {/* Which template the diff came from, so the reviewer knows the exact .ftl/.vm. Short, disambiguating
+                tail (sg/v1/enquiry.ftl) is shown; hover reveals the full repo-relative path. */}
             {hasPayload && payloadFiles.length > 0 && (
               <div className="bau-payload-file">
                 Payload template: {payloadFiles.map((f, i) => <code key={i} title={f}>{shortTemplate(f)}</code>)}
               </div>
             )}
-            {/* Below the header: what changed (same +/- diff style as the code section) */}
+            {/* The actual file difference: route-body steps, then the raw git-diff lines of the template(s). */}
             <pre className="rdiff-body">
               {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
               {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
-              {e.removedKeys.map((k, i) => <div key={'rk' + i} className="dl del wrap">- payload key: {k}</div>)}
-              {e.addedKeys.map((k, i) => <div key={'ak' + i} className="dl add wrap">+ payload key: {k}</div>)}
-              {changedVals.map((v, i) => (
-                <div key={'cv' + i} className="dl wrap" title="payload value changed in place — the old app now sends a different value">
-                  ~ payload {v.key}: <span className="del">{v.before}</span> → <span className="add">{v.after}</span>
-                </div>
+              {payloadDiff.map((l, i) => (
+                <div key={'pd' + i} className={'dl wrap ' + (l.startsWith('-') ? 'del' : 'add')}>{l}</div>
               ))}
             </pre>
           </div>

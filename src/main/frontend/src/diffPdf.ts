@@ -342,36 +342,29 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
     rows);
 }
 
-/** In-place changes the release made to BAU routes the old app still runs — route body (steps) and/or request
- *  payload (template keys) — git-diffed vs each route's own pre-release self. High risk: it changes PROD. */
+/** In-place changes the release made to BAU routes the old app still runs — route body (steps) and/or the actual
+ *  git-diff lines of the request-body template(s). High risk: it changes PROD. */
 function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
   const edits = a.bauRouteEdits || [];
   if (!edits.length) return;
   r.para('BAU route modified - existing PROD behaviour changed (High risk):', M + 4, CONTENT_W - 4, 'bold', 9, PAL.delText, 12);
   edits.forEach((e) => {
     r.ensure(18);
-    const changedVals = e.changedValues || [];
     const removed = !!e.routeRemoved;
-    const incompat = removed || e.removedSteps.length > 0 || e.removedKeys.length > 0;
-    const add = e.addedSteps.length + e.addedKeys.length;
-    const del = e.removedSteps.length + e.removedKeys.length;
-    const tally = removed ? '(route deleted)' : `(+${add}  -${del}${changedVals.length ? '  ~' + changedVals.length : ''})`;
-    r.text(`${e.route}   ${tally}${removed ? '  ROUTE REMOVED - backward-incompatible' : incompat ? '  backward-incompatible' : '  changes PROD'}`,
-      M + 4, 'bold', 9, incompat ? PAL.delText : PAL.ink);
+    r.text(`${e.route}${removed ? '   ROUTE REMOVED' : ''}`, M + 4, 'bold', 9, removed ? PAL.delText : PAL.ink);
     r.y += 12;
     if (e.changedBy && e.changedBy.length) {
       r.para('Changed by: ' + e.changedBy.join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.accent, 11);
     }
     const payloadFiles = e.payloadFiles || [];
-    const hasPayload = e.addedKeys.length > 0 || e.removedKeys.length > 0 || changedVals.length > 0;
-    if (hasPayload && payloadFiles.length) {
-      // No hover in a PDF, so show the short but disambiguating tail (sg/v1/enquiry.ftl); it wraps via para().
+    const payloadDiff = e.payloadDiff || [];
+    if (payloadDiff.length && payloadFiles.length) {
       r.para('Payload template: ' + payloadFiles.map(shortTemplate).join(', '), M + 4, CONTENT_W - 4, 'normal', 8, PAL.muted, 11);
     }
     r.diffLines(e.removedSteps, e.addedSteps);
-    r.diffLines(e.removedKeys.map((k) => 'payload key: ' + k), e.addedKeys.map((k) => 'payload key: ' + k));
-    changedVals.forEach((v) => r.para(`~ payload ${v.key}: ${v.before} -> ${v.after}`,
-      M + 8, CONTENT_W - 8, 'normal', 8.5, PAL.body, 11));
+    // Raw template diff: git already prefixes each line with -/+; split by sign for the coloured renderer.
+    r.diffLines(payloadDiff.filter((l) => l.startsWith('-')).map((l) => l.slice(1)),
+      payloadDiff.filter((l) => l.startsWith('+')).map((l) => l.slice(1)));
     r.y += 3;
   });
 }

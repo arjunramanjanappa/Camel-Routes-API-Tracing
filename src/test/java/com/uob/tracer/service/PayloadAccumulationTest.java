@@ -60,6 +60,31 @@ class PayloadAccumulationTest {
     }
 
     @Test
+    void aWhitespaceOrTabOnlyReindentOfTheFtlIsNotAPayloadChange() {
+        String before = "{ \"amount\": ${amt}, \"bankAddress\": { \"addressLine2\": \"${line2}\" } }";
+        // Identical content, reindented with tabs + newlines and stray spaces inside interpolations/around colons.
+        String after = "{\n\t\"amount\":   ${ amt },\n\t\"bankAddress\": {\n\t\t\"addressLine2\" :\t\"${line2}\"\n\t}\n}";
+        List<String> added = new ArrayList<>();
+        List<String> removed = new ArrayList<>();
+        List<PayloadValueChange> vals = new ArrayList<>();
+        RouteTraceService.accumulatePayload(List.<String[]>of(pair(before, after)), added, removed, vals);
+        assertThat(added).isEmpty();
+        assertThat(removed).isEmpty();
+        assertThat(vals).isEmpty();
+    }
+
+    @Test
+    void aLiteralValueWhitespaceReflowIsNotAChange() {
+        String before = "{ \"greeting\": \"Dear   Customer\" }";
+        String after = "{ \"greeting\": \"Dear Customer\" }";   // collapsed internal whitespace only
+        List<String> added = new ArrayList<>();
+        List<String> removed = new ArrayList<>();
+        List<PayloadValueChange> vals = new ArrayList<>();
+        RouteTraceService.accumulatePayload(List.<String[]>of(pair(before, after)), added, removed, vals);
+        assertThat(vals).isEmpty();
+    }
+
+    @Test
     void aKeyTheReleaseAddedThenRemovedNetsToNothing() {
         String base = "{ \"a\": \"1\" }";
         String withB = "{ \"a\": \"1\", \"b\": \"2\" }";

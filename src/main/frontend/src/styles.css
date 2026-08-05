@@ -1215,5 +1215,10 @@ button.impact-api.linkish:hover { color: #1e40af; }
 /* Route-version sub-headers inside a Release Impact status group */
 .diff-ver-head { display: flex; align-items: center; gap: 8px; margin: 14px 2px 6px; font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--accent-num, #1d4ed8); }
 .diff-ver-head:first-child { margin-top: 2px; }
+/* BAU-route-modified group header — set apart (amber/flag), signals the top-priority section. */
+.diff-ver-head.bau { color: #9a3412; }
+.diff-ver-head.bau .diff-ver-cnt { background: #ffedd5; color: #9a3412; }
+[data-theme="dark"] .diff-ver-head.bau { color: #fdba74; }
+[data-theme="dark"] .diff-ver-head.bau .diff-ver-cnt { background: #7c2d12; color: #fed7aa; }
 .diff-ver-cnt { font-size: 11px; font-weight: 700; color: #5b6b82; background: #f1f5f9; border-radius: 999px; padding: 0 8px; }
 [data-theme="dark"] .diff-ver-cnt { background: #131f38; color: #93a3ba; }

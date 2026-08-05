@@ -894,12 +894,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         if (filters.has('failed')) { const l = activeLog?.[a.api]; if (!(l?.tested && l.status !== 'SUCCESS')) return false; }
         return true;
       })
-      // BAU-route-modified APIs first (a live PROD route was changed — the top signal), then highest test-priority,
-      // so the list reads as a prioritised checklist; stable within each band.
-      .slice().sort((a, b) => {
-        const bau = (bauRouteModified(b) ? 1 : 0) - (bauRouteModified(a) ? 1 : 0);
-        return bau !== 0 ? bau : RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)];
-      });
+      // Highest test-priority first, so the list reads as a prioritised checklist; stable within a risk band.
+      // (BAU-route-modified APIs are pulled into their own group ahead of everything else at render time.)
+      .slice().sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
   }, [report, activeGroup, query, filters, activeLog]);
 
   // N/A snapshot: every API resolved to its latest/base route — a flat list, not the diff nav.
@@ -1180,20 +1177,39 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               </div>
             ) : (
               <div className="diff-list">
-                {(() => { const groups = groupByVersion(visible); const showHeads = groups.length > 1; return groups.map((g) => (
-                  <Fragment key={g.ver}>
-                    {showHeads && <div className="diff-ver-head"><span>{versionLabel(g.ver)}</span><span className="diff-ver-cnt">{g.apis.length}</span></div>}
-                    {g.apis.map((d) => (
-                      <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
-                                   routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
-                                   remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)}
-                                   open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
-                                   onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
-                                   onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}
-                                   onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
-                    ))}
-                  </Fragment>
-                )); })()}
+                {(() => {
+                  const card = (d: ApiDiff) => (
+                    <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
+                                 routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
+                                 remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)}
+                                 open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
+                                 onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
+                                 onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}
+                                 onCopy={() => copyOne(d)} copied={copiedKey === cardKey(d)} />
+                  );
+                  // BAU-route-modified APIs form their own group, shown FIRST (a live PROD route changed — top
+                  // priority). Everything else stays grouped by route version below.
+                  const bau = visible.filter(bauRouteModified);
+                  const rest = visible.filter((d) => !bauRouteModified(d));
+                  const groups = groupByVersion(rest);
+                  const showHeads = groups.length > 1 || bau.length > 0;
+                  return (
+                    <>
+                      {bau.length > 0 && (
+                        <Fragment key="__bau">
+                          <div className="diff-ver-head bau"><span>⚑ BAU route modified — verify first</span><span className="diff-ver-cnt">{bau.length}</span></div>
+                          {bau.map(card)}
+                        </Fragment>
+                      )}
+                      {groups.map((g) => (
+                        <Fragment key={g.ver}>
+                          {showHeads && <div className="diff-ver-head"><span>{versionLabel(g.ver)}</span><span className="diff-ver-cnt">{g.apis.length}</span></div>}
+                          {g.apis.map(card)}
+                        </Fragment>
+                      ))}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>

@@ -68,4 +68,33 @@ class RouteXmlDiffTest {
         // The genuinely-new wrapper still surfaces.
         assertThat(d.added()).anyMatch(s -> s.startsWith("choice"));
     }
+
+    // A file holds several route versions. The release commit changed ONE of them (R8.15) and only
+    // re-indented the other (R8.16). The diff is per-route: R8.16 must read as unchanged even though its
+    // FILE was in the commit; R8.15 is still detected.
+    private static final String FILE_BEFORE = """
+            <routes xmlns="http://camel.apache.org/schema/spring">
+              <route id="R8.15_summary"><from uri="direct:R8.15_summary"/><to uri="velocity:old.vm"/></route>
+              <route id="R8.16_summary"><from uri="direct:R8.16_summary"/><to uri="velocity:insurance.vm"/></route>
+            </routes>
+            """;
+    private static final String FILE_AFTER = """
+            <routes xmlns="http://camel.apache.org/schema/spring">
+              <route id="R8.15_summary"><from uri="direct:R8.15_summary"/><to uri="velocity:new.vm"/></route>
+              <route id="R8.16_summary">
+                  <from uri="direct:R8.16_summary"/>
+                        <to uri="velocity:insurance.vm "/>
+              </route>
+            </routes>
+            """;
+
+    @Test
+    void aRouteWhoseFileWasCommittedButBodyOnlyReindentedIsNotAChange() {
+        var before = RouteXmlDiff.bodiesFromXml(FILE_BEFORE);
+        var after = RouteXmlDiff.bodiesFromXml(FILE_AFTER);
+        // R8.16: only re-indented + a stray space in the uri value → NOT a change.
+        assertThat(RouteXmlDiff.diff(before.get("R8.16_summary"), after.get("R8.16_summary")).isEmpty()).isTrue();
+        // R8.15: a real .vm swap in the same file → still a change.
+        assertThat(RouteXmlDiff.diff(before.get("R8.15_summary"), after.get("R8.15_summary")).isEmpty()).isFalse();
+    }
 }

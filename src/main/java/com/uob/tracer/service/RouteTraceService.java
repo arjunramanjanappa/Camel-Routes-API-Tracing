@@ -828,13 +828,12 @@ public class RouteTraceService {
             List<String> removedKeys = new ArrayList<>();
             List<PayloadValueChange> changedValues = new ArrayList<>();
             for (String uri : templateRefs(rm)) {
-                Path tf = templateFilePath(allFiles, uri);
-                if (tf == null) {
-                    continue;
-                }
-                String tGit = matchChanged(tf.toString(), rc.changedFiles());
+                // Match the release-changed set by THIS template's FULL path (META-INF/templates/sg/v1/enquiry.ftl),
+                // not by the resolved file's loose suffix — two same-named templates under sg/v1 and sg/v2 must not
+                // be confused, so a release that touched sg/v2 never flags a BAU route sending sg/v1.
+                String tGit = changedTemplate(templateUriPath(uri), rc.changedFiles());
                 if (tGit == null) {
-                    continue;   // this template wasn't touched by the release
+                    continue;   // THIS exact template (not a same-named sibling) wasn't touched by the release
                 }
                 String before = beforeTemplateByFile.computeIfAbsent(tGit, gp -> {
                     List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
@@ -2054,8 +2053,13 @@ public class RouteTraceService {
         }
     }
 
-    /** The source file a template {@code <to>} uri resolves to (scheme-stripped, suffix-matched), or null. */
-    private static Path templateFilePath(List<Path> files, String uri) {
+    /** The canonical path a template {@code <to>} uri points at, scheme/query/prefix stripped — e.g.
+     *  {@code freemarker:META-INF/templates/sg/v1/enquiry.ftl} → {@code META-INF/templates/sg/v1/enquiry.ftl}.
+     *  This FULL path (not just the file name) is what distinguishes {@code sg/v1/…} from {@code sg/v2/…}. */
+    static String templateUriPath(String uri) {
+        if (uri == null) {
+            return "";
+        }
         String suffix = uri.contains(":") ? uri.substring(uri.indexOf(':') + 1) : uri;
         suffix = suffix.replace('\\', '/').trim();
         int q = suffix.indexOf('?');
@@ -2066,13 +2070,35 @@ public class RouteTraceService {
         while (suffix.startsWith("/") || suffix.startsWith("./") || suffix.startsWith("**/")) {
             suffix = suffix.startsWith("**/") ? suffix.substring(3) : suffix.replaceFirst("^\\.?/", "");
         }
-        final String want = suffix;
+        return suffix;
+    }
+
+    /** The source file a template {@code <to>} uri resolves to (by its full path), or null. */
+    private static Path templateFilePath(List<Path> files, String uri) {
+        String want = templateUriPath(uri);
         if (want.isEmpty()) {
             return null;
         }
         for (Path p : files) {
-            if (p.toString().replace('\\', '/').endsWith(want)) {
+            if (p.toString().replace('\\', '/').endsWith("/" + want) || p.toString().replace('\\', '/').endsWith(want)) {
                 return p;
+            }
+        }
+        return null;
+    }
+
+    /** The changed git path that IS this template — matched by the template's FULL canonical path, so two
+     *  same-named templates under different folders ({@code sg/v1/enquiry.ftl} vs {@code sg/v2/enquiry.ftl})
+     *  are never confused. Null when the release did not change THIS template. */
+    static String changedTemplate(String templatePath, Set<String> changed) {
+        if (templatePath == null || templatePath.isEmpty()) {
+            return null;
+        }
+        String want = templatePath.replace('\\', '/');
+        for (String c : changed) {
+            String cc = c.replace('\\', '/');
+            if (cc.equals(want) || cc.endsWith("/" + want)) {
+                return c;
             }
         }
         return null;

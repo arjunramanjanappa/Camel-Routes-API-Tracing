@@ -36,9 +36,27 @@ public class GitChangeService {
                                  Map<String, List<String>> fileAuthors,
                                  Map<String, List<String>> fileVersions,
                                  Set<String> deletedFiles,
-                                 String baselineRef) {
+                                 String baselineRef,
+                                 Map<String, String> fileBeforeRef,
+                                 Map<String, String> fileAfterRef) {
         public static ReleaseChanges none() {
-            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of(), null);
+            return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of(), null, Map.of(), Map.of());
+        }
+
+        /** Pre-release commit-ish for THIS file (parent of the OLDEST matched commit that touched it), so a diff
+         *  is bounded to the release's own commits on the file — not the whole history before it. Falls back to
+         *  the global {@link #baselineRef} if the per-file span is unknown. */
+        public String beforeRefFor(String file) {
+            String r = fileBeforeRef.get(file);
+            return r != null ? r : baselineRef;
+        }
+
+        /** Post-release commit-ish for THIS file (the NEWEST matched commit that touched it), so a diff ends at
+         *  the release's last change to the file — excluding any later/working-tree edits. Falls back to
+         *  {@code HEAD} if the per-file span is unknown. */
+        public String afterRefFor(String file) {
+            String r = fileAfterRef.get(file);
+            return r != null ? r : "HEAD";
         }
     }
 
@@ -85,7 +103,7 @@ public class GitChangeService {
             }
         }
         if (matched.isEmpty()) {
-            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of(), null);   // no commit matched any version
+            return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of(), null, Map.of(), Map.of());   // no commit matched any version
         }
 
         // 2. Candidate files + their authors + the version(s) that touched them: non-whitespace changes across
@@ -95,19 +113,25 @@ public class GitChangeService {
         Set<String> candidates = new LinkedHashSet<>();
         Map<String, LinkedHashSet<String>> authors = new LinkedHashMap<>();
         Map<String, LinkedHashSet<String>> versions = new LinkedHashMap<>();
+        // git show lists the matched commits in the order given (matched = newest-first), so the FIRST matched
+        // commit we see touching a file is the newest release change to it, the LAST is the oldest. These bound
+        // the diff to the release's OWN commits on each file (excludes history before, and later/uncommitted edits).
+        Map<String, String> fileNewest = new LinkedHashMap<>();
+        Map<String, String> fileOldest = new LinkedHashMap<>();
         List<String> showArgs = new ArrayList<>(List.of("show", "--format=@@@%H|%an", "-w", "-M", "--numstat"));
         showArgs.addAll(matched);
         List<String> stat = run(repoDir, 30, showArgs.toArray(new String[0]));
         if (stat != null) {
             String curAuthor = null;
+            String curHash = null;
             List<String> curVersions = List.of();
             for (String line : stat) {
                 if (line.startsWith("@@@")) {
                     String rest = line.substring(3);
                     int bar = rest.indexOf('|');
-                    String hash = (bar >= 0 ? rest.substring(0, bar) : rest).trim();
+                    curHash = (bar >= 0 ? rest.substring(0, bar) : rest).trim();
                     curAuthor = bar >= 0 ? rest.substring(bar + 1).trim() : null;
-                    curVersions = commitVersions.getOrDefault(hash, List.of());
+                    curVersions = commitVersions.getOrDefault(curHash, List.of());
                     continue;
                 }
                 String[] c = line.split("\t");
@@ -123,6 +147,10 @@ public class GitChangeService {
                     }
                     if (!curVersions.isEmpty()) {
                         versions.computeIfAbsent(file, k -> new LinkedHashSet<>()).addAll(curVersions);
+                    }
+                    if (curHash != null) {
+                        fileNewest.putIfAbsent(file, curHash);   // first seen (newest-first order) = newest touch
+                        fileOldest.put(file, curHash);           // overwritten each time → ends on the oldest touch
                     }
                 }
             }
@@ -173,7 +201,23 @@ public class GitChangeService {
         // fetch a changed file's PRE-release content (git show baselineRef:path) and diff a BAU route's own XML
         // across the release — detecting an in-place modification of a route the old app still runs.
         String baselineRef = earliest != null ? earliest + "^" : null;
-        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted, baselineRef);
+        // Per-file release span: <oldest-touch>^ .. <newest-touch>, so a BAU in-place diff reflects ONLY what the
+        // release's own commits did to that file (a field the release added/removed), never edits from commits
+        // before or after the release, nor uncommitted working-tree state.
+        Map<String, String> fileBeforeRef = new LinkedHashMap<>();
+        Map<String, String> fileAfterRef = new LinkedHashMap<>();
+        for (String f : candidates) {
+            String oldest = fileOldest.get(f);
+            String newest = fileNewest.get(f);
+            if (oldest != null) {
+                fileBeforeRef.put(f, oldest + "^");
+            }
+            if (newest != null) {
+                fileAfterRef.put(f, newest);
+            }
+        }
+        return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted, baselineRef,
+                fileBeforeRef, fileAfterRef);
     }
 
     /**

@@ -128,6 +128,34 @@ class GitChangeServiceTest {
         assertThat(rc.changedFiles()).isEmpty();
     }
 
+    @Test
+    void perFileSpanBoundsTheDiffToTheReleasesOwnCommits(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        // Baseline template: fieldA only.
+        Files.writeString(dir.resolve("enquiry.ftl"), "{ \"fieldA\": \"${a}\" }\n");
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+        // The 19.18.0 release ADDS fieldB — this is the only change that should count.
+        Files.writeString(dir.resolve("enquiry.ftl"), "{ \"fieldA\": \"${a}\", \"fieldB\": \"${b}\" }\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] add fieldB");
+        // A LATER, unrelated commit (NOT the release) adds fieldC. It must not leak into the release's diff.
+        Files.writeString(dir.resolve("enquiry.ftl"),
+                "{ \"fieldA\": \"${a}\", \"fieldB\": \"${b}\", \"fieldC\": \"${c}\" }\n");
+        commit(dir, "[JIRA-3][SG][19.20.0] add fieldC after the release");
+
+        GitChangeService svc = new GitChangeService();
+        GitChangeService.ReleaseChanges rc = svc.changedFor(dir, "19.18.0");
+        assertThat(rc.changedFiles()).contains("enquiry.ftl");
+
+        String before = String.join("\n", svc.fileAtRef(dir, rc.beforeRefFor("enquiry.ftl"), "enquiry.ftl"));
+        String after = String.join("\n", svc.fileAtRef(dir, rc.afterRefFor("enquiry.ftl"), "enquiry.ftl"));
+        // before = the release's own parent: fieldA only (no fieldB yet).
+        assertThat(before).contains("fieldA").doesNotContain("fieldB").doesNotContain("fieldC");
+        // after = the release's own commit: fieldA + fieldB — but NOT the later fieldC. The diff is exactly the
+        // field the release added, never the unrelated post-release edit.
+        assertThat(after).contains("fieldA").contains("fieldB").doesNotContain("fieldC");
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

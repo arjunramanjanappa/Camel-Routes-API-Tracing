@@ -773,16 +773,18 @@ public class RouteTraceService {
         if (release == null || rc.baselineRef() == null || rc.changedFiles().isEmpty()) {
             return;   // N/A snapshot, or no baseline / nothing changed — nothing to diff in place
         }
-        Map<String, List<String>> bodies = routeBodiesCached(roots);
         Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(roots);
-        List<Path> allFiles = scanCached(roots).allFiles();
         Path repo = roots.primary();
 
         Map<String, List<BauRouteEdit>> byApi = new LinkedHashMap<>();
-        // Pre-release body index per changed route file, so a file holding several routes is fetched/parsed once.
+        // Body index per changed route file at each end of the release span, so a file holding several routes is
+        // fetched/parsed once. before = <oldest release touch>^, after = <newest release touch> — so the diff is
+        // exactly what the release's OWN commits did to the route, never edits from before or after the release.
         Map<String, Map<String, List<String>>> beforeBodyByFile = new LinkedHashMap<>();
-        // Pre-release content per changed template file (fetched once), for the payload key + value diffs.
+        Map<String, Map<String, List<String>>> afterBodyByFile = new LinkedHashMap<>();
+        // Template content per changed file at each end of the release span, for the payload key + value diffs.
         Map<String, String> beforeTemplateByFile = new LinkedHashMap<>();
+        Map<String, String> afterTemplateByFile = new LinkedHashMap<>();
 
         for (RouteModel rm : registry.all()) {
             if (registry.isAmbient(rm)) {
@@ -800,8 +802,10 @@ public class RouteTraceService {
                 continue;   // not reachable from an in-scope API entry
             }
 
-            // 1) Route BODY: did the release change THIS route's own XML? matchChanged returns the git-relative
-            //    path (suffix-matched across repo-root vs scan-root) — reuse it to fetch the pre-release content.
+            // 1) Route BODY: did the release's OWN commits change THIS route's own XML? Diff the route body at
+            //    each end of the release span for its file (<oldest touch>^ .. <newest touch>), so a structural
+            //    change made by an unrelated commit before/after the release — or in the working tree — is not
+            //    attributed to the release.
             List<String> addedSteps = List.of();
             List<String> removedSteps = List.of();
             RouteXmlDiff.RouteLocation loc = locations.get(routeId);
@@ -809,21 +813,30 @@ public class RouteTraceService {
                 String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
                 if (gitPath != null) {
                     Map<String, List<String>> before = beforeBodyByFile.computeIfAbsent(gitPath, gp -> {
-                        List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
+                        List<String> content = gitChange.fileAtRef(repo, rc.beforeRefFor(gp), gp);
+                        return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
+                    });
+                    Map<String, List<String>> after = afterBodyByFile.computeIfAbsent(gitPath, gp -> {
+                        List<String> content = gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp);
                         return content == null ? Map.of() : RouteXmlDiff.bodiesFromXml(String.join("\n", content));
                     });
                     List<String> beforeBody = before.get(routeId);
-                    if (beforeBody != null) {   // null = route added by this file in the release, not a BAU edit
-                        RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, bodies.getOrDefault(routeId, List.of()));
+                    List<String> afterBody = after.get(routeId);
+                    // Present on BOTH sides of the release span = an in-place edit to an existing route. Absent on
+                    // one side = added/removed by the release, not a BAU in-place modification.
+                    if (beforeBody != null && afterBody != null) {
+                        RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, afterBody);
                         addedSteps = d.added();
                         removedSteps = d.removed();
                     }
                 }
             }
 
-            // 2) PAYLOAD: did the release change a request-body template this BAU route sends? Compare the
-            //    template before vs now — keys (added/removed) AND scalar values (changed in place). Both sides
-            //    are the SAME file (git-diffed against its own pre-release self), so values are comparable.
+            // 2) PAYLOAD: did the release's OWN commits change a request-body template this BAU route sends? Diff
+            //    the SAME template file at each end of the release span (<oldest touch>^ .. <newest touch>) — keys
+            //    (added/removed) AND scalar values (changed in place). Because both sides are the same file
+            //    bracketing only the release's commits, the diff is exactly the fields the release changed — not a
+            //    comparison against another route's template, and not edits from commits outside the release.
             List<String> addedKeys = new ArrayList<>();
             List<String> removedKeys = new ArrayList<>();
             List<PayloadValueChange> changedValues = new ArrayList<>();
@@ -836,18 +849,18 @@ public class RouteTraceService {
                     continue;   // THIS exact template (not a same-named sibling) wasn't touched by the release
                 }
                 String before = beforeTemplateByFile.computeIfAbsent(tGit, gp -> {
-                    List<String> content = gitChange.fileAtRef(repo, rc.baselineRef(), gp);
+                    List<String> content = gitChange.fileAtRef(repo, rc.beforeRefFor(gp), gp);
                     return content == null ? "" : String.join("\n", content);
                 });
-                String current = readTemplateContent(allFiles, uri);
-                if (current == null) {
-                    current = "";
-                }
-                PayloadKeys.PayloadDiff pd = PayloadKeys.diff(PayloadKeys.extract(current), PayloadKeys.extract(before));
+                String after = afterTemplateByFile.computeIfAbsent(tGit, gp -> {
+                    List<String> content = gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp);
+                    return content == null ? "" : String.join("\n", content);
+                });
+                PayloadKeys.PayloadDiff pd = PayloadKeys.diff(PayloadKeys.extract(after), PayloadKeys.extract(before));
                 pd.added().forEach(k -> { if (!addedKeys.contains(k)) addedKeys.add(k); });
                 pd.removed().forEach(k -> { if (!removedKeys.contains(k)) removedKeys.add(k); });
                 for (PayloadKeys.ValueChange vc : PayloadKeys.valueDiff(
-                        PayloadKeys.extractValues(before), PayloadKeys.extractValues(current))) {
+                        PayloadKeys.extractValues(before), PayloadKeys.extractValues(after))) {
                     changedValues.add(new PayloadValueChange(vc.key(), vc.before(), vc.after()));
                 }
             }

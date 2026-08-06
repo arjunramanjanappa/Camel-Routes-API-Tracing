@@ -8,11 +8,24 @@ import type { ModuleDiff } from './diffPdf';
  * developer report is {@link exportDiffPdf} (route/class/test detail).
  */
 
-function effectiveStatus(a: ApiDiff): DiffStatus { return (a.status === 'NEW' || a.status === 'UNCHANGED') && a.codeChanged ? 'CHANGED' : a.status as DiffStatus; }
+function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
+/** The kind of BAU-route change for the summary label (the actual diff is in the detailed PDF). */
+function bauKind(a: ApiDiff): string {
+  const edits = a.bauRouteEdits || [];
+  if (edits.some((e) => e.routeRemoved)) return 'Route removed';
+  const payload = edits.some((e) => (e.payloadDiff?.length ?? 0) > 0);
+  const body = edits.some((e) => e.addedSteps.length > 0 || e.removedSteps.length > 0);
+  if (payload && body) return 'Payload + route change';
+  if (body) return 'Route change';
+  return 'Payload change';
+}
+function effectiveStatus(a: ApiDiff): DiffStatus { return (a.status === 'NEW' || a.status === 'UNCHANGED') && (a.codeChanged || bauRouteModified(a)) ? 'CHANGED' : a.status as DiffStatus; }
 function riskOf(a: ApiDiff): 'High' | 'Medium' | 'Low' { return (a.risk as 'High' | 'Medium' | 'Low') || 'Low'; }
 function whatChanged(a: ApiDiff): { label: string; ramp: Ramp } {
+  // A BAU (production) route change leads — it needs backward-compat, the top signal for a stakeholder.
+  if (bauRouteModified(a)) return { label: 'BAU · ' + bauKind(a) + ' · BC', ramp: PAL.red };
   if (effectiveStatus(a) === 'NEW') return { label: 'New API', ramp: PAL.blue };
-  if (a.codeChanged) return { label: 'Shared code changed', ramp: PAL.purple };
+  if (a.codeChanged) return { label: 'Shared code changed · BC', ramp: PAL.purple };
   if (a.payloadChange?.removedKeys?.length || a.payloadChange?.addedKeys?.length) return { label: 'Request/response changed', ramp: PAL.amber };
   if (a.backendVersionChanges?.length) return { label: 'Backend version changed', ramp: PAL.gray };
   return { label: 'Logic changed', ramp: PAL.gray };
@@ -21,16 +34,18 @@ function riskRamp(r: 'High' | 'Medium' | 'Low'): Ramp { return r === 'High' ? PA
 
 /** Per-module tally of the change categories, e.g. "2 New · 1 Shared code · 1 Backend version" (omits zeros). */
 function changeBreakdown(items: { a: ApiDiff }[]): string {
-  const c = { neu: 0, code: 0, payload: 0, backend: 0, logic: 0 };
+  const c = { bau: 0, neu: 0, code: 0, payload: 0, backend: 0, logic: 0 };
   for (const { a } of items) {
     const label = whatChanged(a).label;
-    if (label === 'New API') c.neu++;
-    else if (label === 'Shared code changed') c.code++;
+    if (label.startsWith('BAU')) c.bau++;
+    else if (label === 'New API') c.neu++;
+    else if (label.startsWith('Shared code changed')) c.code++;
     else if (label === 'Request/response changed') c.payload++;
     else if (label === 'Backend version changed') c.backend++;
     else c.logic++;
   }
   const parts: string[] = [];
+  if (c.bau) parts.push(`${c.bau} BAU route`);
   if (c.neu) parts.push(`${c.neu} New`);
   if (c.code) parts.push(`${c.code} Shared code`);
   if (c.payload) parts.push(`${c.payload} Request/response`);

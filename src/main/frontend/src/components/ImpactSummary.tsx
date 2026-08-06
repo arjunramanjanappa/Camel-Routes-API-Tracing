@@ -23,6 +23,18 @@ const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
 
+/** The kind of BAU-route change, for the summary label — payload (template), route body (steps), a removal, or
+ *  a mix. The actual diff lives in the detailed view; the summary stays a one-line label. */
+function bauKind(a: ApiDiff): string {
+  const edits = a.bauRouteEdits || [];
+  if (edits.some((e) => e.routeRemoved)) return 'Route removed';
+  const payload = edits.some((e) => (e.payloadDiff?.length ?? 0) > 0);
+  const body = edits.some((e) => e.addedSteps.length > 0 || e.removedSteps.length > 0);
+  if (payload && body) return 'Payload + route change';
+  if (body) return 'Route change';
+  return 'Payload change';
+}
+
 /** Impacts the OLD (BAU / production) app: shared code changed, or a BAU route edited in place — the old app
  *  runs that code, so it needs regression. Everything else this release touches is scoped to the NEW app. */
 function isBauImpact(a: ApiDiff): boolean { return !!a.codeChanged || bauRouteModified(a); }
@@ -35,7 +47,7 @@ function effectiveStatus(a: ApiDiff): DiffStatus {
 
 /** Plain-English "what changed" for a stakeholder — one primary reason, derived from existing fields. */
 function whatChanged(a: ApiDiff): { label: string; kind: string } {
-  if (bauRouteModified(a)) return { label: 'BAU route modified (PROD)', kind: 'code' };
+  if (bauRouteModified(a)) return { label: 'BAU · ' + bauKind(a), kind: 'code' };
   if (effectiveStatus(a) === 'NEW') return { label: 'New API', kind: 'new' };
   if (a.codeChanged) return { label: 'Shared code changed', kind: 'code' };
   if (a.payloadChange?.removedKeys?.length || a.payloadChange?.addedKeys?.length) return { label: 'Request/response changed · new app only', kind: 'payload' };
@@ -185,7 +197,10 @@ function VerifySection({ track, title, subtitle, items, hasLog, log, emptyText }
                       return (
                         <tr key={a.api + '|' + a.operation} data-sev={r}>
                           <td className="sumv-sev sumv-api"><span className="path">{a.api}</span></td>
-                          <td><span className={'sumv-pill ' + wc.kind}>{wc.label}</span></td>
+                          <td>
+                            <span className={'sumv-pill ' + wc.kind}>{wc.label}</span>
+                            {isBauImpact(a) && <span className="sumv-bc" title="Backward-compatibility with the old (BAU) app must be verified">BC</span>}
+                          </td>
                           <td><span className={'sumv-risk ' + r}><span className="dot" />{r}</span></td>
                           {hasLog && <td><span className={'sumv-tst ' + ts!.cls}>{ts!.label}</span></td>}
                         </tr>

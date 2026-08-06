@@ -285,14 +285,40 @@ changed) — and a light/dark theme toggle.
   carries a **service-version chip**: `svc 2.2 ✓` when the logged version matches the
   traced one, `svc 9.9 ✗ (exp 2.2)` on a mismatch (which flags the row even if the
   backend itself succeeded).
-* **Host response-code rules** *(⚙ Config → per app)* — some host/backend APIs report
-  their outcome under a different key (e.g. `"resultCode":"000000"`) or with a
-  non-standard success value, and some shouldn't count toward the verdict at all.
-  A per-app rule set (`log-rules.json`, keyed **Mighty / SPL / SPL-Secure**), matched
-  on a backend **hosturl** glob, tells the analyzer which JSON key to read the code
-  from, what counts as success, or to **skip** the backend — surfaced as a neutral
-  **Skipped** verdict (grey badge + its own count) that never fails the API and is
-  shown as *skipped for analysis* in the PDF. Front-end lines are unaffected.
+* **Host response-code rules (the 🚦 Rules editor)** — some host/backend APIs report
+  their outcome under a different JSON key (e.g. `"resultCode":"000000"`), with a
+  non-standard success value, or shouldn't count toward the verdict at all. A **per-app**
+  rule set (`log-rules.json`, keyed **Mighty / SPL / SPL-Secure**) tells the analyzer,
+  per backend, which key to read and what passes:
+    * **`codeFields`** — fallback response-code key(s) to try when no rule matches.
+    * **`rules[]`** — each rule: **`match`** (a backend host-path **glob**, e.g.
+      `*/rest/auth/login`), **`codeField`** (the JSON key holding the code),
+      **`successCodes`** (values that count as success), **`skip`** (`true` → the backend
+      is a neutral **Skipped** — grey badge + own count, never fails the API, *skipped for
+      analysis* in the PDF). Front-end lines are unaffected. A rule's `codeField` /
+      `successCodes` are also folded into the generated **Splunk query** so the export
+      carries the custom code.
+  ```json
+  { "Mighty": { "codeFields": ["resultCode"],
+      "rules": [ { "match": "*/rest/auth/login", "codeField": "resultCode",
+                   "successCodes": ["000000"], "skip": false } ] } }
+  ```
+  **Set them up:** open **🚦 Rules**, add rules, **Save** → writes
+  `~/.traceguard/log-rules.json` (or hand-edit that file — keep it valid JSON; a malformed
+  file is ignored and skipped).
+
+  **Ship the rules as part of the `.exe`/bundle** so every recipient starts pre-configured:
+  1. Configure the rules once in the app and **Save**.
+  2. Copy your saved file over the shipped default (before building):
+     ```bash
+     cp ~/.traceguard/log-rules.json src/main/resources/config-seed/log-rules.json
+     ```
+  3. Build (`mvn -Pdist` / `-Pexe`). On first run `ConfigSeeder` **seeds** the recipient's
+     `~/.traceguard/log-rules.json` from it; a later build's corrected defaults **merge**
+     (via `SeedMerge`) **without clobbering** a tester's own rule add/edit/deletes. The
+     file carries **no secrets** (only code fields / success codes), so it's safe to commit
+     and share. Full packaging detail:
+     [`src/main/resources/config-seed/README.md`](src/main/resources/config-seed/README.md).
 
 ### Release Impact
 

@@ -906,6 +906,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
       .filter((a) => effectiveStatus(a) === activeGroup)
       .filter((a) => !q || searchHaystack(a).includes(q))
       .filter((a) => {
+        if (filters.has('bau') && !bauRouteModified(a)) return false;
         if (filters.has('high') && riskOf(a) !== 'High') return false;
         if (filters.has('code') && !a.codeChanged) return false;
         if (filters.has('bc') && !needsBC(a)) return false;
@@ -1171,12 +1172,37 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               </span>
             </div>
             <div className="filter-chips">
+              <button className={'fchip' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="Show only APIs that modified a BAU (in-production) route">⚑ BAU route</button>
               <button className={'fchip' + (filters.has('high') ? ' on' : '')} onClick={() => toggleFilter('high')}>High risk</button>
               {report.appVersion && <button className={'fchip' + (filters.has('code') ? ' on' : '')} onClick={() => toggleFilter('code')}>Code-changed</button>}
               <button className={'fchip' + (filters.has('bc') ? ' on' : '')} onClick={() => toggleFilter('bc')}>Backward-compat</button>
               {activeLog && <button className={'fchip' + (filters.has('failed') ? ' on' : '')} onClick={() => toggleFilter('failed')}>Test failed</button>}
               {filters.size > 0 && <button className="linkbtn" onClick={() => setFilters(new Set())}>Clear filters</button>}
             </div>
+
+            {/* At-a-glance counts, pinned while scrolling — same numbers the leadership Summary shows. */}
+            {(() => {
+              const bau = report.apis.filter(bauRouteModified).length;
+              const high = report.highRiskCount ?? report.apis.filter((a) => riskOf(a) === 'High').length;
+              const bc = report.backwardCompatCount ?? report.apis.filter((a) => needsBC(a)).length;
+              let tested = 0, total = 0;
+              if (activeLog) {
+                for (const a of report.apis) {
+                  if (effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT') {
+                    total++;
+                    if (activeLog[a.api]?.tested) tested++;
+                  }
+                }
+              }
+              return (
+                <div className="impact-statbar">
+                  {bau > 0 && <button type="button" className={'isb bau' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="APIs that modified a BAU (in-production) route — click to filter"><b>{bau}</b> BAU route</button>}
+                  <span className="isb high" title="High-risk APIs"><b>{high}</b> High</span>
+                  <span className="isb bc" title="APIs needing a backward-compatibility check"><b>{bc}</b> BC</span>
+                  {activeLog && <span className="isb tested" title="APIs with an uploaded test result"><b>{tested}/{total}</b> tested</span>}
+                </div>
+              );
+            })()}
 
             {visible.length === 0 ? (
               <div className="impact-empty">
@@ -1213,12 +1239,17 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                   const showHeads = groups.length > 1 || bau.length > 0;
                   return (
                     <>
-                      {bau.length > 0 && (
-                        <Fragment key="__bau">
-                          <div className="diff-ver-head bau"><span>⚑ BAU route modified</span><span className="diff-ver-cnt">{bau.length}</span></div>
-                          {bau.map(card)}
-                        </Fragment>
-                      )}
+                      {bau.length > 0 && (() => {
+                        // Who to ask: the distinct commit authors across all BAU edits in this group.
+                        const owners = [...new Set(bau.flatMap((a) => (a.bauRouteEdits || []).flatMap((e) => e.changedBy || [])))];
+                        return (
+                          <Fragment key="__bau">
+                            <div className="diff-ver-head bau"><span>⚑ BAU route modified</span><span className="diff-ver-cnt">{bau.length}</span></div>
+                            {owners.length > 0 && <div className="bau-owners" title="Commit author(s) of the BAU route changes — who to ask">Who to ask: {owners.join(', ')}</div>}
+                            {bau.map(card)}
+                          </Fragment>
+                        );
+                      })()}
                       {groups.map((g) => (
                         <Fragment key={g.ver}>
                           {showHeads && <div className="diff-ver-head"><span>{versionLabel(g.ver)}</span><span className="diff-ver-cnt">{g.apis.length}</span></div>}

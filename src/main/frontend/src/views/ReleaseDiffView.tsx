@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { fetchVersionDiff, analyzeLogMulti } from '../api';
 import { versionLabel } from '../feature';
-import type { ApiDiff, ApiLogResult, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
+import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
 import { exportDiffSummaryPdf } from '../diffSummaryPdf';
 import { backendPath } from '../spl';
@@ -62,6 +62,16 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 /** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
  *  alters a route already in production, so it directly impacts the old/PROD app. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
+/** The kind of BAU-route change for the card chip — Payload change / Route change / Route removed / a mix. */
+function bauKind(a: ApiDiff): { label: string; cls: string } {
+  const edits = a.bauRouteEdits || [];
+  if (edits.some((e) => e.routeRemoved)) return { label: 'BAU · Route removed', cls: 'body' };
+  const payload = edits.some((e) => (e.payloadDiff?.length ?? 0) > 0);
+  const body = edits.some((e) => e.addedSteps.length > 0 || e.removedSteps.length > 0);
+  if (payload && body) return { label: 'BAU · Payload + route change', cls: 'payload' };
+  if (body) return { label: 'BAU · Route change', cls: 'body' };
+  return { label: 'BAU · Payload change', cls: 'payload' };
+}
 /** A short, still-disambiguating template path: from `META-INF/` (the recognisable resource path that matches the
  *  route's own `freemarker:META-INF/...` uri, keeping `templates/`), else from `templates/`, else the last two
  *  segments. Drops only the long `src/main/resources/...` prefix. The full repo-relative path is shown on hover. */
@@ -477,36 +487,44 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
   const edits = d.bauRouteEdits || [];
   if (!edits.length) return null;
   return (
-    <div className="diff-code" title="Changes the release made inside a pre-existing (BAU) route the old app still runs — its steps and/or its request payload — found by git-diffing that route against its own pre-release version. High risk: it changes existing PROD behaviour.">
-      <span className="diff-code-label">⚑ BAU route modified — existing PROD behaviour changed (High)</span>
-      {edits.map((e) => {
-        const removed = !!e.routeRemoved;
-        const payloadDiff = e.payloadDiff || [];
-        const hasPayload = payloadDiff.length > 0;
-        const hasBody = e.addedSteps.length > 0 || e.removedSteps.length > 0;
-        const payloadFiles = e.payloadFiles || [];
-        return (
-          <div key={e.route}>
-            {/* Header chip — uniform with the code-changed chip: route — authors, then what-kind tags. BC is shown
-                once at the card level, not repeated here. */}
-            <span className="chg code" title={removed
-              ? 'a BAU route the release DELETED — the old app that still calls it breaks; author(s) of the release commit(s)'
-              : 'a BAU route the release edited in place — author(s) of the release commit(s) that changed it'}>
-              {e.route}
-              {e.changedBy && e.changedBy.length > 0 && <span className="code-auth"> — {e.changedBy.join(', ')}</span>}
-              {removed && <span className="chg-tag body" title="the release deleted this whole BAU route">Route removed</span>}
-              {!removed && hasPayload && <span className="chg-tag payload" title="the request payload this BAU route sends changed">Payload change</span>}
-              {!removed && hasBody && <span className="chg-tag body" title="a step in this BAU route changed">Route change</span>}
-            </span>
-            {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
-            {/* Which template the diff came from, so the reviewer knows the exact .ftl/.vm. Short, disambiguating
-                tail (sg/v1/enquiry.ftl) is shown; hover reveals the full repo-relative path. */}
-            {hasPayload && payloadFiles.length > 0 && (
-              <div className="bau-payload-file">
-                Payload template: {payloadFiles.map((f, i) => <code key={i} title={f}>{shortTemplate(f)}</code>)}
-              </div>
-            )}
-            {/* The actual file difference: route-body steps, then the raw git-diff lines of the template(s). */}
+    <div className="diff-code">
+      {edits.map((e) => <BauEditRow key={e.route} e={e} />)}
+    </div>
+  );
+}
+
+/** One BAU route edit: route + author line, template name, and the actual git diff — COLLAPSED by default so the
+ *  card stays compact (click to reveal the +/- lines). The change kind (Payload change / Route change) is shown on
+ *  the card chip, not repeated here. */
+function BauEditRow({ e }: { e: BauRouteEdit }) {
+  const [open, setOpen] = useState(false);
+  const removed = !!e.routeRemoved;
+  const payloadDiff = e.payloadDiff || [];
+  const payloadFiles = e.payloadFiles || [];
+  const diffCount = e.removedSteps.length + e.addedSteps.length + payloadDiff.length;
+  return (
+    <div>
+      <span className="chg code" title={removed
+        ? 'a BAU route the release DELETED — the old app that still calls it breaks; author(s) of the release commit(s)'
+        : 'a BAU route the release edited in place — author(s) of the release commit(s) that changed it'}>
+        {e.route}
+        {e.changedBy && e.changedBy.length > 0 && <span className="code-auth"> — {e.changedBy.join(', ')}</span>}
+        {removed && <span className="chg-tag body" title="the release deleted this whole BAU route">Route removed</span>}
+      </span>
+      {removed && <div className="muted" style={{ margin: '2px 0 4px' }}>Entire BAU route deleted by the release — its pre-release body is shown below.</div>}
+      {payloadFiles.length > 0 && (
+        <div className="bau-payload-file">
+          Payload template: {payloadFiles.map((f, i) => <code key={i} title={f}>{shortTemplate(f)}</code>)}
+        </div>
+      )}
+      {diffCount > 0 && (
+        <>
+          <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+            <span className="rdiff-toggle-title">Git diff</span>
+            <span className="muted">{diffCount} line{diffCount === 1 ? '' : 's'}</span>
+          </button>
+          {open && (
             <pre className="rdiff-body">
               {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
               {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
@@ -514,9 +532,9 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
                 <div key={'pd' + i} className={'dl wrap ' + (l.startsWith('-') ? 'del' : 'add')}>{l}</div>
               ))}
             </pre>
-          </div>
-        );
-      })}
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -553,7 +571,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
             <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
           )}
           {bauRouteModified(d) && (
-            <span className="diff-badge code" title={'A BAU (in-production) route was modified in place — ' + bcReason(d)}>⚑ BAU route</span>
+            <span className={'chg-tag ' + bauKind(d).cls} title={'A BAU (in-production) route was modified in place — ' + bcReason(d)}>⚑ {bauKind(d).label}</span>
           )}
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
           {needsBC(d) && <span className="bc-badge" title={'Backward compatibility required — ' + bcReason(d)}>BC</span>}
@@ -1197,7 +1215,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                     <>
                       {bau.length > 0 && (
                         <Fragment key="__bau">
-                          <div className="diff-ver-head bau"><span>⚑ BAU route modified — verify first</span><span className="diff-ver-cnt">{bau.length}</span></div>
+                          <div className="diff-ver-head bau"><span>⚑ BAU route modified</span><span className="diff-ver-cnt">{bau.length}</span></div>
                           {bau.map(card)}
                         </Fragment>
                       )}

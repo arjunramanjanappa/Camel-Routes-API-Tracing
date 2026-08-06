@@ -678,6 +678,25 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
             {report.unparsedLines > 0 ? ` · ${report.unparsedLines} unparsed` : ''} · {report.uploadType}
           </div>
 
+          {(() => {
+            // Prominent overall verdict for higher-ups: readiness + the front-end pass rate at a glance.
+            const t = tally(report);
+            const testedFe = t.passed + t.issues;
+            const rate = testedFe > 0 ? Math.round((100 * t.passed) / testedFe) : 0;
+            const rd = readiness(t);
+            const label = rd === 'risk' ? 'At risk' : rd === 'review' ? 'Needs review' : rd === 'ready' ? 'Ready' : 'No data';
+            const icon = rd === 'risk' ? '✗' : rd === 'review' ? '⚠' : rd === 'ready' ? '✓' : '—';
+            return (
+              <div className={'test-verdict ' + rd} role="status">
+                <span className="tv-badge">{icon} {label}</span>
+                <span className="tv-detail">
+                  {t.passed} passed · {t.issues} issue{t.issues === 1 ? '' : 's'} · {t.notTested} not tested
+                  {testedFe > 0 && <> · <b>{rate}%</b> pass rate <span className="muted">({t.passed}/{testedFe} tested)</span></>}
+                </span>
+              </div>
+            );
+          })()}
+
           <div className="report-summary">
             <Donut counts={counts} />
             <div className="report-side">

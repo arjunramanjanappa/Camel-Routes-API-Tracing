@@ -308,6 +308,18 @@ tr.lrow.failed td { background: #fff6f1; }
 tr.lrow.timeout td { background: #f8f6ff; }
 tr.lsub td { background: #f9fafb; font-size: 11px; }
 tr.lsub code { background: transparent; }
+/* Prominent release-test verdict banner (readiness + front-end pass rate). */
+.test-verdict { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 2px; padding: 10px 14px; border-radius: 8px; border: 1px solid; }
+.test-verdict .tv-badge { font-size: 13px; font-weight: 800; letter-spacing: .02em; white-space: nowrap; }
+.test-verdict .tv-detail { font-size: 12.5px; font-weight: 600; }
+.test-verdict.risk { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.test-verdict.review { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.test-verdict.ready { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.test-verdict.empty { background: #f8fafc; border-color: #e2e8f0; color: #64748b; }
+[data-theme="dark"] .test-verdict.risk { background: #2a1416; border-color: #7f1d1d; color: #fca5a5; }
+[data-theme="dark"] .test-verdict.review { background: #251a08; border-color: #78350f; color: #fcd34d; }
+[data-theme="dark"] .test-verdict.ready { background: #08210f; border-color: #14532d; color: #86efac; }
+[data-theme="dark"] .test-verdict.empty { background: #0f172a; border-color: #253044; color: #94a3b8; }
 .report-summary { display: flex; gap: 14px; align-items: center; margin: 8px 0 2px; }
 .report-side { flex: 1; min-width: 0; }
 .donut { flex: none; }

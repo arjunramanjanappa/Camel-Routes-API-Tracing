@@ -82,16 +82,38 @@ bakes in `-Dtracer.open-browser=true`, so it starts the server and opens the bro
 
 ## Building a bundle (on a build machine)
 
-### Prerequisites (build machine only — the target needs none of this)
+### Prerequisites (build machine)
 
 | Need | Why | Check |
 |------|-----|-------|
-| **Full JDK 21** (not a JRE — must have `jlink`) | Builds the trimmed runtime | `java -version` → 21.x, and `jlink --version` works |
+| **Full JDK 21** (not a JRE — must have `jlink`/`jpackage`) | Builds the trimmed runtime / `.exe` | `java -version` → 21.x, and `jlink --version` works |
 | **Node + npm** on `PATH` | Maven compiles the React frontend | `npm -v` prints a version |
 | **Maven** (or IntelliJ's bundled one) | Runs the build | `mvn -v` — or use IntelliJ ▸ **Terminal** |
 
 > Easiest: run the build from **IntelliJ's Terminal**, the same place `mvn spring-boot:run` works — it
 > already has `npm`, `mvn`, and a JDK on `PATH`.
+
+**The target machine needs `git`** on its `PATH` for the Release **Impact** tab's code-change / BAU-route
+detection (commit matching, template/route diffs, blame). The bundle ships Java but **not** git — install a
+git client on the target, or the target already has one. Release Scope / Test don't need it. (See the root
+README ▸ *Prerequisites*.)
+
+### Before you build (pre-setup)
+
+Two one-time setups on the **build machine**, both optional depending on your environment:
+
+1. **Private npm registry** → create `src/main/frontend/.npmrc` with your registry + auth token **before**
+   building (it's gitignored, so it isn't in a clone/ZIP). Skip if you use the public npm registry. See the
+   root README ▸ *Frontend setup — `.npmrc`*.
+2. **Corporate CA cert** (for cloning an internal Bitbucket over HTTPS) → drop your internal **root CA** file
+   (`*.crt` / `*.pem` / `*.cer`) into **`packaging/certs/`** before building. `-Pdist` / `-Pexe` import it into
+   the bundle's `cacerts` so **every recipient trusts your Bitbucket out of the box** — no per-user cert import.
+   The folder is empty by default (a normal build injects nothing). Details: [`packaging/certs/README.md`](certs/README.md).
+
+The default **Config (modules)** and **host Rules** are **shipped inside the app** (`src/main/resources/config-seed/`)
+and **seed `~/.traceguard` automatically on first run**, so a recipient gets working defaults with nothing to set
+up; their later edits are preserved, and a newer build can push corrected defaults without clobbering those edits.
+Only per-machine **tokens** must be entered per user. (Edit the shipped defaults in `src/main/resources/config-seed/`.)
 
 ### Recommended: Maven (`-Pdist`)
 
@@ -191,6 +213,11 @@ Boot + Tomcat + Camel + JGit).
 ---
 
 ## First-run config (the ⚙ Config menu)
+
+**Only tokens are per-user.** The default **module config** (`app-modules.json`) and **host rules**
+(`log-rules.json`) ship inside the app and **seed `~/.traceguard` automatically on first run**, so modules and
+rules already work out of the box — a recipient just adds their own tokens. A newer build can push corrected
+defaults without overwriting a user's own edits.
 
 Open TraceGuard, click **⚙ Config** in the header, and set your **Bitbucket** / **npm** tokens and the
 **Splunk base URL**. They are saved to `~/.traceguard/settings.json` on that machine and remembered on every run:

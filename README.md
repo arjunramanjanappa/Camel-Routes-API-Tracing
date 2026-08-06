@@ -34,20 +34,30 @@ single Spring Boot jar with a **React + Vite + TypeScript** UI built into it.
 
 | Tool | Version | Notes |
 |---|---|---|
-| **JDK** | 21 | |
+| **JDK** | 21 | full JDK (needs `jlink`/`jpackage` for the desktop bundle) |
 | **Maven** | 3.9+ | or IntelliJ's bundled Maven |
 | **Node.js + npm** | 18+ (built/tested with **Node 24**) | the Maven build shells out to your **system** `npm` to build the frontend |
-| **git** | any | **optional** — only for the Release Impact *"Changed by"* authorship; must be on the **`PATH`** of the host running the jar |
+| **git** | 2.18+ | **required for Release Impact** code-change / BAU detection; on the **`PATH`** of the host running the jar (or the `.exe`/bundle) |
 
 Install Node from [nodejs.org](https://nodejs.org) (or via `nvm`) and make sure
 `node -v` / `npm -v` work on your `PATH`. The build does **not** download a Node —
 it uses the one on your machine.
 
-**git is optional.** The Release Impact report can attribute each changed route to
-its authors via `git blame`, but only when the scanned **source directory is a git
-work tree** and `git` is on the **`PATH`** of the process running the jar. If git
-is absent, or the directory isn't a git checkout, that one line is simply omitted —
-nothing else is affected.
+**git is required for the Release Impact tab's git-based detection** — and it must be
+on the **`PATH`** of the process running the jar (this is a **runtime** need on the
+machine/target that runs TraceGuard, not just the build box). The `git` CLI is used to:
+
+* find what a release changed — commits whose message carries the app/commit **version**
+  token (e.g. `[19.14.0]`), matched **exactly**, and the files they touched;
+* **diff** each modified BAU route's XML and its request-payload template against the
+  file's previous version (`git diff -w`, whitespace/CRLF ignored — like IntelliJ);
+* attribute each change to its **commit author** (and `git blame` the current lines).
+
+It works in **both** source modes: a local path that is a git work tree, and a Bitbucket
+branch (the checkout is cloned with JGit, then the same `git` CLI diffs/blames it). If
+`git` is absent — or the source isn't a git checkout — Release **Scope** and **Test**
+still work fully; only the Release **Impact** code-change / BAU-route findings are skipped,
+with a notice under *Needs review*. `git 2.18+` is needed for `--ignore-cr-at-eol`.
 
 ## Frontend setup — `.npmrc`
 
@@ -121,6 +131,14 @@ double-click launcher) and send the zip:
 ```bash
 mvn -Pdist clean package        # → target/dist/TraceGuard-<os>.zip
 ```
+
+**Before building for others**, do the one-time pre-setup: create
+`src/main/frontend/.npmrc` if you use a private npm registry, and — to trust an
+internal Bitbucket over HTTPS out of the box — drop your corporate **root CA** cert
+into **`packaging/certs/`** (baked into the bundle's `cacerts` by `-Pdist`/`-Pexe`).
+Default modules + host rules ship inside the app and seed `~/.traceguard` on first run,
+so recipients only enter their own tokens. The target machine needs **`git`** on its
+`PATH` for the Release Impact tab. Full checklist: **[packaging/README.md](packaging/README.md)**.
 
 The recipient unzips it and double-clicks `TraceGuard.bat` (Windows) /
 `TraceGuard.command` (macOS) — the browser opens automatically. Pure Maven, so it
@@ -319,12 +337,25 @@ diffs them.
   *actually* changed, beyond the version-to-version flow diff: a modified or **deleted**
   shared `@Component` class an older (BAU) route still uses (`Changed (code)`, listing
   the **Current / BAU / Future** routes to re-test), and **in-place edits to a BAU
-  route itself** — a step or payload **key** added/removed, or a payload **value**
-  changed — found by git-diffing that route against its *own* pre-release version
-  (which the version diff, comparing two *different* routes, fundamentally can't see).
-  A top-of-report **"BAU routes modified"** callout lists every such route. Both are
-  High + backward-compatibility. Needs `git` on the `PATH` and commits tagged with the
-  version token (`[jira][country][19.18.0]`); absent that, this analysis is skipped.
+  route itself** — its route XML and/or the request-payload template it sends — found by
+  git-diffing the route/template against its **own previous file version**, which the
+  version diff (comparing two *different* routes) fundamentally can't see. A route the
+  release **deleted** is flagged too.
+    * Only the requested version's commits count: the version token is matched **exactly**
+      (`19.14.0` never matches `19.4.0`); each release commit is diffed against the file's
+      **previous-history** version and the results unioned, so a commit at another version
+      — even one interleaved between two release commits on the same file — never leaks in.
+    * The payload is shown as the **actual git-diff lines** (not a parsed key list),
+      **whitespace / blank-line / CR-LF-at-EOL ignored** so it matches IntelliJ's "ignore
+      whitespaces and empty lines" — collapsed by default with a **± context** toggle, and
+      the template's path (`META-INF/templates/…`) named above it.
+    * Each finding is attributed to the **commit author(s)** of the release commit(s), and
+      a group **"who to ask"** line aggregates them.
+    * BAU-route-modified APIs lead the list in their **own group** (`⚑ BAU route modified`),
+      shown before the version groups, and can be isolated with the **⚑ BAU route** filter;
+      a sticky stat strip shows `BAU · High · BC · tested`. All are High + backward-compat.
+  Needs `git 2.18+` on the `PATH` and commits tagged with the version token
+  (`[jira][country][19.18.0]`); absent that, this analysis is skipped.
 * **Export PDF** — a sectioned **Release Impact report** (Changed + New), independent
   of which group is on screen.
 

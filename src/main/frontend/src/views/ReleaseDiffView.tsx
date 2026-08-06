@@ -487,7 +487,7 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
   const edits = d.bauRouteEdits || [];
   if (!edits.length) return null;
   return (
-    <div className="diff-code">
+    <div className="diff-code bau">
       {edits.map((e) => <BauEditRow key={e.route} e={e} />)}
     </div>
   );

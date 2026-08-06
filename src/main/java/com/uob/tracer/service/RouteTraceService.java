@@ -786,6 +786,9 @@ public class RouteTraceService {
         Map<String, String> rawByRef = new LinkedHashMap<>();                          // ref::path → file content
         Map<String, Map<String, List<String>>> bodiesByRef = new LinkedHashMap<>();    // ref::path → route bodies
         Map<String, String> prevByCommit = new LinkedHashMap<>();                      // commit::path → prev file commit
+        // A template's payload diff depends only on the file, not the route — compute it once even when several BAU
+        // routes send the same template (git diff is the expensive part; this avoids re-running it per route).
+        Map<String, List<String>> payloadDiffByTemplate = new LinkedHashMap<>();       // template path → its diff lines
         // Span endpoints (before = <oldest release touch>^, after = <newest release touch>) — used ONLY to detect a
         // whole route REMOVED by the release (present at the before endpoint, gone at the after endpoint).
         Map<String, Map<String, List<String>>> beforeBodyByFile = new LinkedHashMap<>();
@@ -850,15 +853,18 @@ public class RouteTraceService {
                 if (tGit == null) {
                     continue;   // THIS exact template (not a same-named sibling) wasn't touched by the release
                 }
-                List<String> tDiff = new ArrayList<>();
-                for (String c : rc.fileReleaseCommits().getOrDefault(tGit, List.of())) {
-                    String prev = prevFileRef(repo, c, tGit, prevByCommit);
-                    for (String line : gitChange.diffLines(repo, prev.isEmpty() ? null : prev, c, tGit)) {
-                        if (!tDiff.contains(line)) {
-                            tDiff.add(line);   // union the real changed lines across the release's commits
+                List<String> tDiff = payloadDiffByTemplate.computeIfAbsent(tGit, gp -> {
+                    List<String> lines = new ArrayList<>();
+                    for (String c : rc.fileReleaseCommits().getOrDefault(gp, List.of())) {
+                        String prev = prevFileRef(repo, c, gp, prevByCommit);
+                        for (String line : gitChange.diffLines(repo, prev.isEmpty() ? null : prev, c, gp)) {
+                            if (!lines.contains(line)) {
+                                lines.add(line);   // union the real changed lines across the release's commits
+                            }
                         }
                     }
-                }
+                    return lines;
+                });
                 if (tDiff.isEmpty()) {
                     continue;   // the release's commits changed nothing in this template
                 }

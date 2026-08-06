@@ -498,10 +498,15 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
  *  the card chip, not repeated here. */
 function BauEditRow({ e }: { e: BauRouteEdit }) {
   const [open, setOpen] = useState(false);
+  const [ctx, setCtx] = useState(false);   // "show context" — surrounding lines around each change
   const removed = !!e.routeRemoved;
   const payloadDiff = e.payloadDiff || [];
+  const payloadDiffContext = e.payloadDiffContext || [];
   const payloadFiles = e.payloadFiles || [];
   const diffCount = e.removedSteps.length + e.addedSteps.length + payloadDiff.length;
+  const hasContext = payloadDiffContext.length > payloadDiff.length;   // extra context/hunk lines available
+  const payloadLines = ctx && hasContext ? payloadDiffContext : payloadDiff;
+  const lineClass = (l: string) => l.startsWith('@@') ? 'dl hunk' : l.startsWith('-') ? 'dl wrap del' : l.startsWith('+') ? 'dl wrap add' : 'dl wrap ctx';
   return (
     <div>
       <span className="chg code" title={removed
@@ -519,18 +524,22 @@ function BauEditRow({ e }: { e: BauRouteEdit }) {
       )}
       {diffCount > 0 && (
         <>
-          <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-            <span className="collapse-caret">{open ? '▾' : '▸'}</span>
-            <span className="rdiff-toggle-title">Git diff</span>
-            <span className="muted">{diffCount} line{diffCount === 1 ? '' : 's'}</span>
-          </button>
+          <div className="rdiff-toggle-row">
+            <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+              <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+              <span className="rdiff-toggle-title">Git diff</span>
+              <span className="muted">{diffCount} line{diffCount === 1 ? '' : 's'}</span>
+            </button>
+            {open && hasContext && (
+              <button type="button" className={'ctx-toggle' + (ctx ? ' on' : '')} onClick={() => setCtx(!ctx)}
+                      title="Show a few unchanged lines around each change to locate it in the template">± context</button>
+            )}
+          </div>
           {open && (
             <pre className="rdiff-body">
               {e.removedSteps.map((l, i) => <div key={'r' + i} className="dl del">- {l}</div>)}
               {e.addedSteps.map((l, i) => <div key={'a' + i} className="dl add">+ {l}</div>)}
-              {payloadDiff.map((l, i) => (
-                <div key={'pd' + i} className={'dl wrap ' + (l.startsWith('-') ? 'del' : 'add')}>{l}</div>
-              ))}
+              {payloadLines.map((l, i) => <div key={'pd' + i} className={lineClass(l)}>{l}</div>)}
             </pre>
           )}
         </>

@@ -843,7 +843,8 @@ public class RouteTraceService {
             //    sends? Show the REAL file difference — the git-diff (whitespace-ignored) +/- lines of each release
             //    commit against the template's PREVIOUS file-history version — not a parsed key summary. Only the
             //    release version's commits are diffed, so an edit at another version never appears.
-            List<String> payloadDiff = new ArrayList<>();
+            List<String> payloadDiff = new ArrayList<>();          // compact: only the +/- change lines
+            List<String> payloadDiffContext = new ArrayList<>();   // same diff with surrounding context + @@ locators
             LinkedHashSet<String> payloadFiles = new LinkedHashSet<>();   // the template file(s) whose payload changed
             for (String uri : templateRefs(rm)) {
                 // Match the release-changed set by THIS template's FULL path (META-INF/templates/sg/v1/enquiry.ftl),
@@ -853,11 +854,12 @@ public class RouteTraceService {
                 if (tGit == null) {
                     continue;   // THIS exact template (not a same-named sibling) wasn't touched by the release
                 }
-                List<String> tDiff = payloadDiffByTemplate.computeIfAbsent(tGit, gp -> {
+                // Cache the WITH-CONTEXT diff per template (one git call); the compact +/- view is derived from it.
+                List<String> tFull = payloadDiffByTemplate.computeIfAbsent(tGit, gp -> {
                     List<String> lines = new ArrayList<>();
                     for (String c : rc.fileReleaseCommits().getOrDefault(gp, List.of())) {
                         String prev = prevFileRef(repo, c, gp, prevByCommit);
-                        for (String line : gitChange.diffLines(repo, prev.isEmpty() ? null : prev, c, gp)) {
+                        for (String line : gitChange.diffLines(repo, prev.isEmpty() ? null : prev, c, gp, true)) {
                             if (!lines.contains(line)) {
                                 lines.add(line);   // union the real changed lines across the release's commits
                             }
@@ -865,11 +867,15 @@ public class RouteTraceService {
                     }
                     return lines;
                 });
-                if (tDiff.isEmpty()) {
+                List<String> tCompact = tFull.stream()
+                        .filter(l -> (l.startsWith("+") || l.startsWith("-")) && !l.substring(1).trim().isEmpty())
+                        .collect(java.util.stream.Collectors.toList());
+                if (tCompact.isEmpty()) {
                     continue;   // the release's commits changed nothing in this template
                 }
                 payloadFiles.add(tGit);   // this template actually changed — name it in the report
-                payloadDiff.addAll(tDiff);
+                payloadDiff.addAll(tCompact);
+                payloadDiffContext.addAll(tFull);
             }
 
             if (addedSteps.isEmpty() && removedSteps.isEmpty() && payloadDiff.isEmpty()) {
@@ -889,7 +895,7 @@ public class RouteTraceService {
                     : (loc != null ? blameAuthors(loc) : List.of());
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                     .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, List.of(), List.of(),
-                            List.of(), changedBy, false, new ArrayList<>(payloadFiles), payloadDiff));
+                            List.of(), changedBy, false, new ArrayList<>(payloadFiles), payloadDiff, payloadDiffContext));
         }
 
         // 3) REMOVED BAU routes: a route the release DELETED is gone from the current registry, so the loop above
@@ -926,7 +932,7 @@ public class RouteTraceService {
                 flaggedRoutes.add(rid);
                 byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                         .add(new BauRouteEdit(rid, owner.path(), List.of(), before.get(rid),
-                                List.of(), List.of(), List.of(), List.of(), true, List.of(), List.of()));
+                                List.of(), List.of(), List.of(), List.of(), true, List.of(), List.of(), List.of()));
             }
         }
 

@@ -276,6 +276,15 @@ public class GitChangeService {
      * difference. {@code fromRef} null (the commit created the file) → the whole file shows as added.
      */
     public List<String> diffLines(Path repoDir, String fromRef, String toRef, String relPath) {
+        return diffLines(repoDir, fromRef, toRef, relPath, false);
+    }
+
+    /**
+     * The actual changed lines a commit made to a file. {@code withContext=false}: only the {@code +}/{@code -}
+     * lines (compact). {@code withContext=true}: a few unchanged lines around each change (git {@code -U3}) plus
+     * the {@code @@} hunk locators, so the reviewer can see WHERE in the file a change sits.
+     */
+    public List<String> diffLines(Path repoDir, String fromRef, String toRef, String relPath, boolean withContext) {
         if (repoDir == null || toRef == null || relPath == null || relPath.isBlank()) {
             return List.of();
         }
@@ -284,19 +293,28 @@ public class GitChangeService {
         // --ignore-blank-lines ignores added/removed blank lines, and --ignore-cr-at-eol ignores a CR/LF vs LF
         // difference at end of line (common on Windows — otherwise EVERY line reads as changed and the whole file
         // shows). Together, a pure reformat/reindent/line-ending change produces no change lines at all.
+        String unified = withContext ? "-U3" : "-U0";
         List<String> out = (fromRef == null || fromRef.isBlank())
-                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "--format=", toRef, "--", path)
-                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "-U0", fromRef, toRef, "--", path);
+                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", unified, "--format=", toRef, "--", path)
+                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", unified, fromRef, toRef, "--", path);
         if (out == null) {
             return List.of();
         }
         List<String> changes = new ArrayList<>();
         for (String l : out) {
-            if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("@@")) {
-                continue;   // file headers / hunk markers — not content
+            if (l.startsWith("+++") || l.startsWith("---")) {
+                continue;   // file headers — not content
+            }
+            if (l.startsWith("@@")) {
+                if (withContext) {
+                    changes.add(l);   // hunk locator (@@ -a,b +c,d @@) — shows where in the file
+                }
+                continue;
             }
             if ((l.startsWith("+") || l.startsWith("-")) && !l.substring(1).trim().isEmpty()) {
                 changes.add(l);   // keep the +/- prefix so the UI can colour add vs remove; skip blank/ws-only lines
+            } else if (withContext && l.startsWith(" ")) {
+                changes.add(l);   // a surrounding context line (unchanged) — kept only for the with-context view
             }
         }
         return changes;

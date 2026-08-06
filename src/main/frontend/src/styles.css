@@ -1023,6 +1023,16 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .rdiff-body .dl.wrap { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .rdiff-body .dl.add { background: #f0fdf4; color: #166534; }
 .rdiff-body .dl.del { background: #fef2f2; color: #991b1b; }
+/* Context (unchanged) lines and @@ hunk locators, shown when "± context" is toggled on. */
+.rdiff-body .dl.ctx { color: #94a3b8; }
+.rdiff-body .dl.hunk { color: #7c3aed; background: #f5f3ff; font-weight: 700; }
+.rdiff-toggle-row { display: flex; align-items: center; gap: 10px; }
+.ctx-toggle { font-size: 11px; font-weight: 700; color: #64748b; background: none; border: 1px solid #cbd5e1; border-radius: 999px; padding: 1px 9px; cursor: pointer; }
+.ctx-toggle.on { background: #e2e8f0; color: #334155; }
+[data-theme="dark"] .rdiff-body .dl.ctx { color: #64748b; }
+[data-theme="dark"] .rdiff-body .dl.hunk { color: #c4b5fd; background: #1a0f33; }
+[data-theme="dark"] .ctx-toggle { border-color: #334155; color: #94a3b8; }
+[data-theme="dark"] .ctx-toggle.on { background: #253044; color: #cbd5e1; }
 /* Which .ftl/.vm the payload diff came from — sits above the diff, wraps on long paths. */
 .bau-payload-file { font-size: 11px; color: #64748b; margin: 3px 0 2px; overflow-wrap: anywhere; }
 .bau-payload-file code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #334155; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; margin-left: 4px; }

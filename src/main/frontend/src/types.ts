@@ -205,6 +205,9 @@ export interface BauRouteEdit {
   /** The ACTUAL changed lines (git `diff -w` output, each keeping its `+`/`-` prefix) the release commit(s) made
    *  to the template(s) — the real file difference, not a parsed key summary. */
   payloadDiff?: string[];
+  /** The same diff WITH surrounding context lines (` ` prefix) and `@@` hunk locators — shown when the reviewer
+   *  toggles "context" on, to see where in the template a change sits. */
+  payloadDiffContext?: string[];
 }
 
 /** A scalar payload value the release changed in place for a key present on both sides — `key: before → after`. */

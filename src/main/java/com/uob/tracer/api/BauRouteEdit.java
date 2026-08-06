@@ -38,6 +38,8 @@ import java.util.List;
  *                      report can name the exact {@code .ftl/.vm} the key/value diff came from
  * @param payloadDiff   the ACTUAL changed lines (git {@code diff -w} {@code +}/{@code -} lines, prefix kept) the
  *                      release commit(s) made to the template(s) — the real file difference, not a parsed summary
+ * @param payloadDiffContext the same diff WITH a few surrounding context lines and {@code @@} hunk locators, so a
+ *                      reviewer can see where in the template a change sits (shown when "context" is toggled on)
  */
 public record BauRouteEdit(String route, List<String> path,
                            List<String> addedSteps, List<String> removedSteps,
@@ -46,5 +48,6 @@ public record BauRouteEdit(String route, List<String> path,
                            List<String> changedBy,
                            boolean routeRemoved,
                            List<String> payloadFiles,
-                           List<String> payloadDiff) {
+                           List<String> payloadDiff,
+                           List<String> payloadDiffContext) {
 }

@@ -280,11 +280,13 @@ public class GitChangeService {
             return List.of();
         }
         String path = relPath.replace('\\', '/');
-        // -w ignores whitespace inside a line; --ignore-blank-lines ignores added/removed blank lines — together a
-        // pure reindent/retab of the template produces no change lines at all.
+        // Match IntelliJ's "ignore whitespaces and empty lines": -w ignores whitespace inside a line,
+        // --ignore-blank-lines ignores added/removed blank lines, and --ignore-cr-at-eol ignores a CR/LF vs LF
+        // difference at end of line (common on Windows — otherwise EVERY line reads as changed and the whole file
+        // shows). Together, a pure reformat/reindent/line-ending change produces no change lines at all.
         List<String> out = (fromRef == null || fromRef.isBlank())
-                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--no-color", "--format=", toRef, "--", path)
-                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--no-color", "-U0", fromRef, toRef, "--", path);
+                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "--format=", toRef, "--", path)
+                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "-U0", fromRef, toRef, "--", path);
         if (out == null) {
             return List.of();
         }

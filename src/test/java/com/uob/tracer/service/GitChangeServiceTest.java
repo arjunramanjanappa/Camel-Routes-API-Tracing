@@ -248,6 +248,27 @@ class GitChangeServiceTest {
         assertThat(svc.previousFileCommit(dir, aV2, "a.ftl")).isEqualTo(aV1);
     }
 
+    @Test
+    void diffLinesIgnoresCrLfWhitespaceAndBlankLines(@TempDir Path dir) throws Exception {
+        // The reported "whole file shows as changed": a commit that rewrites the file with CRLF line endings (+ a
+        // reindent + a blank line) plus ONE real added line must show ONLY the added line — not every line.
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        git(dir, "config", "core.autocrlf", "false");   // keep CRLF in the blob so the diff actually sees it
+        Files.writeString(dir.resolve("t.ftl"), "line1\nSAME LINE\nline3\n");   // LF
+        commit(dir, "[JIRA-1][SG][19.14.0] v1");
+        String v1 = head(dir);
+        // CRLF everywhere, "SAME LINE" reindented + spaced, a blank line added, and one genuinely new line.
+        Files.writeString(dir.resolve("t.ftl"), "line1\r\n\r\n   SAME LINE   \r\nNEW LINE\r\nline3\r\n");
+        commit(dir, "[JIRA-2][SG][19.14.0] v2");
+        String v2 = head(dir);
+
+        List<String> lines = new GitChangeService().diffLines(dir, v1, v2, "t.ftl");
+        assertThat(lines).anyMatch(l -> l.startsWith("+") && l.contains("NEW LINE"));   // the real change
+        assertThat(lines).noneMatch(l -> l.contains("SAME LINE"));   // only whitespace/CRLF differ → not shown
+        assertThat(lines).noneMatch(l -> l.contains("line1"));       // only CRLF differs → not shown
+    }
+
     private static String head(Path dir) throws Exception {
         Process p = new ProcessBuilder("git", "-C", dir.toString(), "rev-parse", "HEAD").start();
         try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {

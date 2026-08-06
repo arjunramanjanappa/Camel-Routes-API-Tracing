@@ -1,5 +1,9 @@
 # TraceGuard — standalone desktop bundle
 
+> **Who this file is for:** whoever **builds and ships** the bundle (build commands, certs, packaging). The
+> person who just **runs** the `.exe`/`.bat` needs none of this — the bundle ships a **`USER-GUIDE.md`** next to
+> the launcher that covers how to *use* the app (no build steps). Point recipients at that file.
+
 Make TraceGuard a click-to-launch desktop app that needs **no admin, no install, no PATH change, and no
 pre-installed Java** on the machine that runs it. A bundle is a single folder you unzip anywhere in your
 user profile; double-clicking the launcher starts the server and opens your browser.
@@ -58,6 +62,7 @@ The rest of this document is the detailed reference for each step.
 ```
 TraceGuard-windows/
 ├── TraceGuard.bat        ← double-click this (or its desktop shortcut)
+├── USER-GUIDE.md         ← how to USE the app (for the recipient — no build steps)
 ├── app/                  ← the app, extracted (exploded) for fast class loading: <jar> + lib/
 ├── jre/                  ← a trimmed Java 21 runtime (jlink, uncompressed + CDS) — no Java needed on the target
 └── traceguard.ico        ← shortcut icon

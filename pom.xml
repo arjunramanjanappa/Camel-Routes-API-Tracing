@@ -399,6 +399,8 @@
                                         </exec>
                                         <!-- the exe icon comes from the icon arg above; also drop the .ico alongside -->
                                         <copy file="${project.basedir}/packaging/traceguard.ico" todir="${out}/TraceGuard"/>
+                                        <!-- ship the end-user guide next to the .exe (the .zip/dist bundle gets it via the launcher fileset) -->
+                                        <copy file="${project.basedir}/packaging/launcher/USER-GUIDE.md" todir="${out}/TraceGuard"/>
                                         <zip destfile="${out}/TraceGuard-windows-exe.zip">
                                             <zipfileset dir="${out}/TraceGuard" prefix="TraceGuard" filemode="755"/>
                                         </zip>

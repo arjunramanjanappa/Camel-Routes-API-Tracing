@@ -125,14 +125,12 @@ export function buildEventsSpl(
   // chosen environment(s)' lines are fetched. Empty = every source (all environments).
   const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
   const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
-  // Narrow to one client release: the version is a bracket field ([9.4]) present in both
-  // the front-end and host log lines, so ANDing it in drops other releases' noise and the
-  // same API exercised on a version that isn't part of this analysis. Skipped for BASE
-  // (empty version bracket) and for N/A ("every release in scope" — nothing to narrow on,
-  // and unversioned repos never carry a version to match).
-  const allReleases = ['BASE', 'N/A', 'NA', 'LATEST'].includes((clientVersion || '').trim().toUpperCase());
-  const v = clientVersion && clientVersion.trim() && !allReleases ? clientVersion.trim() : '';
-  const ver = v ? ` "${v}"` : '';
+  // The release version is deliberately NOT ANDed into the query. Narrowing to one release ([9.4]) would
+  // drop every OTHER version's lines — but BC / BAU testing in Release Impact needs the previous version's
+  // lines from the SAME export, and re-pulling the log per version is the friction we're avoiding. So one
+  // download carries all versions in the window; the analyser validates/scopes the version on upload.
+  // (clientVersion is kept in the signature for callers but no longer filters the search.)
+  void clientVersion;
 
   // SPL-Secure: the front end logs via two loggers (SPLAppLog request / SPLWSAppLog response)
   // and the host emits [Request]/[Response] on SPLHostMessage. Each line type is its marker
@@ -157,7 +155,7 @@ export function buildEventsSpl(
       if (feS.length) groups.push(...feGroups(feS));
       if (beS.length) groups.push(...beGroups(beS));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${slim}| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 - _time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -166,7 +164,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}${src}(${markers})${ver}\n${slim}| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${markers})\n${slim}| sort 0 - _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -201,7 +199,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${slim}| sort 0 - _time\n| table _raw`;
+  return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 - _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

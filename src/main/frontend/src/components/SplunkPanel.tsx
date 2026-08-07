@@ -99,7 +99,6 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   // reads — the user only chooses index / time / which APIs; the query resolves to the analysis format.
   const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure, sources, respKeys);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
-  const verLabel = clientVersion && clientVersion.toUpperCase() !== 'BASE' ? clientVersion : '';
 
   return (
     <div className="panel">
@@ -147,11 +146,11 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="sub" style={{ marginTop: 8 }}>
         {mode === 'all'
-          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events{verLabel ? <> on release <b>{verLabel}</b></> : null} (<code>_raw</code>) — same as a raw output log.</>
+          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events (<code>_raw</code>) — same as a raw output log.</>
           : <>Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_raw</code>) for <b>{fe.length}</b> front-end
             + <b>{be.length}</b> backend path(s). Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends
-            (by hosturl) to <code>{beMarker}</code>{verLabel ? <>, and only release <b>{verLabel}</b> lines</> : null}. Service versions are
-            validated by the analyser after upload.</>}
+            (by hosturl) to <code>{beMarker}</code>. <b>All release versions</b> in the window are kept (not narrowed to one) so the
+            same export also covers BC / BAU testing; the analyser validates the version after upload.</>}
         {sources.length > 0 ? <> From <b>{sources.length}</b> environment source(s).</> : <> From <b>all</b> environments (no source filter).</>}
         {' '}Each event&rsquo;s JSON is slimmed to the request/response header object(s) {shownKeys.map((f, i) => <span key={f}>{i > 0 ? ' / ' : ''}<code>{f}</code></span>)} (kept whole, plus <code>serviceVersionNumber</code>) — or the <b>full JSON</b> if none is present. Because the whole object is kept, <b>a Rule you add later needs no re-export</b> — just re-upload the same file. No request/response payloads beyond the header object(s) are exported.
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS, DEFAULT_RESPONSE_KEYS } from '../spl';
+import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS, DEFAULT_HEADER_KEYS } from '../spl';
 import CopyBtn from './CopyBtn';
 import SplunkDownloadLinks from './SplunkDownloadLinks';
 
@@ -65,13 +65,14 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const [customSrc, setCustomSrc] = useState(pref('splCustomSource', ''));
   const environments = environmentsFor(country);
 
-  // The response wrapper object(s) kept whole in the export — the object that holds the response code
-  // (serviceResponseHeader / responses / ResponseHeader, matched case-insensitively; if none is found the
-  // full JSON is kept). Keeping the whole object means a Rule added LATER finds its code key without any
-  // Splunk re-export — just re-upload the same file. Editable; remembered per machine.
-  const [respKeysStr, setRespKeysStr] = useState(pref('splRespKeys', DEFAULT_RESPONSE_KEYS.join(', ')));
+  // The request/response header object(s) kept whole in the export — the object that holds the response code
+  // and/or serviceVersionNumber (serviceRequestHeader on a request, serviceResponseHeader on a response, …;
+  // matched case-insensitively; if none found the full JSON is kept). Keeping the whole object means a Rule
+  // added LATER finds its code key without any Splunk re-export — just re-upload the same file. Editable;
+  // remembered per machine.
+  const [respKeysStr, setRespKeysStr] = useState(pref('splRespKeys', DEFAULT_HEADER_KEYS.join(', ')));
   const respKeys = respKeysStr.split(',').map((s) => s.trim()).filter(Boolean);
-  const shownKeys = respKeys.length ? respKeys : DEFAULT_RESPONSE_KEYS;
+  const shownKeys = respKeys.length ? respKeys : DEFAULT_HEADER_KEYS;
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
   const toggleEnv = (label: string) => setEnvLabels((prev) => {
@@ -117,8 +118,8 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="spl-config">
         <div><label>Index <span className="muted">(your Splunk index)</span></label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
-        <div><label>Response object key(s) <span className="muted">(the JSON object holding the code — comma-separated)</span></label>
-          <input value={respKeysStr} placeholder={DEFAULT_RESPONSE_KEYS.join(', ')}
+        <div><label>Request/response object key(s) <span className="muted">(the JSON object holding the code / svc version — comma-separated)</span></label>
+          <input value={respKeysStr} placeholder={DEFAULT_HEADER_KEYS.join(', ')}
                  onChange={(e) => set('splRespKeys', e.target.value, setRespKeysStr)} /></div>
       </div>
 
@@ -152,7 +153,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
             (by hosturl) to <code>{beMarker}</code>{verLabel ? <>, and only release <b>{verLabel}</b> lines</> : null}. Service versions are
             validated by the analyser after upload.</>}
         {sources.length > 0 ? <> From <b>{sources.length}</b> environment source(s).</> : <> From <b>all</b> environments (no source filter).</>}
-        {' '}Each event&rsquo;s JSON is slimmed to the response object {shownKeys.map((f, i) => <span key={f}>{i > 0 ? ' / ' : ''}<code>{f}</code></span>)} (kept whole, plus <code>serviceVersionNumber</code>) — or the <b>full JSON</b> if none is present. Because the whole object is kept, <b>a Rule you add later needs no re-export</b> — just re-upload the same file. No request/response payloads beyond the response object are exported.
+        {' '}Each event&rsquo;s JSON is slimmed to the request/response header object(s) {shownKeys.map((f, i) => <span key={f}>{i > 0 ? ' / ' : ''}<code>{f}</code></span>)} (kept whole, plus <code>serviceVersionNumber</code>) — or the <b>full JSON</b> if none is present. Because the whole object is kept, <b>a Rule you add later needs no re-export</b> — just re-upload the same file. No request/response payloads beyond the header object(s) are exported.
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

@@ -23,8 +23,10 @@ export default function LogRulesEditor() {
   const cur = useMemo<AppLogRules>(() => map[app] ?? EMPTY, [map, app]);
   const setCur = (next: AppLogRules) => { setMap((m) => ({ ...m, [app]: next })); setSaved(false); };
 
+  // NOTE: do NOT filter empties here — that strips the comma the moment you type it (join() drops the trailing
+  // empty), so you could never start a second value. Empties are trimmed on save instead.
   const setCodeFields = (csv: string) =>
-    setCur({ ...cur, codeFields: csv.split(',').map((s) => s.trim()).filter(Boolean) });
+    setCur({ ...cur, codeFields: csv.split(',').map((s) => s.trim()) });
   const setRule = (i: number, patch: Partial<LogRule>) =>
     setCur({ ...cur, rules: cur.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
   const addRule = () =>
@@ -38,8 +40,12 @@ export default function LogRulesEditor() {
       // row (half-typed) is dropped. A rule with NO match but a field/codes/skip is a GLOBAL rule (all hosts).
       const clean: LogRulesMap = {};
       for (const [k, v] of Object.entries(map)) {
-        const rules = v.rules.filter((r) => r.match.trim() || r.codeField.trim() || r.successCodes.length > 0 || r.skip);
-        if (v.codeFields.length || rules.length) clean[k] = { codeFields: v.codeFields, rules };
+        // Trim the typing-time empties now (a trailing comma leaves an ""), then keep meaningful rules.
+        const rules = v.rules
+          .map((r) => ({ ...r, successCodes: r.successCodes.filter(Boolean) }))
+          .filter((r) => r.match.trim() || r.codeField.trim() || r.successCodes.length > 0 || r.skip);
+        const codeFields = v.codeFields.filter(Boolean);
+        if (codeFields.length || rules.length) clean[k] = { codeFields, rules };
       }
       setMap(await saveLogRules(clean));
       setSaved(true);
@@ -84,7 +90,7 @@ export default function LogRulesEditor() {
               <td><input value={r.codeField} spellCheck={false} placeholder="resultCode" onChange={(e) => setRule(i, { codeField: e.target.value })} /></td>
               <td><input value={r.successCodes.join(', ')} spellCheck={false} placeholder="000000, 200"
                          disabled={r.skip}
-                         onChange={(e) => setRule(i, { successCodes: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} /></td>
+                         onChange={(e) => setRule(i, { successCodes: e.target.value.split(',').map((s) => s.trim()) })} /></td>
               <td style={{ textAlign: 'center' }}><input type="checkbox" checked={r.skip} onChange={(e) => setRule(i, { skip: e.target.checked })} /></td>
               <td><button className="linkbtn" onClick={() => removeRule(i)} title="Remove this rule">✕</button></td>
             </tr>

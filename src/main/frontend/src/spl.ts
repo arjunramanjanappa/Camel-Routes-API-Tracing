@@ -39,10 +39,11 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
   return `index=${index} ${win}(${ors})\n| stats count, latest(_time) as last_seen by ${field}\n| sort - count`;
 }
 
-/** The response wrapper object(s) that hold the response code — kept whole, so ANY code key inside them
- *  (responseCode / resultCode / …, now or a Rule added later) is present without re-exporting. Matched
+/** The request/response wrapper object(s) that hold the code and service version — kept whole, so ANY key
+ *  inside them (responseCode / resultCode / serviceVersionNumber, now or a Rule added later) is present without
+ *  re-exporting. Request lines carry serviceRequestHeader, responses carry serviceResponseHeader. Matched
  *  case-insensitively. Configurable in the Splunk panel. */
-export const DEFAULT_RESPONSE_KEYS = ['serviceResponseHeader', 'responses', 'ResponseHeader'];
+export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHeader', 'responses', 'ResponseHeader'];
 
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
 function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -64,29 +65,32 @@ function balancedObj(depth: number): string {
  * current Rules — so adding a Rule later needs no Splunk re-export (just re-upload the same file):
  *
  * <ul>
- *   <li>If the line’s JSON contains a response wrapper object named (case-insensitively) one of
- *       {@code wrapperKeys} — e.g. {@code serviceResponseHeader} — keep <b>that whole object</b> (plus
- *       {@code serviceVersionNumber}). The analyser’s recursive lookup then finds the code under whatever key a
- *       Rule names, at any depth inside it.</li>
- *   <li>If no wrapper is found (or it nests deeper than the matcher), keep the <b>full JSON</b> — the code is
- *       never lost.</li>
+ *   <li>Keeps EVERY request/response wrapper object present, named (case-insensitively) one of
+ *       {@code wrapperKeys} — {@code serviceRequestHeader} on a request line, {@code serviceResponseHeader} on a
+ *       response — as whole objects (plus {@code serviceVersionNumber}). Keeping all present means a response
+ *       line that ALSO echoes the request can’t hide the response’s {@code responseCode}. The analyser’s
+ *       recursive lookup then finds the code / version under whatever key a Rule names, at any depth.</li>
+ *   <li>If no wrapper is found (or one nests deeper than the matcher), keep the <b>full JSON</b> — never lost.</li>
  *   <li>Lines with no JSON are left untouched.</li>
  * </ul>
  *
  * The line prefix (path, correlation/trace id, client version, direction, latency) is always kept intact.
  */
-function slimToResponseObject(wrapperKeys: string[] = DEFAULT_RESPONSE_KEYS): string {
+function slimToResponseObject(wrapperKeys: string[] = DEFAULT_HEADER_KEYS): string {
   const keys = [...new Set(wrapperKeys.map((k) => k.trim()).filter(Boolean))];
-  const alt = (keys.length ? keys : DEFAULT_RESPONSE_KEYS).map(reEsc).join('|');
-  const OBJ = balancedObj(8);   // handles up to 8 nesting levels — deep enough for any response header
+  const use = keys.length ? keys : DEFAULT_HEADER_KEYS;
+  const OBJ = balancedObj(8);   // up to 8 nesting levels — deep enough for any request/response header
+  const rexes = use.map((k, i) => `| rex field=_raw max_match=1 "(?i)\\"${reEsc(k)}\\"\\s*:\\s*(?<h${i}>${OBJ})"`);
+  const emits = use.map((k, i) => `if(isnull(h${i}),"","\\"${k}\\":".h${i})`).join(',');
+  const hasAny = use.map((_, i) => `isnotnull(h${i})`).join(' OR ');
   return [
     '| rex field=_raw "^(?<pfx>[^{]*)"',
     '| eval body=if(pfx==_raw,null(),substr(_raw,len(pfx)+1))',
-    `| rex field=_raw max_match=1 "(?i)\\"(?<hn>${alt})\\"\\s*:\\s*(?<ho>${OBJ})"`,
+    ...rexes,   // one per wrapper key — capture each header object present (request and/or response)
     '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
-    '| eval kept=mvappend(if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\""),if(isnull(ho),"","\\"".hn."\\":".ho))',
+    `| eval kept=mvappend(if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\""),${emits})`,
     '| eval kept=mvfilter(kept!="")',
-    '| eval _raw=if(isnull(body),_raw,if(isnull(ho),pfx.body,pfx."{".mvjoin(kept,",")."}"))',
+    `| eval _raw=if(isnull(body),_raw,if(${hasAny},pfx."{".mvjoin(kept,",")."}",pfx.body))`,
   ].join('\n');
 }
 
@@ -113,7 +117,7 @@ export function buildEventsSpl(
   clientVersion = '',
   secure = false,
   sources: string[] = [],
-  responseKeys: string[] = DEFAULT_RESPONSE_KEYS,
+  responseKeys: string[] = DEFAULT_HEADER_KEYS,
 ): string {
   const slim = slimToResponseObject(responseKeys) + '\n';
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
@@ -162,7 +166,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}${src}(${markers})${ver}\n${slim}| sort 0 _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${markers})${ver}\n${slim}| sort 0 - _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -197,7 +201,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${slim}| sort 0 _time\n| table _raw`;
+  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${slim}| sort 0 - _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

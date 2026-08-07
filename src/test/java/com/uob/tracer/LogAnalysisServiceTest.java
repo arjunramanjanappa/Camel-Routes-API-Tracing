@@ -82,31 +82,69 @@ class LogAnalysisServiceTest {
     }
 
     @Test
-    void frontEndApiCodeReadFromACustomFieldViaRules(@TempDir Path home) throws IOException {
-        // An API whose FRONT-END response reports its outcome under a custom key (ResponseHeader.errorcode)
-        // with no responseCode. A rule declaring errorcode as the field makes the analyser (a) read it on the
-        // front-end line and (b) judge success by its successCodes. Without the rule the code is unread and the
-        // call reads as unrecognised. Uses a global (blank-match) rule so it applies to this API.
+    void backendCodeFromACustomFieldPassesWhenARuleDeclaresIt(@TempDir Path home) throws IOException {
+        // A BACKEND host whose response reports its outcome under a custom key (ResponseHeader.errorcode:"0000",
+        // no responseCode). A rule matching that hosturl, field errorcode, success 0000, must read + pass it.
         LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
         rules.saveApp("Mighty", false, new AppRules(List.of(),
-                List.of(new Rule("", "errorcode", List.of("0000"), false))));
+                List.of(new Rule("*/bfs/ft/own/submit", "errorcode", List.of("0000"), false))));
         LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
 
-        String path = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String fe = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        String corr = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
         String log =
-            "2026-06-11 18.10.00.100 [t] INFO [MightyMessage][MTY][s][u][9.4][C1][IOS][]-" + path
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][]-" + fe
                 + " -Request - {\"x\":1}\n"
-            + "2026-06-11 18.10.00.400 [t] INFO [MightyMessage][MTY][s][u][9.4][C1][IOS][300ms]-" + path
-                + " -Response - {\"ResponseHeader\":{\"errorcode\":\"0000\"}}\n";
+            + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][Android][] -"
+                + be + " - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n"
+            + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][Android][230ms] -"
+                + be + " - [Response] : {\"ResponseHeader\":{\"errorcode\":\"0000\"}}\n"
+            + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][300ms]-" + fe
+                + " -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
         LogAnalysisReport r;
         try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
-            r = svc.analyze(in, "custom-fe.log", "9.4", null, FW, null, null, true, "Mighty");
+            r = svc.analyze(in, "custom-be.log", "9.4", null, FW, null, null, true, "Mighty");
         }
         ApiLogResult v2 = api(r, V2);
-        // The front end cleared the bar: 1 call, read as 0000 under errorcode → success (not unrecognised).
-        assertThat(v2.attempts()).isEqualTo(1);
-        assertThat(v2.successCount()).isEqualTo(1);
-        assertThat(v2.failureCount()).isZero();
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);   // errorcode 0000 read + matched by the rule
+        });
+    }
+
+    @Test
+    void backendRuleFieldWinsOverAStrayResponseCodeInThePayload(@TempDir Path home) throws IOException {
+        // The host's authoritative code is under the rule's field (errorcode:0000 = success), but the payload
+        // ALSO carries a responseCode elsewhere (e.g. an echoed/nested non-zero). The matched rule's field must
+        // win — else the generic responseCode shadows it and the row wrongly fails.
+        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
+        rules.saveApp("Mighty", false, new AppRules(List.of(),
+                List.of(new Rule("*/bfs/ft/own/submit", "errorcode", List.of("0000"), false))));
+        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
+
+        String fe = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        String corr = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+        String beResp = "{\"requesterContext\":{\"responseCode\":\"99999\"},\"ResponseHeader\":{\"errorcode\":\"0000\"}}";
+        String log =
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][]-" + fe
+                + " -Request - {\"x\":1}\n"
+            + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][Android][] -"
+                + be + " - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n"
+            + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][Android][230ms] -"
+                + be + " - [Response] : " + beResp + "\n"
+            + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][300ms]-" + fe
+                + " -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = svc.analyze(in, "shadow-be.log", "9.4", null, FW, null, null, true, "Mighty");
+        }
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);   // errorcode wins over the stray responseCode
+        });
     }
 
     @Test

@@ -947,19 +947,22 @@ public class LogAnalysisService {
             // only if the JSON won't parse (e.g. a truncated line).
             JsonNode tree = tryParseJson(json);
             if (tree != null) {
-                // Read the code under any configured key — responseCode first, then rule fields (e.g.
-                // resultCode / errorcode). Applied to FRONT-END lines too, so an API whose success sits
-                // under a custom key (e.g. ResponseHeader.errorcode) is read; responseCode wins when present.
-                code = jsonFindAny(tree, markers.beCodeFields());
+                // Backend/host lines may report the code under a config-declared key (e.g. resultCode /
+                // errorcode); front-end lines always use responseCode. Rules are host/backend only.
+                code = fe ? jsonFind(tree, "responseCode") : jsonFindAny(tree, markers.beCodeFields());
                 desc = jsonFind(tree, "responseDescription");
                 svc = jsonFind(tree, "serviceVersionNumber");
             } else {
-                code = firstCodeByFields(json, markers.beCodeFields());
+                code = fe ? firstGroup(CODE, json) : firstCodeByFields(json, markers.beCodeFields());
                 desc = firstGroup(DESC, json);
                 svc = firstGroup(SVC_VERSION, json);
             }
         }
-        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc);
+        // Retain the raw payload only for BACKEND RESPONSE lines, and only when custom code-field rules exist
+        // (beCodeFields carries more than responseCode) — so a matching rule's field can win over a stray
+        // responseCode later, without paying the memory for every line when no such rules are configured.
+        String respJson = (!fe && !request && markers.beCodeFields().size() > 1) ? json : null;
+        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc, respJson);
     }
 
     /**
@@ -1015,7 +1018,7 @@ public class LogAnalysisService {
                 svc = firstGroup(SVC_VERSION, body);
             }
         }
-        return new LogLine(ts, true, request, null, corr, null, null, path, code, desc, svc);
+        return new LogLine(ts, true, request, null, corr, null, null, path, code, desc, svc, null);
     }
 
     /**
@@ -1226,12 +1229,12 @@ public class LogAnalysisService {
             String svc = req.serviceVersion() != null ? req.serviceVersion()
                     : (rp != null ? rp.serviceVersion() : null);
             calls.add(rp != null
-                    ? new BackendCall(req.path(), rp.tookMs(), rp.code(), rp.desc(), true, svc)
-                    : new BackendCall(req.path(), null, null, null, false, svc));
+                    ? new BackendCall(req.path(), rp.tookMs(), rp.code(), rp.desc(), true, svc, rp.respJson())
+                    : new BackendCall(req.path(), null, null, null, false, svc, null));
         }
         for (Deque<LogLine> leftover : respByPath.values()) {
             for (LogLine rp : leftover) {
-                calls.add(new BackendCall(rp.path(), rp.tookMs(), rp.code(), rp.desc(), true, rp.serviceVersion()));
+                calls.add(new BackendCall(rp.path(), rp.tookMs(), rp.code(), rp.desc(), true, rp.serviceVersion(), rp.respJson()));
             }
         }
 
@@ -1307,11 +1310,8 @@ public class LogAnalysisService {
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         Map<String, Integer> failCodeTally = new LinkedHashMap<>();   // raw responseCode → count (for the headline)
         java.util.EnumSet<LogStatus> failModes = java.util.EnumSet.noneOf(LogStatus.class);
-        // A rule matching this API's path (or a global blank-match rule) can redefine what counts as a
-        // front-end success — for APIs whose success code isn't the built-in all-zeros/200.
-        LogRulesService.Rule feRule = rules == null ? null : rules.ruleFor(api.api());
         for (Txn t : forVersion) {
-            LogStatus fe = feStatus(t, feRule);
+            LogStatus fe = feStatus(t);
             if (fe == LogStatus.SUCCESS) {
                 success++;
             } else {
@@ -1398,13 +1398,8 @@ public class LogAnalysisService {
                 latest.ts(), latest.correlationId(), note, rows, sortByCountDesc(failuresByCode));
     }
 
-    /**
-     * Front-end outcome for one transaction (the API's own request/response). When a rule matches this API
-     * (by its path glob, or a global blank-match rule) and declares {@code successCodes}, those decide success
-     * — so an API whose success value isn't all-zeros/200 (e.g. {@code errorcode:"0000"} under a custom key) can
-     * be configured. Otherwise the built-in all-zeros/200 test applies.
-     */
-    private LogStatus feStatus(Txn t, LogRulesService.Rule rule) {
+    /** Front-end outcome for one transaction (the API's own request/response). */
+    private LogStatus feStatus(Txn t) {
         if (t.feResp() == null) {
             return LogStatus.TIMEOUT;
         }
@@ -1412,10 +1407,7 @@ public class LogAnalysisService {
         if (code == null) {
             return LogStatus.INDETERMINATE;
         }
-        boolean ok = (rule != null && !rule.successCodes().isEmpty())
-                ? rule.successCodes().stream().anyMatch(v -> v != null && v.trim().equalsIgnoreCase(code.trim()))
-                : isSuccessCode(code);
-        return ok ? LogStatus.SUCCESS : LogStatus.FAILED;
+        return isSuccessCode(code) ? LogStatus.SUCCESS : LogStatus.FAILED;
     }
 
     private static String flowLabel(BackendCallResult b) {
@@ -1492,7 +1484,7 @@ public class LogAnalysisService {
     private List<BackendCallResult> flowRows(String tb, String ver, List<String> routeIds, List<Txn> forVersion,
                                              Collection<String> universe, Map<String, String> hosturls,
                                              boolean secure, boolean strict, LogRulesService.Rule rule) {
-        List<CallHit> hits = flowHits(tb, ver, forVersion, universe, hosturls, strict);
+        List<CallHit> hits = applyRuleCode(flowHits(tb, ver, forVersion, universe, hosturls, strict), rule);
         int n = hits.size();
         boolean skip = rule != null && rule.skip();
         int passed = 0;
@@ -1538,7 +1530,7 @@ public class LogAnalysisService {
     /** A single BAU-reuse row (latest call + its distribution), labelled BAU and never in the verdict. */
     private BackendCallResult bauRow(String tb, String ver, List<Txn> forVersion, Collection<String> universe,
                                      Map<String, String> hosturls, boolean secure, boolean strict, LogRulesService.Rule rule) {
-        List<CallHit> hits = flowHits(tb, ver, forVersion, universe, hosturls, strict);
+        List<CallHit> hits = applyRuleCode(flowHits(tb, ver, forVersion, universe, hosturls, strict), rule);
         int n = hits.size();
         if (n == 0) {
             return new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null,
@@ -1609,7 +1601,7 @@ public class LogAnalysisService {
             anyPathMatch = true;
             seen.add(t.version() == null || t.version().isBlank() ? "(no version field read)" : t.version());
             if (!versionScoped || version.trim().equals(t.version())) {
-                hits.add(new BackendHit(t, c));
+                hits.add(new BackendHit(t, applyRuleCode(c, rule)));   // rule field wins over a stray responseCode
             }
         }
 
@@ -1692,6 +1684,42 @@ public class LogAnalysisService {
             }
         }
         return existing + " / " + add;
+    }
+
+    /** The value of one JSON field in a response payload (any depth), or null. Regex fallback if JSON won't parse. */
+    private static String jsonFieldOf(String json, String field) {
+        if (json == null || field == null || field.isBlank()) {
+            return null;
+        }
+        JsonNode tree = tryParseJson(json);
+        return tree != null ? jsonFind(tree, field.trim()) : firstCodeByFields(json, List.of(field.trim()));
+    }
+
+    /**
+     * When a rule matches this backend host and names a {@code codeField}, that field is the AUTHORITATIVE code
+     * for the host and must win over the generic {@code responseCode} — which is resolved first at parse time and
+     * could otherwise be a stray/nested {@code responseCode} elsewhere in the payload. Returns a copy of the call
+     * with the rule field's value when it is present; otherwise the call is unchanged.
+     */
+    private static BackendCall applyRuleCode(BackendCall c, LogRulesService.Rule rule) {
+        if (c == null || rule == null || rule.codeField().isBlank() || c.respJson() == null) {
+            return c;
+        }
+        String v = jsonFieldOf(c.respJson(), rule.codeField());
+        return v == null ? c
+                : new BackendCall(c.path(), c.tookMs(), v, c.desc(), c.hasResponse(), c.serviceVersion(), c.respJson());
+    }
+
+    /** Re-code every hit's call from the matched rule's field (precedence over responseCode) — no-op without a rule field. */
+    private static List<CallHit> applyRuleCode(List<CallHit> hits, LogRulesService.Rule rule) {
+        if (rule == null || rule.codeField().isBlank()) {
+            return hits;
+        }
+        List<CallHit> out = new ArrayList<>(hits.size());
+        for (CallHit h : hits) {
+            out.add(new CallHit(h.ts(), applyRuleCode(h.call(), rule)));
+        }
+        return out;
     }
 
     private LogStatus beStatus(BackendCall c, boolean secure, LogRulesService.Rule rule) {
@@ -1898,11 +1926,13 @@ public class LogAnalysisService {
 
     private record LogLine(String ts, boolean fe, boolean request, String version,
                            String correlationId, String platform, Integer tookMs,
-                           String path, String code, String desc, String serviceVersion) {
+                           String path, String code, String desc, String serviceVersion, String respJson) {
     }
 
+    /** {@code respJson} = the raw backend response payload, retained (only when custom code-field rules exist)
+     *  so a matching rule's code field can be re-read with precedence over the generic responseCode. */
     private record BackendCall(String path, Integer tookMs, String code, String desc,
-                               boolean hasResponse, String serviceVersion) {
+                               boolean hasResponse, String serviceVersion, String respJson) {
     }
 
     private record BackendHit(Txn txn, BackendCall call) {

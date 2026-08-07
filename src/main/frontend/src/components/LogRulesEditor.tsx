@@ -59,10 +59,10 @@ export default function LogRulesEditor() {
   return (
     <div className="cfg-field">
       <div className="sub" style={{ marginTop: 0 }}>
-        <b>Match</b> — backend hosturl or API-path glob (empty = all). <b>Field name</b> — JSON key holding the
-        code (e.g. <code>resultCode</code>, <code>errorcode</code>). <b>Success codes</b> — comma-separated, any
-        one passes. <b>Skip</b> — exclude from the verdict (hosts only). Save, then <b>↻ Re-run with current
-        rules</b> on Release Test.
+        <b>Match</b> — backend hosturl glob (empty = all hosts). <b>Field name</b> — JSON key holding the code
+        (e.g. <code>resultCode</code>, <code>errorcode</code>). <b>Success codes</b> — comma-separated, any one
+        passes. <b>Skip</b> — exclude from the verdict. Save, then <b>↻ Re-run with current rules</b> on
+        Release Test.
       </div>
 
       <div className="seg" style={{ marginTop: 6 }}>

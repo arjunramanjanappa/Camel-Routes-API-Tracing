@@ -34,10 +34,11 @@ export default function LogRulesEditor() {
   const save = async () => {
     setBusy(true); setError(null); setSaved(false);
     try {
-      // Drop empty-match rules so a half-typed row isn't persisted.
+      // Keep a rule if it says anything — a host match, a field name, success codes, or skip. A fully-blank
+      // row (half-typed) is dropped. A rule with NO match but a field/codes/skip is a GLOBAL rule (all hosts).
       const clean: LogRulesMap = {};
       for (const [k, v] of Object.entries(map)) {
-        const rules = v.rules.filter((r) => r.match.trim());
+        const rules = v.rules.filter((r) => r.match.trim() || r.codeField.trim() || r.successCodes.length > 0 || r.skip);
         if (v.codeFields.length || rules.length) clean[k] = { codeFields: v.codeFields, rules };
       }
       setMap(await saveLogRules(clean));
@@ -53,10 +54,11 @@ export default function LogRulesEditor() {
     <div className="cfg-field">
       <div className="sub" style={{ marginTop: 0 }}>
         For a matching backend <b>hosturl</b> (the path in a <code>[…HostMessage]</code> line — <b>not</b> the
-        front-end API path), read the code from a different key (e.g. <code>resultCode</code>), treat a custom
-        value as success, or <b>skip</b> it from the verdict (shown as <b>Skipped</b>). Front-end (controller)
-        lines are unaffected. After saving, use <b>↻ Re-run with current rules</b> on the Release Test tab —
-        no need to re-attach the log.
+        front-end API path), read the code from a different key (e.g. <code>resultCode</code>), treat custom
+        value(s) as success (comma-separated — any one matches), or <b>skip</b> it from the verdict (shown as
+        <b>Skipped</b>). Leave <b>Match empty</b> for a <b>global</b> rule — it applies to every host that no
+        specific rule matched (a specific host glob always wins). Front-end (controller) lines are unaffected.
+        After saving, use <b>↻ Re-run with current rules</b> on the Release Test tab — no need to re-attach the log.
       </div>
 
       <div className="seg" style={{ marginTop: 6 }}>
@@ -65,20 +67,20 @@ export default function LogRulesEditor() {
         ))}
       </div>
 
-      <label style={{ marginTop: 8 }}>Fallback code keys <span className="muted">(comma-separated; responseCode is always tried)</span></label>
+      <label style={{ marginTop: 8 }}>Fallback field name(s) <span className="muted">(comma-separated; responseCode is always tried)</span></label>
       <input type="text" spellCheck={false} placeholder="resultCode, statusCode"
              value={cur.codeFields.join(', ')} onChange={(e) => setCodeFields(e.target.value)} />
 
-      <label style={{ marginTop: 8 }}>Rules <span className="muted">(Match = the backend hosturl glob — <code>*</code> matches every host line, or e.g. <code>*/limit/*</code>)</span></label>
+      <label style={{ marginTop: 8 }}>Rules <span className="muted">(Match = the backend hosturl glob — <code>*</code> or empty = every host; or e.g. <code>*/limit/*</code>)</span></label>
       <table className="logrules-tbl">
         <thead>
-          <tr><th>Match (hosturl glob)</th><th>Code field</th><th>Success codes</th><th>Skip</th><th /></tr>
+          <tr><th>Match (hosturl glob · empty = global)</th><th>Field name</th><th>Success codes</th><th>Skip</th><th /></tr>
         </thead>
         <tbody>
           {cur.rules.length === 0 && <tr><td colSpan={5} className="muted">No rules — add one below.</td></tr>}
           {cur.rules.map((r, i) => (
             <tr key={i}>
-              <td><input value={r.match} spellCheck={false} placeholder="*/host/xyz" onChange={(e) => setRule(i, { match: e.target.value })} /></td>
+              <td><input value={r.match} spellCheck={false} placeholder="*/host/xyz  (empty = all hosts)" onChange={(e) => setRule(i, { match: e.target.value })} /></td>
               <td><input value={r.codeField} spellCheck={false} placeholder="resultCode" onChange={(e) => setRule(i, { codeField: e.target.value })} /></td>
               <td><input value={r.successCodes.join(', ')} spellCheck={false} placeholder="000000, 200"
                          disabled={r.skip}

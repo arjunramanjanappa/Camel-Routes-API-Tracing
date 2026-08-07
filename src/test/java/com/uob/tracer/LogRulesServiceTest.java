@@ -70,6 +70,26 @@ class LogRulesServiceTest {
     }
 
     @Test
+    void aBlankMatchRuleIsAGlobalFallbackAndSpecificWins() {
+        // A rule with an empty Match is a GLOBAL rule: it applies to any host no specific rule matched
+        // (e.g. "resultCode 200 = success everywhere"). A specific host glob still wins.
+        AppRules rules = new AppRules(List.of(), List.of(
+                new Rule("*/host/xyz", "resultCode", List.of("000000"), false),   // specific
+                new Rule("", "resultCode", List.of("200"), false)));              // global (blank match)
+
+        Rule specific = rules.ruleFor("/bfs/host/xyz");
+        assertNotNull(specific);
+        assertEquals(List.of("000000"), specific.successCodes());   // specific wins
+
+        Rule global = rules.ruleFor("/some/other/path");
+        assertNotNull(global);                                      // falls back to the global rule
+        assertEquals("resultCode", global.codeField());
+        assertEquals(List.of("200"), global.successCodes());
+
+        assertTrue(rules.effectiveCodeFields().contains("resultCode"));   // its field is read at parse time
+    }
+
+    @Test
     void globMatchIsCaseInsensitiveWholeString() {
         assertTrue(LogRulesService.globMatches("*/host/xyz", "/BFS/HOST/XYZ"));
         assertTrue(LogRulesService.globMatches("/host/limit/?", "/host/limit/1"));

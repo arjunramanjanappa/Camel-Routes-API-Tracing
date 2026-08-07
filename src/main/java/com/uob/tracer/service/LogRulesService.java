@@ -88,12 +88,19 @@ public class LogRulesService {
             if (path == null || path.isBlank()) {
                 return null;
             }
+            // A specific host glob wins; a rule with a BLANK match is a GLOBAL fallback applied to any host that
+            // no specific rule matched (e.g. "resultCode 200 = success for every backend"). First blank rule wins.
+            Rule global = null;
             for (Rule r : rules) {
-                if (!r.match().isBlank() && globMatches(r.match(), path)) {
+                if (r.match().isBlank()) {
+                    if (global == null) {
+                        global = r;
+                    }
+                } else if (globMatches(r.match(), path)) {
                     return r;
                 }
             }
-            return null;
+            return global;
         }
     }
 

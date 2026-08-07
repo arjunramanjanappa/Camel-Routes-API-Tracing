@@ -15,6 +15,9 @@ import java.util.List;
  * @param apis          per-API (front-end / MightyMessage) correlation results
  * @param backends      per-backend (MightyHostMessage) results, when backends were analysed
  * @param warnings      non-fatal notes (e.g. detection fell back, fields missing)
+ * @param logStart      earliest raw timestamp seen in the analysed log (null when none parseable)
+ * @param logEnd        latest raw timestamp seen in the analysed log (null when none parseable)
+ * @param logSpanSeconds seconds between logStart and logEnd — the window the log actually covers; -1 if unknown
  */
 public record LogAnalysisReport(
         String uploadType,
@@ -26,5 +29,8 @@ public record LogAnalysisReport(
         int unparsedLines,
         List<ApiLogResult> apis,
         List<BackendLogResult> backends,
-        List<String> warnings) {
+        List<String> warnings,
+        String logStart,
+        String logEnd,
+        long logSpanSeconds) {
 }

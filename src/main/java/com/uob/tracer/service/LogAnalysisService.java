@@ -130,6 +130,10 @@ public class LogAnalysisService {
     private static final Pattern CODE = Pattern.compile("[\"']?responseCode[\"']?\\s*:\\s*[\"']?([0-9A-Za-z]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern DESC = Pattern.compile("[\"']?responseDescription[\"']?\\s*:\\s*[\"']?([^\"',}]*)", Pattern.CASE_INSENSITIVE);
     private static final Pattern SVC_VERSION = Pattern.compile("[\"']?serviceVersionNumber[\"']?\\s*:\\s*[\"']?([0-9][0-9.]*)", Pattern.CASE_INSENSITIVE);
+    // A log timestamp: yyyy-MM-dd{space|T}HH{:|.}mm{:|.}ss with optional {:|.}millis — same shape the
+    // LINE / SECURE_FE patterns capture as group 1. Used to compute the span of the analysed log.
+    private static final Pattern TS_PARTS = Pattern.compile(
+            "(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2})[.:](\\d{2})[.:](\\d{2})(?:[.:](\\d{1,3}))?");
 
     // --- SPL-Secure (intercepted-UFW) front-end shapes; auto-detected, never used for Mighty/SPL ---
     // Request:  <ts> <corrId>|<spanId>| [thread] [LEVEL] [SPLAppLog]   - <path> - Request  - {json}
@@ -214,7 +218,49 @@ public class LogAnalysisService {
     /** A log parsed into correlation-id transactions — independent of any module's scope, so it is
      *  reusable across every module that shares the same marker flavour. */
     private record Parsed(List<Txn> txns, String detected, int recordsScanned, int matchedLines,
-                          int unparsed, List<String> warnings) {}
+                          int unparsed, List<String> warnings, TimeRange range) {}
+
+    /** The wall-clock span of the analysed marker lines: earliest/latest raw timestamp + seconds between
+     *  (seconds = -1 when it can't be determined — no parseable timestamps). */
+    private record TimeRange(String start, String end, long seconds) {
+        static final TimeRange NONE = new TimeRange(null, null, -1);
+    }
+
+    /** Parse a log timestamp ({@code yyyy-MM-dd{ |T}HH{:|.}mm{:|.}ss[{:|.}SSS]}) to a LocalDateTime, or null. */
+    private static java.time.LocalDateTime parseTs(String ts) {
+        if (ts == null) {
+            return null;
+        }
+        Matcher m = TS_PARTS.matcher(ts);
+        if (!m.find()) {
+            return null;
+        }
+        try {
+            int ms = m.group(7) == null ? 0 : Integer.parseInt(m.group(7));
+            return java.time.LocalDateTime.of(
+                    Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)),
+                    Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)), Integer.parseInt(m.group(6)),
+                    ms * 1_000_000);
+        } catch (RuntimeException e) {
+            return null;   // out-of-range component (e.g. a malformed line) → treat as no timestamp
+        }
+    }
+
+    /** The earliest→latest timestamp span across the parsed lines, keeping the original raw strings. */
+    private static TimeRange rangeOf(List<LogLine> lines) {
+        java.time.LocalDateTime lo = null, hi = null;
+        String loTs = null, hiTs = null;
+        for (LogLine l : lines) {
+            java.time.LocalDateTime t = parseTs(l.ts());
+            if (t == null) {
+                continue;
+            }
+            if (lo == null || t.isBefore(lo)) { lo = t; loTs = l.ts(); }
+            if (hi == null || t.isAfter(hi)) { hi = t; hiTs = l.ts(); }
+        }
+        long secs = (lo != null && hi != null) ? java.time.Duration.between(lo, hi).getSeconds() : -1;
+        return new TimeRange(loTs, hiTs, secs);
+    }
 
     /**
      * Parse the upload (raw log / Splunk CSV / Splunk JSON) into transactions for one marker flavour.
@@ -297,7 +343,7 @@ public class LogAnalysisService {
                     + "). Check the file is the raw output log or a Splunk export of the query.");
         }
 
-        return new Parsed(toTxns(lines), detected, counters[0], lines.size(), counters[1], warnings);
+        return new Parsed(toTxns(lines), detected, counters[0], lines.size(), counters[1], warnings, rangeOf(lines));
     }
 
     /** Group parsed lines into correlation-id transactions (FE + BE share the id). */
@@ -396,7 +442,7 @@ public class LogAnalysisService {
                 w.add("No log events found for this application (detected " + detected
                         + "). Check the file is the raw output log or a Splunk export of the query.");
             }
-            out.put(k, new Parsed(toTxns(lines), detected, c[0], lines.size(), c[1], w));
+            out.put(k, new Parsed(toTxns(lines), detected, c[0], lines.size(), c[1], w, rangeOf(lines)));
         }
         return out;
     }
@@ -488,7 +534,8 @@ public class LogAnalysisService {
 
         return new LogAnalysisReport(parsed.detected(), version, idx.getCountry(),
                 parsed.recordsScanned(), parsed.matchedLines(), txns.size(), parsed.unparsed(),
-                apiResults, backendResults, new ArrayList<>(parsed.warnings()));
+                apiResults, backendResults, new ArrayList<>(parsed.warnings()),
+                parsed.range().start(), parsed.range().end(), parsed.range().seconds());
     }
 
     /** One module for a multi-module scan: its source coordinates + marker app. */

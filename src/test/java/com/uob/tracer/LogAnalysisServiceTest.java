@@ -163,6 +163,22 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void reportsTheLogTimeSpanFromEarliestToLatestTimestamp() throws IOException {
+        // The report carries the window the log actually covers: the earliest and latest raw timestamps
+        // (order-independent — not assuming the export was sorted) and the seconds between them.
+        String path = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String log =
+            "2026-06-11 18.13.00.400 [t] INFO [MightyMessage][MTY][s][u][9.4][A1][IOS][300ms]-" + path
+                + " -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+            + "2026-06-11 18.10.00.100 [t] INFO [MightyMessage][MTY][s][u][9.4][A1][IOS][]-" + path
+                + " -Request - {\"x\":1}\n";   // deliberately latest-first: min/max must not depend on order
+        LogAnalysisReport r = analyzeText(log, "9.4");
+        assertThat(r.logStart()).isEqualTo("2026-06-11 18.10.00.100");
+        assertThat(r.logEnd()).isEqualTo("2026-06-11 18.13.00.400");
+        assertThat(r.logSpanSeconds()).isEqualTo(180);   // 3 minutes
+    }
+
+    @Test
     void versionAndContextPathFoundByPatternNotPosition() throws IOException {
         // Real-world shape: a /mty-banking-01/ context prefix and extra bracket
         // fields push the version off its "expected" slot (here it sits at index 5,

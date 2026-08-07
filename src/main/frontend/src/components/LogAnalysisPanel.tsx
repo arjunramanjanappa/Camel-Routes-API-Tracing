@@ -285,6 +285,51 @@ function kb(n: number): string {
   return mb >= 1 ? mb.toFixed(mb >= 10 ? 0 : 1) + ' MB' : (n / 1024).toFixed(0) + ' KB';
 }
 
+/** Trim a raw log timestamp to the second (drop the fractional part) for a compact display. */
+function shortTs(ts?: string | null): string {
+  return (ts || '').replace(/[.:]\d{1,3}$/, '').trim();
+}
+
+/** A coarse human duration from seconds: "3h 12m" / "45m 8s" / "12s". Empty when unknown (< 0). */
+function fmtSpan(seconds?: number): string {
+  if (seconds == null || seconds < 0) return '';
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+/** The log window from a report: "start → end (span)", or '' when no timestamps were parseable. */
+function logRange(r: { logStart?: string | null; logEnd?: string | null; logSpanSeconds?: number } | null | undefined): string {
+  if (!r) return '';
+  const a = shortTs(r.logStart), b = shortTs(r.logEnd);
+  if (!a && !b) return '';
+  if (a === b || !b) return a;
+  const span = fmtSpan(r.logSpanSeconds);
+  return `${a} → ${b}${span ? ` (${span})` : ''}`;
+}
+
+/** Parse a raw log timestamp to epoch millis (UTC, for comparison only), or null. Mirrors the backend. */
+function tsToMs(ts?: string | null): number | null {
+  const m = (ts || '').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2})[.:](\d{2})[.:](\d{2})(?:[.:](\d{1,3}))?/);
+  if (!m) return null;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], m[7] ? +m[7] : 0);
+}
+
+/** The overall window across N module reports (one upload → many modules): earliest start, latest end.
+ *  This is the "logs range" the user wants when several files/modules feed one analysis. */
+function overallRange(reports: (LogAnalysisReport | null | undefined)[]): { logStart: string | null; logEnd: string | null; logSpanSeconds: number } {
+  let lo: number | null = null, hi: number | null = null, loS: string | null = null, hiS: string | null = null;
+  for (const r of reports) {
+    if (!r) continue;
+    const a = tsToMs(r.logStart), b = tsToMs(r.logEnd);
+    if (a != null && (lo == null || a < lo)) { lo = a; loS = r.logStart ?? null; }
+    if (b != null && (hi == null || b > hi)) { hi = b; hiS = r.logEnd ?? null; }
+  }
+  return { logStart: loS, logEnd: hiS, logSpanSeconds: lo != null && hi != null ? Math.round((hi - lo) / 1000) : -1 };
+}
+
 // Keep in step with spring.servlet.multipart in application.yml.
 const SIZE_CAVEAT = 'Up to 1 GB per file and 6 GB per upload. Larger logs — split into chunks and add them all.';
 
@@ -676,6 +721,14 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
           <div className="kv">
             <b>{report.transactions}</b> transactions · <b>{report.matchedLines}</b> matched / {report.linesScanned} lines
             {report.unparsedLines > 0 ? ` · ${report.unparsedLines} unparsed` : ''} · {report.uploadType}
+            {(() => {
+              // The window the log actually covers — from the active module, or the overall span across all
+              // modules when one upload fed several. Tells you how much time the analysed logs represent.
+              const rng = logRange(multi ? overallRange(perModule.map((p) => p.report)) : report);
+              return rng
+                ? <> · <span title="Time span of the analysed log lines — earliest → latest timestamp (across all modules when several were analysed).">🕑 {rng}</span></>
+                : null;
+            })()}
           </div>
 
           {(() => {

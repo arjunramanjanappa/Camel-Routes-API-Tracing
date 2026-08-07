@@ -155,7 +155,7 @@ export function buildEventsSpl(
       if (feS.length) groups.push(...feGroups(feS));
       if (beS.length) groups.push(...beGroups(beS));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -164,7 +164,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}${src}(${markers})\n${slim}| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${markers})\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -199,7 +199,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 - _time\n| table _raw`;
+  return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

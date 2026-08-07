@@ -365,4 +365,9 @@ export interface LogAnalysisReport {
   apis: ApiLogResult[];
   backends: BackendLogResult[];
   warnings: string[];
+  /** Earliest / latest raw timestamp seen in the analysed log (null when none were parseable). */
+  logStart?: string | null;
+  logEnd?: string | null;
+  /** Seconds between logStart and logEnd (the analysed window); -1 when unknown. */
+  logSpanSeconds?: number;
 }

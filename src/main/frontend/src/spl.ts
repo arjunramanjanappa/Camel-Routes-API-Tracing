@@ -40,41 +40,40 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
 }
 
 /** The response wrapper object(s) that hold the response code — kept whole, so ANY code key inside them
- *  (responseCode / resultCode / …, now or a Rule added later) is present without re-exporting. Matched
- *  case-insensitively. Configurable in the Splunk panel. */
+ *  (responseCode / resultCode / …, now or a Rule added later) is present without re-exporting. Extracted with
+ *  {@code spath} (structured — no regex). Configurable in the Splunk panel. */
 export const DEFAULT_RESPONSE_KEYS = ['serviceResponseHeader', 'responses', 'ResponseHeader'];
-
-/** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
-function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /**
  * Slims each event's trailing JSON so the export stays small and audit-safe, WITHOUT tying it to the
  * current Rules — so adding a Rule later needs no Splunk re-export (just re-upload the same file):
  *
  * <ul>
- *   <li>If the line’s JSON contains a response wrapper object named (case-insensitively) one of
- *       {@code wrapperKeys} — e.g. {@code serviceResponseHeader}, {@code responses}, {@code ResponseHeader}
- *       — keep <b>that whole object</b> (plus {@code serviceVersionNumber} for the svc check). The analyser’s
- *       recursive lookup then finds the code under whatever key a Rule names, at any depth inside it.</li>
+ *   <li>Uses {@code spath} (structured JSON extraction — no regex, so no PCRE depth limit) to pull the
+ *       response wrapper object named by one of {@code wrapperKeys} — e.g. {@code serviceResponseHeader} —
+ *       and keeps <b>that whole object</b> (plus {@code serviceVersionNumber}). The analyser’s recursive lookup
+ *       then finds the code under whatever key a Rule names, at any depth inside it.</li>
  *   <li>If no wrapper is found, keep the <b>full JSON</b> — so the code is never lost on an unexpected shape.</li>
  *   <li>Lines with no JSON are left untouched.</li>
  * </ul>
  *
  * The line prefix (path, correlation/trace id, client version, direction, latency) is always kept intact.
+ * Note: {@code spath} paths are case-sensitive — configure the exact wrapper key name(s) your logs use.
  */
 function slimToResponseObject(wrapperKeys: string[] = DEFAULT_RESPONSE_KEYS): string {
   const keys = [...new Set(wrapperKeys.map((k) => k.trim()).filter(Boolean))];
-  const alt = (keys.length ? keys : DEFAULT_RESPONSE_KEYS).map(reEsc).join('|');
-  // A balanced { … } object allowing up to ~3 levels of nesting (deeper → capture fails → full-JSON fallback).
-  const OBJ = '\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*\\}';
+  const use = keys.length ? keys : DEFAULT_RESPONSE_KEYS;
+  const spaths = use.map((k, i) => `| spath input=_raw output=w${i} path=${k}`);
+  const emit = use.map((k, i) => `if(isnotnull(w${i}),"\\"${k}\\":".w${i},null())`).join(',');
   return [
     '| rex field=_raw "^(?<pfx>[^{]*)"',
     '| eval body=if(pfx==_raw,null(),substr(_raw,len(pfx)+1))',
-    `| rex field=_raw max_match=1 "(?i)\\"(?<hn>${alt})\\"\\s*:\\s*(?<ho>${OBJ})"`,
+    ...spaths,   // spath extracts each wrapper object (JSON) into w0/w1/… — only the named path, no field explosion
     '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
-    '| eval kept=mvappend(if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\""),if(isnull(ho),"","\\"".hn."\\":".ho))',
-    '| eval kept=mvfilter(kept!="")',
-    '| eval _raw=if(isnull(body),_raw,if(isnull(ho),pfx.body,pfx."{".mvjoin(kept,",")."}"))',
+    `| eval hdr=coalesce(${emit})`,   // the first wrapper present (as "<key>":{…}); null if none
+    '| eval svcpart=if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\"")',
+    '| eval inner=if(isnull(hdr),null(),if(svcpart=="",hdr,svcpart.",".hdr))',
+    '| eval _raw=if(isnull(body),_raw,if(isnull(inner),pfx.body,pfx."{".inner."}"))',
   ].join('\n');
 }
 

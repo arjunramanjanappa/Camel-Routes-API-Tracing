@@ -117,7 +117,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="spl-config">
         <div><label>Index <span className="muted">(your Splunk index)</span></label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
-        <div><label>Response object key(s) <span className="muted">(the JSON object holding the code — comma-separated)</span></label>
+        <div><label>Response object key(s) <span className="muted">(the JSON object holding the code — comma-separated, case-sensitive)</span></label>
           <input value={respKeysStr} placeholder={DEFAULT_RESPONSE_KEYS.join(', ')}
                  onChange={(e) => set('splRespKeys', e.target.value, setRespKeysStr)} /></div>
       </div>

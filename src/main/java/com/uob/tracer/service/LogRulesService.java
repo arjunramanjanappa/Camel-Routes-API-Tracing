@@ -31,7 +31,10 @@ import java.util.regex.Pattern;
  *   <li>what counts as success ({@code successCodes}, else the built-in all-zeros/200 rule), and</li>
  *   <li>whether to {@code skip} the backend entirely (→ {@code SKIPPED}, neither pass nor fail).</li>
  * </ul>
- * Front-end (controller) lines are unaffected — these rules are host/backend only.
+ * A rule's {@code codeField} + {@code successCodes} also apply to a matching <b>front-end API</b> (matched by
+ * the API path, or a global blank-match rule) — so an API whose success sits under a custom key (e.g.
+ * {@code ResponseHeader.errorcode}) or uses a non-standard success value can be configured too. {@code skip}
+ * remains host/backend only.
  *
  * <p>Shape: {@code { "Mighty": { "codeFields": [...], "rules": [ {match, codeField, successCodes, skip}, ... ] } } }.
  */

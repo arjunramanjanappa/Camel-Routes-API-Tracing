@@ -82,6 +82,34 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void frontEndApiCodeReadFromACustomFieldViaRules(@TempDir Path home) throws IOException {
+        // An API whose FRONT-END response reports its outcome under a custom key (ResponseHeader.errorcode)
+        // with no responseCode. A rule declaring errorcode as the field makes the analyser (a) read it on the
+        // front-end line and (b) judge success by its successCodes. Without the rule the code is unread and the
+        // call reads as unrecognised. Uses a global (blank-match) rule so it applies to this API.
+        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
+        rules.saveApp("Mighty", false, new AppRules(List.of(),
+                List.of(new Rule("", "errorcode", List.of("0000"), false))));
+        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
+
+        String path = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String log =
+            "2026-06-11 18.10.00.100 [t] INFO [MightyMessage][MTY][s][u][9.4][C1][IOS][]-" + path
+                + " -Request - {\"x\":1}\n"
+            + "2026-06-11 18.10.00.400 [t] INFO [MightyMessage][MTY][s][u][9.4][C1][IOS][300ms]-" + path
+                + " -Response - {\"ResponseHeader\":{\"errorcode\":\"0000\"}}\n";
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = svc.analyze(in, "custom-fe.log", "9.4", null, FW, null, null, true, "Mighty");
+        }
+        ApiLogResult v2 = api(r, V2);
+        // The front end cleared the bar: 1 call, read as 0000 under errorcode → success (not unrecognised).
+        assertThat(v2.attempts()).isEqualTo(1);
+        assertThat(v2.successCount()).isEqualTo(1);
+        assertThat(v2.failureCount()).isZero();
+    }
+
+    @Test
     void analyzeModulesParsesTheUploadOnceAcrossFlavours() throws IOException {
         // Two modules of DIFFERENT flavours (Mighty + SPL) go through analyzeModules, which parses the upload
         // ONCE and buckets records per flavour in a single read. The Mighty module must get exactly the same

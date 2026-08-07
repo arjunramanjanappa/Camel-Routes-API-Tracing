@@ -947,13 +947,14 @@ public class LogAnalysisService {
             // only if the JSON won't parse (e.g. a truncated line).
             JsonNode tree = tryParseJson(json);
             if (tree != null) {
-                // Backend/host lines may report the code under a config-declared key (e.g. resultCode);
-                // front-end lines always use responseCode.
-                code = fe ? jsonFind(tree, "responseCode") : jsonFindAny(tree, markers.beCodeFields());
+                // Read the code under any configured key — responseCode first, then rule fields (e.g.
+                // resultCode / errorcode). Applied to FRONT-END lines too, so an API whose success sits
+                // under a custom key (e.g. ResponseHeader.errorcode) is read; responseCode wins when present.
+                code = jsonFindAny(tree, markers.beCodeFields());
                 desc = jsonFind(tree, "responseDescription");
                 svc = jsonFind(tree, "serviceVersionNumber");
             } else {
-                code = fe ? firstGroup(CODE, json) : firstCodeByFields(json, markers.beCodeFields());
+                code = firstCodeByFields(json, markers.beCodeFields());
                 desc = firstGroup(DESC, json);
                 svc = firstGroup(SVC_VERSION, json);
             }
@@ -1306,8 +1307,11 @@ public class LogAnalysisService {
         Map<String, Integer> failuresByCode = new LinkedHashMap<>();
         Map<String, Integer> failCodeTally = new LinkedHashMap<>();   // raw responseCode → count (for the headline)
         java.util.EnumSet<LogStatus> failModes = java.util.EnumSet.noneOf(LogStatus.class);
+        // A rule matching this API's path (or a global blank-match rule) can redefine what counts as a
+        // front-end success — for APIs whose success code isn't the built-in all-zeros/200.
+        LogRulesService.Rule feRule = rules == null ? null : rules.ruleFor(api.api());
         for (Txn t : forVersion) {
-            LogStatus fe = feStatus(t);
+            LogStatus fe = feStatus(t, feRule);
             if (fe == LogStatus.SUCCESS) {
                 success++;
             } else {
@@ -1394,8 +1398,13 @@ public class LogAnalysisService {
                 latest.ts(), latest.correlationId(), note, rows, sortByCountDesc(failuresByCode));
     }
 
-    /** Front-end outcome for one transaction (the API's own request/response). */
-    private LogStatus feStatus(Txn t) {
+    /**
+     * Front-end outcome for one transaction (the API's own request/response). When a rule matches this API
+     * (by its path glob, or a global blank-match rule) and declares {@code successCodes}, those decide success
+     * — so an API whose success value isn't all-zeros/200 (e.g. {@code errorcode:"0000"} under a custom key) can
+     * be configured. Otherwise the built-in all-zeros/200 test applies.
+     */
+    private LogStatus feStatus(Txn t, LogRulesService.Rule rule) {
         if (t.feResp() == null) {
             return LogStatus.TIMEOUT;
         }
@@ -1403,7 +1412,10 @@ public class LogAnalysisService {
         if (code == null) {
             return LogStatus.INDETERMINATE;
         }
-        return isSuccessCode(code) ? LogStatus.SUCCESS : LogStatus.FAILED;
+        boolean ok = (rule != null && !rule.successCodes().isEmpty())
+                ? rule.successCodes().stream().anyMatch(v -> v != null && v.trim().equalsIgnoreCase(code.trim()))
+                : isSuccessCode(code);
+        return ok ? LogStatus.SUCCESS : LogStatus.FAILED;
     }
 
     private static String flowLabel(BackendCallResult b) {

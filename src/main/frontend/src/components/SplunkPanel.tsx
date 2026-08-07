@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
-import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS } from '../spl';
-import { fetchLogRules, type LogRulesMap } from '../api';
+import { useState } from 'react';
+import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS, DEFAULT_RESPONSE_KEYS } from '../spl';
 import CopyBtn from './CopyBtn';
 import SplunkDownloadLinks from './SplunkDownloadLinks';
 
@@ -66,19 +65,13 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const [customSrc, setCustomSrc] = useState(pref('splCustomSource', ''));
   const environments = environmentsFor(country);
 
-  // Custom host response-code fields configured under Rules (e.g. resultCode): a host whose response
-  // uses one of these instead of responseCode needs it preserved in the export, or the slimming would
-  // drop it and the analyser would see an empty {}. Fetched fresh so a rule saved just now is reflected.
-  const [rules, setRules] = useState<LogRulesMap>({});
-  useEffect(() => { fetchLogRules().then(setRules).catch(() => setRules({})); }, []);
-  // The rules key mirrors the backend appKey: "<app>-Secure" for the secure flavour, else the app name.
-  const rulesKey = secure ? `${application}-Secure` : application;
-  const appRules = rules[rulesKey];
-  // App-wide fallback code keys + every NON-skip rule's own code field. Skipped backends are out of the
-  // verdict, so their field is deliberately not exported.
-  const extraCodeFields = appRules
-    ? [...appRules.codeFields, ...appRules.rules.filter((r) => !r.skip && r.codeField.trim()).map((r) => r.codeField)]
-    : [];
+  // The response wrapper object(s) kept whole in the export — the object that holds the response code
+  // (serviceResponseHeader / responses / ResponseHeader, matched case-insensitively; if none is found the
+  // full JSON is kept). Keeping the whole object means a Rule added LATER finds its code key without any
+  // Splunk re-export — just re-upload the same file. Editable; remembered per machine.
+  const [respKeysStr, setRespKeysStr] = useState(pref('splRespKeys', DEFAULT_RESPONSE_KEYS.join(', ')));
+  const respKeys = respKeysStr.split(',').map((s) => s.trim()).filter(Boolean);
+  const shownKeys = respKeys.length ? respKeys : DEFAULT_RESPONSE_KEYS;
 
   const set = (k: string, v: string, fn: (s: string) => void) => { fn(v); localStorage.setItem('tracer.' + k, v); };
   const toggleEnv = (label: string) => setEnvLabels((prev) => {
@@ -103,10 +96,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   // For secure, feMarker/beMarker are display-only — buildEventsSpl uses the fixed secure loggers.
   // Always search the raw event (empty FE/BE field names) so the export is the _raw format the analyser
   // reads — the user only chooses index / time / which APIs; the query resolves to the analysis format.
-  const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure, sources, extraCodeFields);
-  // De-duplicated custom fields actually added to the query (for the hint), excluding the standard three.
-  const shownExtra = [...new Set(extraCodeFields.map((f) => f.trim()).filter(Boolean))]
-    .filter((f) => !['responseCode', 'responseDescription', 'serviceVersionNumber'].includes(f));
+  const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure, sources, respKeys);
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
   const verLabel = clientVersion && clientVersion.toUpperCase() !== 'BASE' ? clientVersion : '';
 
@@ -127,6 +117,9 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
 
       <div className="spl-config">
         <div><label>Index <span className="muted">(your Splunk index)</span></label><input value={index} onChange={(e) => set('splIndex', e.target.value, setIndex)} /></div>
+        <div><label>Response object key(s) <span className="muted">(the JSON object holding the code — comma-separated)</span></label>
+          <input value={respKeysStr} placeholder={DEFAULT_RESPONSE_KEYS.join(', ')}
+                 onChange={(e) => set('splRespKeys', e.target.value, setRespKeysStr)} /></div>
       </div>
 
       <label>Environment(s) <span className="muted">(source{country ? ' · ' + country.trim().toUpperCase() : ''} — select 1 or more; none = all)</span></label>
@@ -159,7 +152,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
             (by hosturl) to <code>{beMarker}</code>{verLabel ? <>, and only release <b>{verLabel}</b> lines</> : null}. Service versions are
             validated by the analyser after upload.</>}
         {sources.length > 0 ? <> From <b>{sources.length}</b> environment source(s).</> : <> From <b>all</b> environments (no source filter).</>}
-        {' '}Each event&rsquo;s JSON is slimmed to only <code>responseCode</code> / <code>responseDescription</code> / <code>serviceVersionNumber</code>{shownExtra.length > 0 ? <> {' '}plus your custom code field{shownExtra.length > 1 ? 's' : ''} {shownExtra.map((f, i) => <span key={f}>{i > 0 ? ', ' : ''}<code>{f}</code></span>)}</> : null} — <b>no request/response payloads are exported</b> (audit-safe).
+        {' '}Each event&rsquo;s JSON is slimmed to the response object {shownKeys.map((f, i) => <span key={f}>{i > 0 ? ' / ' : ''}<code>{f}</code></span>)} (kept whole, plus <code>serviceVersionNumber</code>) — or the <b>full JSON</b> if none is present. Because the whole object is kept, <b>a Rule you add later needs no re-export</b> — just re-upload the same file. No request/response payloads beyond the response object are exported.
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 

@@ -39,55 +39,51 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
   return `index=${index} ${win}(${ors})\n| stats count, latest(_time) as last_seen by ${field}\n| sort - count`;
 }
 
-/** The three fields the analyser always reads; never duplicated by a custom code field. */
-const STANDARD_LEAN_FIELDS = ['responseCode', 'responseDescription', 'serviceVersionNumber'];
+/** The response wrapper object(s) that hold the response code — kept whole, so ANY code key inside them
+ *  (responseCode / resultCode / …, now or a Rule added later) is present without re-exporting. Matched
+ *  case-insensitively. Configurable in the Splunk panel. */
+export const DEFAULT_RESPONSE_KEYS = ['serviceResponseHeader', 'responses', 'ResponseHeader'];
+
+/** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
+function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /**
- * Slims each event's trailing JSON down to only the fields the analyser reads —
- * {@code responseCode} / {@code responseDescription} / {@code serviceVersionNumber}, plus any custom
- * code fields configured under Rules (e.g. {@code resultCode}) — while keeping the line prefix (path,
- * correlation/trace id, client version, direction, latency) intact. Request / response payloads never
- * leave Splunk, so the export is small AND audit-safe (no customer data), and the existing {@code _raw}
- * parser reads it unchanged. Lines with no JSON are left untouched.
+ * Slims each event's trailing JSON so the export stays small and audit-safe, WITHOUT tying it to the
+ * current Rules — so adding a Rule later needs no Splunk re-export (just re-upload the same file):
  *
- * Custom code fields matter because a host whose response uses e.g. {@code "resultCode":"000000"} (not
- * {@code responseCode}) would otherwise have that key stripped by the slimming — the export would show
- * an empty {@code {}} and the analyser could never read the code. Each such field is {@code rex}'d out
- * (it may nest at any depth in the payload — rex scans the whole line) and re-emitted into the slimmed
- * JSON so the analyser's per-rule code field finds it. Skipped rules pass their field as {@code []} (not
- * exported — the backend is out of the verdict anyway).
+ * <ul>
+ *   <li>If the line’s JSON contains a response wrapper object named (case-insensitively) one of
+ *       {@code wrapperKeys} — e.g. {@code serviceResponseHeader}, {@code responses}, {@code ResponseHeader}
+ *       — keep <b>that whole object</b> (plus {@code serviceVersionNumber} for the svc check). The analyser’s
+ *       recursive lookup then finds the code under whatever key a Rule names, at any depth inside it.</li>
+ *   <li>If no wrapper is found, keep the <b>full JSON</b> — so the code is never lost on an unexpected shape.</li>
+ *   <li>Lines with no JSON are left untouched.</li>
+ * </ul>
  *
- * @param extraCodeFields the custom code keys to also preserve (from the app's non-skip Rules).
+ * The line prefix (path, correlation/trace id, client version, direction, latency) is always kept intact.
  */
-function leanJson(extraCodeFields: string[] = []): string {
-  const extra = [...new Set(extraCodeFields.map((f) => f.trim()).filter(Boolean))]
-    .filter((f) => !STANDARD_LEAN_FIELDS.includes(f));   // the standard three are already emitted
-  const extraRex = extra.map((f, i) =>
-    `| rex field=_raw max_match=1 "(?i)\\"${f}\\"\\s*:\\s*\\"?(?<xc${i}>[^\\",}\\s]+)"`);
-  const parts = [
-    'if(isnull(rc),"","\\"responseCode\\":\\"".rc."\\"")',
-    'if(isnull(rd),"","\\"responseDescription\\":\\"".rd."\\"")',
-    'if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\"")',
-    ...extra.map((f, i) => `if(isnull(xc${i}),"","\\"${f}\\":\\"".xc${i}."\\"")`),
-  ];
+function slimToResponseObject(wrapperKeys: string[] = DEFAULT_RESPONSE_KEYS): string {
+  const keys = [...new Set(wrapperKeys.map((k) => k.trim()).filter(Boolean))];
+  const alt = (keys.length ? keys : DEFAULT_RESPONSE_KEYS).map(reEsc).join('|');
+  // A balanced { … } object allowing up to ~3 levels of nesting (deeper → capture fails → full-JSON fallback).
+  const OBJ = '\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*\\}';
   return [
-    '| rex field=_raw max_match=1 "(?i)\\"responseCode\\"\\s*:\\s*\\"?(?<rc>[^\\",}\\s]+)"',
-    '| rex field=_raw max_match=1 "(?i)\\"responseDescription\\"\\s*:\\s*\\"?(?<rd>[^\\",}]*)"',
-    '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
-    ...extraRex,
     '| rex field=_raw "^(?<pfx>[^{]*)"',
-    `| eval parts=mvappend(${parts.join(',')})`,
-    '| eval parts=mvfilter(parts!="")',
-    '| eval _raw=if(pfx==_raw,_raw,pfx."{".coalesce(mvjoin(parts,","),"")."}")',
+    '| eval body=if(pfx==_raw,null(),substr(_raw,len(pfx)+1))',
+    `| rex field=_raw max_match=1 "(?i)\\"(?<hn>${alt})\\"\\s*:\\s*(?<ho>${OBJ})"`,
+    '| rex field=_raw max_match=1 "(?i)\\"serviceVersionNumber\\"\\s*:\\s*\\"?(?<svc>[^\\",}\\s]+)"',
+    '| eval kept=mvappend(if(isnull(svc),"","\\"serviceVersionNumber\\":\\"".svc."\\""),if(isnull(ho),"","\\"".hn."\\":".ho))',
+    '| eval kept=mvfilter(kept!="")',
+    '| eval _raw=if(isnull(body),_raw,if(isnull(ho),pfx.body,pfx."{".mvjoin(kept,",")."}"))',
   ].join('\n');
 }
 
 /**
  * Build a Splunk search that returns the raw events (one combined query over the
  * selected front-end paths and their backends) within the time window, projected
- * as a single {@code _raw} column (sorted by time first). The trailing JSON is slimmed to just the
- * fields the analyser reads (see {@link leanJson}) so no payloads are exported. Exporting this as CSV
- * yields exactly the (lean) lines the analyser reads back, so the same report drives the correlation.
+ * as a single {@code _raw} column (sorted by time first). The trailing JSON is slimmed to the response
+ * wrapper object (or the full JSON if none) — see {@link slimToResponseObject} — so the export stays lean
+ * and audit-safe yet carries any code key a Rule may later name, and the same file re-drives the correlation.
  */
 export function buildEventsSpl(
   index: string,
@@ -105,9 +101,9 @@ export function buildEventsSpl(
   clientVersion = '',
   secure = false,
   sources: string[] = [],
-  extraCodeFields: string[] = [],
+  responseKeys: string[] = DEFAULT_RESPONSE_KEYS,
 ): string {
-  const lean = leanJson(extraCodeFields);
+  const slim = slimToResponseObject(responseKeys) + '\n';
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   // Optional environment filter: (source="*env1*" OR source="*env2*") ANDed into the search so only the
   // chosen environment(s)' lines are fetched. Empty = every source (all environments).
@@ -145,7 +141,7 @@ export function buildEventsSpl(
       if (feS.length) groups.push(...feGroups(feS));
       if (beS.length) groups.push(...beGroups(beS));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${lean}\n| sort 0 - _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${slim}| sort 0 - _time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -154,7 +150,7 @@ export function buildEventsSpl(
   if (mode === 'all') {
     const markers = [feMarker, beMarker].filter(Boolean).map((m) => `"${m}"`).join(' OR ');
     if (!markers) return '';
-    return `index=${index} ${win}${src}(${markers})${ver}\n${lean}\n| sort 0 _time\n| table _raw`;
+    return `index=${index} ${win}${src}(${markers})${ver}\n${slim}| sort 0 _time\n| table _raw`;
   }
 
   const fe = [...new Set(feTerms.filter(Boolean))];
@@ -189,7 +185,7 @@ export function buildEventsSpl(
     });
     groups.push(marked(beMarker, '(' + clauses.join(' OR ') + ')'));
   }
-  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${lean}\n| sort 0 _time\n| table _raw`;
+  return `index=${index} ${win}${src}(${groups.join(' OR ')})${ver}\n${slim}| sort 0 _time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

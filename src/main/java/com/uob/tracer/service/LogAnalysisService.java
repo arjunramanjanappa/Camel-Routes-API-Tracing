@@ -1484,6 +1484,9 @@ public class LogAnalysisService {
     private List<BackendCallResult> flowRows(String tb, String ver, List<String> routeIds, List<Txn> forVersion,
                                              Collection<String> universe, Map<String, String> hosturls,
                                              boolean secure, boolean strict, LogRulesService.Rule rule) {
+        // A call is attributed to this flow only if its logged service version matches the flow's expected
+        // version (or the call logged none) — see matchesInTxn — so a different release's call at a different
+        // version in the same (version-agnostic) log doesn't falsely "cover" this flow.
         List<CallHit> hits = applyRuleCode(flowHits(tb, ver, forVersion, universe, hosturls, strict), rule);
         int n = hits.size();
         boolean skip = rule != null && rule.skip();
@@ -1573,8 +1576,14 @@ public class LogAnalysisService {
                 if (expectedVersion != null && Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
                     out.add(c);   // strict: only this exact version behaviour
                 }
-            } else {
-                out.add(c);       // single-version URL: match by path, version is info
+            } else if (expectedVersion == null || c.serviceVersion() == null || c.serviceVersion().isBlank()
+                    || Boolean.TRUE.equals(versionOk(expectedVersion, c.serviceVersion()))) {
+                // One expected version: match by path. But a call that logged a DIFFERENT version belongs to
+                // ANOTHER release captured in the same (version-agnostic) log — attributing it here would falsely
+                // "cover" this flow. So drop a version-mismatched call; the flow then reads Not Tested (its own
+                // version was never exercised), not a misleading Success on a foreign-version call. A call that
+                // logged no version is kept (older lines may omit it, and there's nothing to contradict).
+                out.add(c);
             }
         }
         return out;
@@ -1804,6 +1813,8 @@ public class LogAnalysisService {
                 return c;   // URL and svc both match — the precise call
             }
             if (pathMatch == null && !strictVersion) {
+                // Backend-only report: the user picked THIS backend, so a path match at a different version is
+                // still worth surfacing (flagged as a version mismatch) rather than hidden as "not tested".
                 pathMatch = c;
             }
         }

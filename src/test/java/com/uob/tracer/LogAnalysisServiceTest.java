@@ -82,6 +82,34 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aBackendCallAtADifferentServiceVersionIsNotAttributedToThisFlow() throws IOException {
+        // Full logs (all releases) → own/submit expects svc 2.2 for this release, but the only call to it in the
+        // log ran at 2.9 (another release's traffic). That call must NOT count as covering the 2.2 flow: the flow
+        // reads NOT TESTED (not a misleading Success on a foreign-version call), so the API is PARTIAL.
+        String fe = "/mty-banking-01/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        String corr = "c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9";
+        String log =
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][]-" + fe
+                + " - Request - {\"serviceRequest\":{}}\n"
+            + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][IOS][] -"
+                + be + " - [Request] : {\"serviceVersionNumber\":\"2.9\"}\n"
+            + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][IOS][230ms] -"
+                + be + " - [Response] : {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+            + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][300ms]-" + fe
+                + " - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r = analyzeText(log, "9.4");
+        ApiLogResult v2 = api(r, V2);
+        // The 2.9 call is not attributed to the 2.2 flow → that flow is Not Tested (never Success).
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.expectedServiceVersion()).isEqualTo("2.2");
+            assertThat(b.status()).isEqualTo(LogStatus.NOT_TESTED);
+            assertThat(b.observedPath()).isNull();   // not shown as "seen" — the foreign-version call doesn't count
+        });
+    }
+
+    @Test
     void backendCodeFromACustomFieldPassesWhenARuleDeclaresIt(@TempDir Path home) throws IOException {
         // A BACKEND host whose response reports its outcome under a custom key (ResponseHeader.errorcode:"0000",
         // no responseCode). A rule matching that hosturl, field errorcode, success 0000, must read + pass it.

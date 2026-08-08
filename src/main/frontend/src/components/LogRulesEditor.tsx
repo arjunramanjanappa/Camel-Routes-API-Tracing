@@ -30,7 +30,7 @@ export default function LogRulesEditor() {
   const setRule = (i: number, patch: Partial<LogRule>) =>
     setCur({ ...cur, rules: cur.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
   const addRule = () =>
-    setCur({ ...cur, rules: [...cur.rules, { match: '', codeField: '', successCodes: [], skip: false }] });
+    setCur({ ...cur, rules: [...cur.rules, { match: '', codeField: '', successCodes: [], skip: false, svcVersion: '' }] });
   const removeRule = (i: number) => setCur({ ...cur, rules: cur.rules.filter((_, j) => j !== i) });
 
   const save = async () => {
@@ -42,8 +42,8 @@ export default function LogRulesEditor() {
       for (const [k, v] of Object.entries(map)) {
         // Trim the typing-time empties now (a trailing comma leaves an ""), then keep meaningful rules.
         const rules = v.rules
-          .map((r) => ({ ...r, successCodes: r.successCodes.filter(Boolean) }))
-          .filter((r) => r.match.trim() || r.codeField.trim() || r.successCodes.length > 0 || r.skip);
+          .map((r) => ({ ...r, successCodes: r.successCodes.filter(Boolean), svcVersion: (r.svcVersion || '').trim() }))
+          .filter((r) => r.match.trim() || r.codeField.trim() || r.successCodes.length > 0 || r.skip || r.svcVersion);
         const codeFields = v.codeFields.filter(Boolean);
         if (codeFields.length || rules.length) clean[k] = { codeFields, rules };
       }
@@ -61,8 +61,9 @@ export default function LogRulesEditor() {
       <div className="sub" style={{ marginTop: 0 }}>
         <b>Match</b> — backend hosturl glob (empty = all hosts). <b>Field name</b> — JSON key holding the code
         (e.g. <code>resultCode</code>, <code>errorcode</code>). <b>Success codes</b> — comma-separated, any one
-        passes. <b>Skip</b> — exclude from the verdict. Save, then <b>↻ Re-run with current rules</b> on
-        Release Test.
+        passes. <b>Svc version</b> — expected service version (exact match); set it only when the version is set
+        in Java so the route scan can't derive it. <b>Skip</b> — exclude from the verdict. Save, then
+        <b>↻ Re-run with current rules</b> on Release Test.
       </div>
 
       <div className="seg" style={{ marginTop: 6 }}>
@@ -78,10 +79,10 @@ export default function LogRulesEditor() {
       <label style={{ marginTop: 8 }}>Rules <span className="muted">(Match = the backend hosturl glob — <code>*</code> or empty = every host; or e.g. <code>*/limit/*</code>)</span></label>
       <table className="logrules-tbl">
         <thead>
-          <tr><th>Match (hosturl glob · empty = global)</th><th>Field name</th><th>Success codes</th><th>Skip</th><th /></tr>
+          <tr><th>Match (hosturl glob · empty = global)</th><th>Field name</th><th>Success codes</th><th title="Expected service version (exact match). Set only when the version is defined in Java and the scan can't read it.">Svc version</th><th>Skip</th><th /></tr>
         </thead>
         <tbody>
-          {cur.rules.length === 0 && <tr><td colSpan={5} className="muted">No rules — add one below.</td></tr>}
+          {cur.rules.length === 0 && <tr><td colSpan={6} className="muted">No rules — add one below.</td></tr>}
           {cur.rules.map((r, i) => (
             <tr key={i}>
               <td><input value={r.match} spellCheck={false} placeholder="*/host/xyz  (empty = all hosts)" onChange={(e) => setRule(i, { match: e.target.value })} /></td>
@@ -89,6 +90,10 @@ export default function LogRulesEditor() {
               <td><input value={r.successCodes.join(', ')} spellCheck={false} placeholder="000000, 200"
                          disabled={r.skip}
                          onChange={(e) => setRule(i, { successCodes: e.target.value.split(',').map((s) => s.trim()) })} /></td>
+              <td><input value={r.svcVersion || ''} spellCheck={false} placeholder="2.3" style={{ width: 64 }}
+                         disabled={r.skip}
+                         title="Expected service version — exact match. Leave blank unless the version is set in Java."
+                         onChange={(e) => setRule(i, { svcVersion: e.target.value })} /></td>
               <td style={{ textAlign: 'center' }}><input type="checkbox" checked={r.skip} onChange={(e) => setRule(i, { skip: e.target.checked })} /></td>
               <td><button className="linkbtn" onClick={() => removeRule(i)} title="Remove this rule">✕</button></td>
             </tr>

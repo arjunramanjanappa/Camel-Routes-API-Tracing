@@ -40,12 +40,24 @@ public class LogRulesService {
 
     private static final Logger LOG = LoggerFactory.getLogger(LogRulesService.class);
 
-    /** One host-backend rule. {@code match} is a glob on the backend hosturl (e.g. {@code *&#47;host&#47;limit&#47;*}). */
-    public record Rule(String match, String codeField, List<String> successCodes, boolean skip) {
+    /**
+     * One host-backend rule. {@code match} is a glob on the backend hosturl (e.g. {@code *&#47;host&#47;limit&#47;*}).
+     * {@code svcVersion} (optional) is the EXPECTED service version for the host: when set, the logged
+     * {@code serviceVersionNumber} is validated against it by exact match, and calls at a different version are
+     * not attributed to the flow. For backends whose version is set in Java / a runtime property, which the route
+     * scan can't read — so it has no expected version of its own. Blank = no version check.
+     */
+    public record Rule(String match, String codeField, List<String> successCodes, boolean skip, String svcVersion) {
         public Rule {
             match = match == null ? "" : match.trim();
             codeField = codeField == null ? "" : codeField.trim();
             successCodes = successCodes == null ? List.of() : List.copyOf(successCodes);
+            svcVersion = svcVersion == null ? "" : svcVersion.trim();
+        }
+
+        /** Back-compat: a rule with no expected service version. */
+        public Rule(String match, String codeField, List<String> successCodes, boolean skip) {
+            this(match, codeField, successCodes, skip, "");
         }
     }
 

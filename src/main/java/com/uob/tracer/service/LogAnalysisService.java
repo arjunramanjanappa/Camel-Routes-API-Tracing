@@ -1484,10 +1484,13 @@ public class LogAnalysisService {
     private List<BackendCallResult> flowRows(String tb, String ver, List<String> routeIds, List<Txn> forVersion,
                                              Collection<String> universe, Map<String, String> hosturls,
                                              boolean secure, boolean strict, LogRulesService.Rule rule) {
-        // A call is attributed to this flow only if its logged service version matches the flow's expected
-        // version (or the call logged none) — see matchesInTxn — so a different release's call at a different
-        // version in the same (version-agnostic) log doesn't falsely "cover" this flow.
-        List<CallHit> hits = applyRuleCode(flowHits(tb, ver, forVersion, universe, hosturls, strict), rule);
+        // The expected service version for this flow. A rule's explicit svcVersion (user-asserted) overrides the
+        // scan-derived one — for backends whose version is set in Java, where the scan derives none — but only
+        // when NOT strict (strict already keeps several distinct versions apart per group). A call is attributed
+        // to this flow only if its logged version matches expVer (or it logged none) — see matchesInTxn — so a
+        // different release's call at a different version in the same (version-agnostic) log doesn't cover it.
+        String expVer = strict ? ver : expectedSvc(ver, rule);
+        List<CallHit> hits = applyRuleCode(flowHits(tb, expVer, forVersion, universe, hosturls, strict), rule);
         int n = hits.size();
         boolean skip = rule != null && rule.skip();
         int passed = 0;
@@ -1520,11 +1523,11 @@ public class LogAnalysisService {
                 }
                 rows.add(new BackendCallResult(tb, c.path(), st,
                         timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
-                        ver, c.serviceVersion(), versionOk(ver, c.serviceVersion()), false, route, a, p, f, fbc));
+                        expVer, c.serviceVersion(), versionOk(expVer, c.serviceVersion()), false, route, a, p, f, fbc));
             } else {
                 // A skipped backend is never "not tested" (it must not turn the API Partial) — mark it Skipped.
                 rows.add(new BackendCallResult(tb, null, skip ? LogStatus.SKIPPED : LogStatus.NOT_TESTED, null, null, null,
-                        ver, null, null, false, route, a, p, f, fbc));
+                        expVer, null, null, false, route, a, p, f, fbc));
             }
         }
         return rows;
@@ -1594,6 +1597,8 @@ public class LogAnalysisService {
                                               Collection<String> candidates, Map<String, String> hosturls, boolean secure,
                                               boolean strict, boolean bau, LogRulesService.AppRules rules) {
         LogRulesService.Rule rule = rules == null ? null : rules.ruleFor(matchPath(backend, hosturls));
+        // A rule may assert the expected version (backend versioned in Java the scan can't read), else the scan's.
+        String expVer = strict ? expectedVersion : expectedSvc(expectedVersion, rule);
         // N/A means "every release in scope" — don't restrict the host lines by a concrete version.
         boolean versionScoped = version != null && !version.isBlank() && !VersionResolver.isLatest(version);
         List<BackendHit> hits = new ArrayList<>();
@@ -1603,7 +1608,7 @@ public class LogAnalysisService {
             // Match by URL AND service version together (prefer the svc-matching call),
             // letting "longest match wins" keep /bfs/… and /bp/bfs/… apart. When strict (a backend with
             // several service-version behaviours), match this row's version only — never a different one.
-            BackendCall c = pickCall(t.calls(), backend, expectedVersion, candidates, hosturls, strict);
+            BackendCall c = pickCall(t.calls(), backend, expVer, candidates, hosturls, strict);
             if (c == null) {
                 continue;
             }
@@ -1632,7 +1637,7 @@ public class LogAnalysisService {
             }
             LogStatus emptyStatus = (rule != null && rule.skip()) ? LogStatus.SKIPPED : LogStatus.NOT_TESTED;
             return new BackendLogResult(backend, emptyStatus, false, null, null, null, 0, 0, 0, null, null, note,
-                    expectedVersion, null, null, Map.of(), bau);
+                    expVer, null, null, Map.of(), bau);
         }
 
         BackendHit latest = hits.stream().max(Comparator.comparing(h -> h.txn().ts())).orElseThrow();
@@ -1648,7 +1653,7 @@ public class LogAnalysisService {
         }
         LogStatus status = beStatus(latest.call(), secure, rule);
         String logged = latest.call().serviceVersion();
-        Boolean svcOk = versionOk(expectedVersion, logged);
+        Boolean svcOk = versionOk(expVer, logged);
         String note = switch (status) {
             case SUCCESS -> null;
             case SKIPPED -> "Skipped by config — excluded from the verdict (host response-code rule).";
@@ -1663,17 +1668,23 @@ public class LogAnalysisService {
                     + " (unchanged route — not part of this release).";
         } else if (status != LogStatus.SKIPPED && Boolean.FALSE.equals(svcOk)) {
             note = (note == null ? "" : note + " ") + "Service version mismatch: called " + logged
-                    + ", expected " + expectedVersion + ".";
+                    + ", expected " + expVer + ".";
         }
         int failureCount = status == LogStatus.SKIPPED ? 0 : hits.size() - success;   // skipped = neither pass nor fail
         return new BackendLogResult(backend, status, true, latest.call().tookMs(),
                 latest.call().code(), latest.call().desc(),
                 hits.size(), success, failureCount, latest.txn().ts(), latest.txn().correlationId(), note,
-                expectedVersion, logged, (bau || status == LogStatus.SKIPPED) ? null : svcOk,
+                expVer, logged, (bau || status == LogStatus.SKIPPED) ? null : svcOk,
                 sortByCountDesc(failuresByCode), bau);
     }
 
     /** true if the logged version is one of the expected (possibly "2.2 / 3.3"); null if either is absent. */
+    /** The expected service version to validate/match against: a rule's explicit {@code svcVersion} (user-asserted,
+     *  for backends whose version is set in Java the scan can't read) overrides the scan-derived version; else it. */
+    private static String expectedSvc(String derived, LogRulesService.Rule rule) {
+        return (rule != null && !rule.svcVersion().isBlank()) ? rule.svcVersion() : derived;
+    }
+
     private static Boolean versionOk(String expected, String logged) {
         if (expected == null || expected.isBlank() || logged == null || logged.isBlank()) {
             return null;

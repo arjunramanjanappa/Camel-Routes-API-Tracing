@@ -110,6 +110,42 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aRuleCanAssertTheExpectedServiceVersionWhenTheScanCantDeriveIt(@TempDir Path home) throws IOException {
+        // A backend whose service version is set in Java → the route scan derives none. A rule asserts it
+        // (svcVersion 9.9). That becomes the expected version: a call logged at 9.9 is attributed AND validated
+        // (green ✓ / SUCCESS); the earlier test covers a mismatched version being left Not Tested.
+        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
+        rules.saveApp("Mighty", false, new AppRules(List.of(),
+                List.of(new LogRulesService.Rule("*/bfs/ft/own/submit", "", List.of(), false, "9.9"))));
+        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
+
+        String fe = "/mty-banking-01/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        String corr = "d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9";
+        String log =
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][]-" + fe
+                + " - Request - {\"serviceRequest\":{}}\n"
+            + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][IOS][] -"
+                + be + " - [Request] : {\"serviceVersionNumber\":\"9.9\"}\n"
+            + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][IOS][230ms] -"
+                + be + " - [Response] : {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+            + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][300ms]-" + fe
+                + " - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = svc.analyze(in, "rule-svc.log", "9.4", null, FW, null, null, true, "Mighty");
+        }
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.expectedServiceVersion()).isEqualTo("9.9");   // from the rule, not the scan
+            assertThat(b.loggedServiceVersion()).isEqualTo("9.9");
+            assertThat(b.serviceVersionOk()).isTrue();                 // exact match → green
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+    }
+
+    @Test
     void backendCodeFromACustomFieldPassesWhenARuleDeclaresIt(@TempDir Path home) throws IOException {
         // A BACKEND host whose response reports its outcome under a custom key (ResponseHeader.errorcode:"0000",
         // no responseCode). A rule matching that hosturl, field errorcode, success 0000, must read + pass it.

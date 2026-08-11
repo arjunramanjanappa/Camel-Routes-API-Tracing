@@ -1505,6 +1505,12 @@ public class LogAnalysisService {
         }
         int failedTotal = skip ? 0 : n - passed;   // a skipped backend contributes no pass/fail
         Map<String, Integer> dist = sortByCountDesc(failures);
+        // The version the flow was actually called at: any attributed call that logged one. Post-enforcement
+        // those are all the expected version (mismatches are excluded), so the first non-null is representative
+        // — this way a version-less latest call (e.g. an error response that omits serviceVersionNumber) doesn't
+        // hide the fact that the flow WAS exercised at the expected version.
+        String flowVer = hits.stream().map(h -> h.call().serviceVersion())
+                .filter(v -> v != null && !v.isBlank()).findFirst().orElse(null);
         List<BackendCallResult> rows = new ArrayList<>();
         int k = routeIds.size();
         for (int i = 0; i < k; i++) {
@@ -1521,9 +1527,12 @@ public class LogAnalysisService {
                 if (st == LogStatus.INDETERMINATE && (desc == null || desc.isBlank())) {
                     desc = UNRECOGNISED_RESPONSE;
                 }
+                // Use this call's version if it logged one, else the flow's representative version.
+                String loggedVer = c.serviceVersion() != null && !c.serviceVersion().isBlank()
+                        ? c.serviceVersion() : flowVer;
                 rows.add(new BackendCallResult(tb, c.path(), st,
                         timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
-                        expVer, c.serviceVersion(), versionOk(expVer, c.serviceVersion()), false, route, a, p, f, fbc));
+                        expVer, loggedVer, versionOk(expVer, loggedVer), false, route, a, p, f, fbc));
             } else {
                 // A skipped backend is never "not tested" (it must not turn the API Partial) — mark it Skipped.
                 rows.add(new BackendCallResult(tb, null, skip ? LogStatus.SKIPPED : LogStatus.NOT_TESTED, null, null, null,
@@ -1652,7 +1661,12 @@ public class LogAnalysisService {
             }
         }
         LogStatus status = beStatus(latest.call(), secure, rule);
-        String logged = latest.call().serviceVersion();
+        // The version the backend was called at: the latest call's if it logged one, else any call that did
+        // (an error response may omit serviceVersionNumber, but a sibling success logged the real version).
+        String logged = latest.call().serviceVersion() != null && !latest.call().serviceVersion().isBlank()
+                ? latest.call().serviceVersion()
+                : hits.stream().map(h -> h.call().serviceVersion())
+                    .filter(v -> v != null && !v.isBlank()).findFirst().orElse(null);
         Boolean svcOk = versionOk(expVer, logged);
         String note = switch (status) {
             case SUCCESS -> null;

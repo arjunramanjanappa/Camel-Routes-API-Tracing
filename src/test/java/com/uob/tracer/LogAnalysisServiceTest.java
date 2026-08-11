@@ -110,6 +110,39 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aVersionLessLatestCallDoesNotHideAServiceVersionLoggedByEarlierCalls() throws IOException {
+        // own/submit expects 2.2. An earlier SUCCESS logged svc 2.2; the LATEST call is a failure whose error
+        // payload omits serviceVersionNumber. The row's version must reflect the 2.2 that was seen (svcOk TRUE),
+        // not read null off the latest call and drop to "expected but not seen".
+        String fe = "/mty-banking-01/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        String a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        String b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        String log =
+            // txn A — success at svc 2.2
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + a + "][IOS][]-" + fe + " - Request - {}\n"
+            + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + a + "][IOS][] -" + be
+                + " - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n"
+            + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + a + "][IOS][200ms] -" + be
+                + " - [Response] : {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+            + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + a + "][IOS][300ms]-" + fe + " - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+            // txn B — LATER, a failure whose payload has no serviceVersionNumber
+            + "2026-06-11 18.43.46.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + b + "][IOS][]-" + fe + " - Request - {}\n"
+            + "2026-06-11 18.43.46.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + b + "][IOS][] -" + be
+                + " - [Request] : {}\n"
+            + "2026-06-11 18.43.46.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + b + "][IOS][200ms] -" + be
+                + " - [Response] : {\"serviceResponse\":{\"responseCode\":\"00911\"}}\n"
+            + "2026-06-11 18.43.46.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + b + "][IOS][300ms]-" + fe + " - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r = analyzeText(log, "9.4");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.backends()).anySatisfy(bk -> {
+            assertThat(bk.backend()).contains("/bfs/ft/own/submit");
+            assertThat(bk.loggedServiceVersion()).isEqualTo("2.2");   // the version an earlier call logged
+            assertThat(bk.serviceVersionOk()).isTrue();               // 2.2 == expected 2.2 → verified ✓
+        });
+    }
+
+    @Test
     void aRuleCanAssertTheExpectedServiceVersionWhenTheScanCantDeriveIt(@TempDir Path home) throws IOException {
         // A backend whose service version is set in Java → the route scan derives none. A rule asserts it
         // (svcVersion 9.9). That becomes the expected version: a call logged at 9.9 is attributed AND validated

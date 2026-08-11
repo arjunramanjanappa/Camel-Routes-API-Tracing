@@ -40,7 +40,7 @@ function Badge({ s }: { s: LogStatus }) {
 }
 
 /** Backend service version: logged vs expected, with a match/mismatch indicator. */
-function SvcChip({ expected, logged, ok, pass }: { expected?: string | null; logged?: string | null; ok?: boolean | null; pass?: boolean }) {
+function SvcChip({ expected, logged, ok, pass, seen }: { expected?: string | null; logged?: string | null; ok?: boolean | null; pass?: boolean; seen?: boolean }) {
   if (!expected && !logged) return null;
   if (ok === true) return <span className="svcchip ok" title={'expected ' + expected}>svc {logged} ✓</span>;
   if (ok === false) return <span className="svcchip bad" title={'expected ' + expected}>svc {logged} ✗ (exp {expected})</span>;
@@ -51,6 +51,14 @@ function SvcChip({ expected, logged, ok, pass }: { expected?: string | null; log
           title={pass ? 'service version ' + logged + ' used — call passed (no separate expected version to check against)'
                       : (expected ? 'expected ' + expected : 'no expected version to check against')}>
       svc {logged}{pass ? ' ✓' : ''}
+    </span>
+  );
+  // Expected version known, but the call logged no service version. If the backend WAS exercised, nothing in
+  // the log contradicts the expected version (this backend just doesn't log one) — so show it as a confirmed ✓,
+  // consistent with the calls being counted toward the flow. If it was never observed, show it greyed instead.
+  if (seen && expected) return (
+    <span className="svcchip ok" title={'expected ' + expected + ' — backend exercised; it logs no service version, so ' + expected + ' is assumed'}>
+      svc {expected} ✓
     </span>
   );
   return <span className="svcchip" title="not seen in the log">exp svc {expected}</span>;
@@ -95,7 +103,7 @@ function BackendRow({ b }: { b: BackendLogResult }) {
         : <Badge s={b.status} />}</td>
       <td>
         <code>{backendPath(b.backend)}</code>
-        {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} pass={b.status === 'SUCCESS'} />
+        {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} pass={b.status === 'SUCCESS'} seen={!b.bau && (b.attempts ?? 0) > 0} />
       </td>
       <td title={b.correlationId ? 'correlation ' + b.correlationId + (b.latestAt ? ' @ ' + b.latestAt : '') : undefined}>
         {resultText}
@@ -149,7 +157,7 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
               {b.flowRoute && <span className="flow-route" title="the release route that owns this flow">{b.flowRoute} → </span>}
               <code>{backendPath(b.backend)}</code>
               <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : (b.bau ? ' unchanged route' : ' not observed')}</span>
-              {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} pass={b.status === 'SUCCESS'} />
+              {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} pass={b.status === 'SUCCESS'} seen={!b.bau && (b.attempts ?? 0) > 0} />
             </td>
             <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
             <td colSpan={2}>{

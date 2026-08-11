@@ -1350,10 +1350,15 @@ public class LogAnalysisService {
             }
             if (b.status() == LogStatus.NOT_TESTED) {
                 notTested.add(flowLabel(b));
-            } else if (b.status() != LogStatus.SUCCESS) {
-                failed.add(flowLabel(b) + " — " + b.status().name().toLowerCase());
             } else if (Boolean.FALSE.equals(b.serviceVersionOk())) {
                 failed.add(flowLabel(b) + " — called svc " + b.loggedServiceVersion());
+            } else if (b.attempts() > 0 && (double) b.passed() / b.attempts() < passThreshold) {
+                // Pass-rate tolerance, SAME as the front end (fePassed above): a backend flow fails the verdict
+                // only when its pass-rate is below the bar — a few failures among many passes, or a single flaky
+                // latest call, no longer fails an otherwise-passing flow. The row's own status pill still shows
+                // the latest call's outcome, and its failing codes are always listed in the breakdown.
+                failed.add(flowLabel(b) + " — " + (b.attempts() - b.passed()) + "/" + b.attempts()
+                        + " failed (below " + (int) Math.round(passThreshold * 100) + "%)");
             }
         }
 

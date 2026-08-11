@@ -110,6 +110,40 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aBackendFlowThatClearsItsPassRateDoesNotFailTheApiEvenIfTheLatestCallFailed() throws IOException {
+        // own/submit exercised 21× at svc 2.2: 20 pass, the LATEST fails (≈95% pass, at/above the 95% bar). Like
+        // the front end's pass-rate tolerance, the flow passes the verdict — so the API is Partial (the sibling
+        // change flows were never tested), NOT Failed — even though the backend's own status pill still shows the
+        // latest (failed) call.
+        String fe = "/mty-banking-01/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        StringBuilder log = new StringBuilder();
+        int minute = 10;
+        for (int i = 0; i <= 20; i++) {
+            String corr = String.format("%032d", i);
+            String code = i == 20 ? "00911" : "0000000";   // the latest call (i=20) fails
+            log.append("2026-06-11 18.").append(minute).append(".00.100 [t] INFO [MightyMessage][MTY][s][u][9.4][")
+               .append(corr).append("][IOS][]-").append(fe).append(" - Request - {}\n");
+            log.append("2026-06-11 18.").append(minute).append(".00.150 [t] INFO [MightyHostMessage][MTY][s][u][9.4][")
+               .append(corr).append("][IOS][] -").append(be).append(" - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n");
+            log.append("2026-06-11 18.").append(minute).append(".00.250 [t] INFO [MightyHostMessage][MTY][s][u][9.4][")
+               .append(corr).append("][IOS][60ms] -").append(be).append(" - [Response] : {\"serviceResponse\":{\"responseCode\":\"").append(code).append("\"}}\n");
+            log.append("2026-06-11 18.").append(minute).append(".00.350 [t] INFO [MightyMessage][MTY][s][u][9.4][")
+               .append(corr).append("][IOS][120ms]-").append(fe).append(" - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n");
+            minute++;
+        }
+        LogAnalysisReport r = analyzeText(log.toString(), "9.4");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.status()).isEqualTo(LogStatus.PARTIAL);   // own/submit clears the bar; siblings not tested
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.attempts()).isEqualTo(21);
+            assertThat(b.passed()).isEqualTo(20);
+            assertThat(b.status()).isEqualTo(LogStatus.FAILED);   // the pill still shows the latest (failed) call
+        });
+    }
+
+    @Test
     void aVersionLessLatestCallDoesNotHideAServiceVersionLoggedByEarlierCalls() throws IOException {
         // own/submit expects 2.2. An earlier SUCCESS logged svc 2.2; the LATEST call is a failure whose error
         // payload omits serviceVersionNumber. The row's version must reflect the 2.2 that was seen (svcOk TRUE),

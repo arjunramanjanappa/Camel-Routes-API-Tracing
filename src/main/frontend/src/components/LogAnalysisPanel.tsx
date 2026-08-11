@@ -167,14 +167,18 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
       {isOpen && a.backends.map((b, i) => (
         <Fragment key={i}>
           <tr className={'lsub' + (b.bau ? ' bau' : '')}>
-            <td>{b.bau
-              ? <span className="bau-pill" title="BAU reuse of this backend at a lower/unchanged service version — not part of this release's change, so not verified">BAU</span>
-              : <Badge s={b.status} />}</td>
+            {/* First column stays empty for backends — the API's own verdict owns it. The backend's own
+                status is an inline pill after the svc chip, so it reads as per-backend detail, not a peer of
+                the FE verdict. */}
+            <td />
             <td colSpan={2}>
               {b.flowRoute && <span className="flow-route" title="the release route that owns this flow">{b.flowRoute} → </span>}
               <code>{backendPath(b.backend)}</code>
               <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : (b.bau ? ' unchanged route' : ' not observed')}</span>
               {' '}<SvcChip expected={b.expectedServiceVersion} logged={b.loggedServiceVersion} ok={b.bau ? null : b.serviceVersionOk} pass={b.status === 'SUCCESS'} seen={!b.bau && (b.attempts ?? 0) > 0} />
+              {' '}{b.bau
+                ? <span className="bau-pill" title="BAU reuse of this backend at a lower/unchanged service version — not part of this release's change, so not verified">BAU</span>
+                : <Badge s={b.status} />}
             </td>
             <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
             <td colSpan={2}>{

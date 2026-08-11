@@ -308,6 +308,9 @@ tr.lrow.failed td { background: #fff6f1; }
 tr.lrow.timeout td { background: #f8f6ff; }
 tr.lsub td { background: #f9fafb; font-size: 11px; }
 tr.lsub code { background: transparent; }
+/* Group header inside an expanded API row (Front-end / Backends), to visually separate the two groups. */
+.lsub-group-head { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #64748b; margin-bottom: 3px; }
+[data-theme="dark"] .lsub-group-head { color: #94a3b8; }
 /* Prominent release-test verdict banner (readiness + front-end pass rate). */
 .test-verdict { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 2px; padding: 10px 14px; border-radius: 8px; border: 1px solid; }
 .test-verdict .tv-badge { font-size: 13px; font-weight: 800; letter-spacing: .02em; white-space: nowrap; }

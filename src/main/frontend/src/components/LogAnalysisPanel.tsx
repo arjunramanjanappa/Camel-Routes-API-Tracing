@@ -147,6 +147,23 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
         <td>{(a.backends.length > 0 || hasFailures(a.failuresByCode)) &&
           <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'details'}</button>}</td>
       </tr>
+      {/* Front-end group: the FE response failures sit directly under the FE row they belong to. */}
+      {isOpen && hasFailures(a.failuresByCode) && (
+        <tr className="lsub">
+          <td />
+          <td colSpan={5}>
+            <div className="lsub-group-head">Front-end response failures</div>
+            <FailureBreakdown m={a.failuresByCode} />
+          </td>
+        </tr>
+      )}
+      {/* Backend group: a header, then one row per backend with its own failures beneath it. */}
+      {isOpen && a.backends.length > 0 && (
+        <tr className="lsub">
+          <td />
+          <td colSpan={5}><div className="lsub-group-head">Backends ({a.backends.length})</div></td>
+        </tr>
+      )}
       {isOpen && a.backends.map((b, i) => (
         <Fragment key={i}>
           <tr className={'lsub' + (b.bau ? ' bau' : '')}>
@@ -176,9 +193,6 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
           )}
         </Fragment>
       ))}
-      {isOpen && hasFailures(a.failuresByCode) && (
-        <tr className="lsub"><td colSpan={6}><FailureBreakdown m={a.failuresByCode} /></td></tr>
-      )}
     </>
   );
 }

@@ -235,6 +235,10 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
   ]);
   if (a.note) r.para('Note: ' + a.note, M, CONTENT_W, 'normal', 9, PAL.muted, 12);
 
+  // Front-end failing response codes — kept with the front-end summary, ABOVE the Backend section, so the
+  // report groups FE detail together (matches the Release Test tab).
+  r.failureTable(Object.entries(a.failuresByCode || {}) as [string, number][]);
+
   // Backends this API calls, under a clear label (was an unlabelled line at the very end).
   if (a.backends && a.backends.length) {
     r.text('Backend', M, 'bold', 9, PAL.ink); r.y += 13;
@@ -268,7 +272,6 @@ function apiEntry(r: ReportDoc, a: ApiLogResult) {
     r.y += 4;
   }
 
-  r.failureTable(Object.entries(a.failuresByCode || {}) as [string, number][]);
   r.y += 6;
 }
 

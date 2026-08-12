@@ -990,25 +990,20 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
 
   /** The BC-impacted APIs across all modules — a shared BAU class or a BAU route the OLD app runs was changed. */
   const bcApis = (): ApiDiff[] => reports.flatMap((r) => r.result?.apis ?? []).filter(needsBC);
-  /** "Old-app test list" export: the capabilities of the BC-impacted APIs the testing team must re-test with the
-   *  OLD app, with the old app version to use and why. FE only — each backend is covered by its FE API. */
-  const exportOldAppTestList = () => {
+  /** Release Impact - Capability Matrix (BAU App Coverage): the capabilities of the BC-impacted APIs the testing
+   *  team must re-test with the OLD app, and why. FE only — each backend is covered by its FE API. */
+  const exportBauCapabilityMatrix = () => {
     const apis = bcApis();
-    const versionByApi: Record<string, string> = {};
     const reasonByApi: Record<string, string> = {};
     for (const a of apis) {
-      if (!a.api) continue;
-      versionByApi[a.api] = a.lowerVersion || 'BAU / base';
-      reasonByApi[a.api] = bcReason(a);
+      if (a.api) reasonByApi[a.api] = bcReason(a);
     }
     const scope: CapabilityScope = {
       feApis: [...new Set(apis.map((a) => a.api).filter(Boolean))],
       beApis: [], country,
-      sheetName: 'Old-app test list',
-      extraColumns: [
-        { header: 'Old App Version', valueByApi: versionByApi },
-        { header: 'BC Reason', valueByApi: reasonByApi },
-      ],
+      sheetName: 'BAU App Coverage',
+      fileName: 'Release Impact - Capability Matrix',
+      trailingColumns: [{ header: 'Impact Reason', valueByApi: reasonByApi }],
     };
     exportCapabilitiesXlsx(scope).catch(() => {});
   };
@@ -1069,7 +1064,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         <div className="export-bar">
           <div className="export-bar-right">
             {bcApis().length > 0 && (
-              <button className="minibtn" onClick={exportOldAppTestList} title="Capabilities to re-test with the OLD app — the BC-impacted APIs (a BAU route/class the old app runs was changed), with the old app version to use (needs the VAL reports attached in ⚙ Config)">⤓ Old-app test list</button>
+              <button className="minibtn" onClick={exportBauCapabilityMatrix} title="BAU App Coverage — capabilities to re-test with the OLD app: the BC-impacted APIs where a BAU route/class the old app runs was changed, with the impact reason (needs the VAL reports attached in ⚙ Config)">⤓ Release Impact - Capability Matrix</button>
             )}
             <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
             <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>

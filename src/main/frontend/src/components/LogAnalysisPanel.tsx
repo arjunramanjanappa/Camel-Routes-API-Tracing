@@ -606,7 +606,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     const feApis = [...new Set(report.apis.map((a) => a.api).filter(Boolean))];
     const statusByApi: Record<string, string> = {};
     for (const a of report.apis) statusByApi[a.api] = STATUS_LABEL[a.status];
-    return { feApis, beApis: [], country, statusByApi };
+    return { feApis, beApis: [], country, statusByApi, sheetName: 'New App Coverage', fileName: 'Release Test - Capability Matrix' };
   };
   /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team. */
   const exportCapabilities = () => { if (report) exportCapabilitiesXlsx(capabilityScope()).catch(() => {}); };
@@ -752,7 +752,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       {report && (
         <div className="export-bar" style={{ paddingLeft: 0, paddingRight: 0 }}>
           <div className="export-bar-right">
-            <button className="minibtn" onClick={exportCapabilities} title="How to test each impacted API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)">⤓ Capability matrix</button>
+            <button className="minibtn" onClick={exportCapabilities} title="How to test each impacted API — the VAL Capability Matrix rows for the FE APIs, with each API's test verdict (needs the VAL reports attached in ⚙ Config)">⤓ Release Test - Capability Matrix</button>
             <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
             <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers">⤓ Detailed PDF</button>
           </div>

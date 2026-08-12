@@ -119,8 +119,8 @@ class CapabilityServiceTest {
             Row first = caps.getRow(1);
             assertThat(first.getCell(0).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");
             assertThat(first.getCell(15).getStringCellValue()).contains("/services/onboarding/security/fr/profile");
-            // the unknown API lands in the Missed sheet.
-            Sheet un = wb.getSheet("Missed");
+            // the unknown API lands in the "Unmapped Interface spec" sheet.
+            Sheet un = wb.getSheet("Unmapped Interface spec");
             assertThat(un).isNotNull();
             assertThat(un.getRow(1).getCell(0).getStringCellValue()).contains("/does/not/exist");
         }
@@ -147,24 +147,23 @@ class CapabilityServiceTest {
     }
 
     @Test
-    void generalExportSupportsANamedSheetAndPlainExtraColumns(@TempDir Path home) throws Exception {
-        // The Release Impact "Old-app test list": a named matched sheet + Old App Version / BC Reason columns
-        // (plain, not coloured), prepended before the capability A–N columns.
+    void generalExportSupportsANamedSheetAndATrailingColumn(@TempDir Path home) throws Exception {
+        // The Release Impact "Release Impact - Capability Matrix" (sheet "BAU App Coverage"): a named matched
+        // sheet + a plain "Impact Reason" column appended as the LAST column (ID stays first).
         CapabilityService svc = configured(home);
         String api = "/services/onboarding/security/fr/profile";
         CapabilityResult r = svc.resolve(List.of(api), List.of(), "SG");
-        byte[] out = svc.exportExcel(r, "Old-app test list", Map.of(), List.of(
-                new CapabilityService.ExtraColumn("Old App Version", Map.of(api, "9.10")),
-                new CapabilityService.ExtraColumn("BC Reason", Map.of(api, "BAU route modified"))));
+        byte[] out = svc.exportExcel(r, "BAU App Coverage", Map.of(), List.of(
+                new CapabilityService.ExtraColumn("Impact Reason", Map.of(api, "BAU route modified"))));
 
         try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(out))) {
-            Sheet s = wb.getSheet("Old-app test list");
+            Sheet s = wb.getSheet("BAU App Coverage");
             assertThat(s).isNotNull();
-            assertThat(s.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Old App Version");
-            assertThat(s.getRow(0).getCell(1).getStringCellValue()).isEqualTo("BC Reason");
-            assertThat(s.getRow(1).getCell(0).getStringCellValue()).isEqualTo("9.10");
-            assertThat(s.getRow(1).getCell(1).getStringCellValue()).isEqualTo("BAU route modified");
-            assertThat(s.getRow(1).getCell(2).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");   // ID after the 2 extras
+            int last = s.getRow(0).getLastCellNum() - 1;
+            assertThat(s.getRow(0).getCell(0).getStringCellValue()).isEqualTo("ID");            // no leading extras
+            assertThat(s.getRow(0).getCell(last).getStringCellValue()).isEqualTo("Impact Reason");   // trailing = last
+            assertThat(s.getRow(1).getCell(0).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");
+            assertThat(s.getRow(1).getCell(last).getStringCellValue()).isEqualTo("BAU route modified");
         }
     }
 

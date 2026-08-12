@@ -220,7 +220,7 @@ public class CapabilityService {
             "Entity", "Linked SPL detailed Interface table", "Description", "FE/BE", "Matched Interface (Col G)"
     };
 
-    /** An extra per-API column to prepend to the export (e.g. Old App Version / BC Reason for the Impact export). */
+    /** An extra per-API column (e.g. Impact Reason for the Release Impact export) — appended as the LAST column. */
     public record ExtraColumn(String header, Map<String, String> valueByApi) {}
 
     /** A leading column: header + per-API values + whether to colour-fill it (only the Test Status column is). */
@@ -228,7 +228,7 @@ public class CapabilityService {
 
     /** Back-compat: export with no per-API test status (Release Scope — no logs). */
     public byte[] exportExcel(CapabilityResult result) {
-        return build(result, "Capabilities", List.of());
+        return build(result, "Capabilities", List.of(), List.of());
     }
 
     /** Release Test: a leading coloured "Test Status" column when verdicts are supplied. */
@@ -237,30 +237,32 @@ public class CapabilityService {
     }
 
     /**
-     * General export: a matched sheet ({@code matchedSheet}) + a "Missed" sheet (APIs with no capability), both prefixed with leading
-     * columns — a coloured <b>Test Status</b> (Release Test verdicts) followed by any {@code extraColumns}
-     * (e.g. Old App Version / BC Reason for the Release Impact old-app list).
+     * General export: a matched sheet ({@code matchedSheet}) + an "Unmapped Interface spec" sheet (APIs with no
+     * capability). A coloured leading <b>Test Status</b> column (Release Test verdicts) is prepended when
+     * supplied; any {@code trailingColumns} (e.g. Impact Reason for the Release Impact list) are appended LAST.
      */
     public byte[] exportExcel(CapabilityResult result, String matchedSheet, Map<String, String> statusByApi,
-                              List<ExtraColumn> extraColumns) {
+                              List<ExtraColumn> trailingColumns) {
         List<LeadColumn> lead = new ArrayList<>();
         if (statusByApi != null && !statusByApi.isEmpty()) {
             lead.add(new LeadColumn("Test Status", statusByApi, true));
         }
-        if (extraColumns != null) {
-            for (ExtraColumn e : extraColumns) {
-                lead.add(new LeadColumn(e.header(), e.valueByApi() == null ? Map.of() : e.valueByApi(), false));
+        List<LeadColumn> trail = new ArrayList<>();
+        if (trailingColumns != null) {
+            for (ExtraColumn e : trailingColumns) {
+                trail.add(new LeadColumn(e.header(), e.valueByApi() == null ? Map.of() : e.valueByApi(), false));
             }
         }
-        return build(result, matchedSheet, lead);
+        return build(result, matchedSheet, lead, trail);
     }
 
-    private byte[] build(CapabilityResult result, String matchedSheet, List<LeadColumn> lead) {
+    private byte[] build(CapabilityResult result, String matchedSheet, List<LeadColumn> lead, List<LeadColumn> trail) {
         String[] leadHeaders = lead.stream().map(LeadColumn::header).toArray(String[]::new);
+        String[] trailHeaders = trail.stream().map(LeadColumn::header).toArray(String[]::new);
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Map<String, CellStyle> statusStyles = new LinkedHashMap<>();   // one fill style per status label, per workbook
             Sheet sheet = wb.createSheet(matchedSheet == null || matchedSheet.isBlank() ? "Capabilities" : matchedSheet);
-            writeRow(sheet, 0, concat(leadHeaders, OUT_HEADERS));
+            writeRow(sheet, 0, concat(leadHeaders, OUT_HEADERS, trailHeaders));
             int r = 1;
             for (CapabilityMatch m : result.matched()) {
                 for (CapabilityRow c : m.capabilities()) {
@@ -269,16 +271,16 @@ public class CapabilityService {
                             c.linkedInterface(), c.linkedReport(), c.linkedTestCase(), c.entity(),
                             c.splDetailedInterfaceTable(), c.description(),
                             m.fe() ? "FE" : "BE", m.matchedInterface()};
-                    Row row = writeRow(sheet, r++, concat(leadValues(lead, m.api()), base));
+                    Row row = writeRow(sheet, r++, concat(leadValues(lead, m.api()), base, leadValues(trail, m.api())));
                     colourLead(wb, statusStyles, row, lead, m.api());
                 }
             }
-            Sheet un = wb.createSheet("Missed");
-            writeRow(un, 0, concat(leadHeaders, new String[]{"API", "FE/BE", "Reason"}));
+            Sheet un = wb.createSheet("Unmapped Interface spec");
+            writeRow(un, 0, concat(leadHeaders, new String[]{"API", "FE/BE", "Reason"}, trailHeaders));
             int u = 1;
             for (Unmatched m : result.unmatched()) {
                 String[] base = {m.api(), m.fe() ? "FE" : "BE", m.reason()};
-                Row row = writeRow(un, u++, concat(leadValues(lead, m.api()), base));
+                Row row = writeRow(un, u++, concat(leadValues(lead, m.api()), base, leadValues(trail, m.api())));
                 colourLead(wb, statusStyles, row, lead, m.api());
             }
             wb.write(out);
@@ -292,10 +294,17 @@ public class CapabilityService {
         return lead.stream().map(l -> l.valueByApi().getOrDefault(api, "")).toArray(String[]::new);
     }
 
-    private static String[] concat(String[] a, String[] b) {
-        String[] out = new String[a.length + b.length];
-        System.arraycopy(a, 0, out, 0, a.length);
-        System.arraycopy(b, 0, out, a.length, b.length);
+    private static String[] concat(String[]... parts) {
+        int len = 0;
+        for (String[] p : parts) {
+            len += p.length;
+        }
+        String[] out = new String[len];
+        int at = 0;
+        for (String[] p : parts) {
+            System.arraycopy(p, 0, out, at, p.length);
+            at += p.length;
+        }
         return out;
     }
 

@@ -263,7 +263,7 @@ public class RouteGraphController {
      */
     public record CapabilityRequest(List<String> feApis, List<String> beApis, String country,
                                     Map<String, String> statusByApi, String sheetName,
-                                    List<CapabilityService.ExtraColumn> extraColumns) {}
+                                    List<CapabilityService.ExtraColumn> trailingColumns) {}
 
     /** Whether the two VAL reports are configured (a one-time config, like the log rules). */
     @GetMapping("/internal/capability-config")
@@ -304,7 +304,7 @@ public class RouteGraphController {
                 capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()),
                 sheet,
                 req.statusByApi() == null ? Map.of() : req.statusByApi(),
-                req.extraColumns() == null ? List.of() : req.extraColumns());
+                req.trailingColumns() == null ? List.of() : req.trailingColumns());
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"capability-matrix.xlsx\"")
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))

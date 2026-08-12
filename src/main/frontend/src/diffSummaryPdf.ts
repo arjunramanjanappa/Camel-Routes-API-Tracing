@@ -1,5 +1,5 @@
 import type { ApiDiff, ApiLogResult, DiffStatus } from './types';
-import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import type { ModuleDiff } from './diffPdf';
 
 /**
@@ -67,7 +67,7 @@ function testedRamp(l?: ApiLogResult): { label: string; ramp: Ramp } {
 }
 function pillCell(label: string, ramp: Ramp) { return { pill: { label, fill: ramp.fill, text: ramp.text, stripe: ramp.bar } }; }
 
-export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
+export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }) {
   const r = await ReportDoc.create();
   const first = mods.find((m) => m.report)?.report;
   const ver = first?.version || 'N/A';
@@ -120,7 +120,9 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string) {
       `${app ? app + ' · ' : ''}Release ${ver}${country ? ' · ' + country : ''}`,
       appVersion ? `Commit/App version(s): ${appVersion}` : '',
       'Generated ' + generatedStamp(),
-    ].filter(Boolean));
+      hasAnyLog ? passRateLine(passed, verified) : null,
+      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null,
+    ].filter((l): l is string => !!l));
 
   // ---- Release health — New & Changed only (Unchanged is BAU, not shown) ----
   r.bookmark('Release health');

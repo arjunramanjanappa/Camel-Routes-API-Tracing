@@ -787,6 +787,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   // Optional test-log correlation, per version: version → module id → (api path → log result). Per-version so a
   // shared-code re-test at an OLDER version (e.g. 9.8) is verified against a 9.8 transaction in the log.
   const [logByVer, setLogByVer] = useState<Record<string, Record<string, Record<string, ApiLogResult>>>>({});
+  const [logWindow, setLogWindow] = useState<{ start?: string; end?: string } | null>(null);   // analysed log span
   const [logInfo, setLogInfo] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const hasLog = Object.keys(logByVer).length > 0;
@@ -828,7 +829,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         (r) => r.moduleName,
       );
       setReports(results);
-      setLogByVer({}); setLogInfo(null);   // a fresh comparison invalidates any merged test log
+      setLogByVer({}); setLogWindow(null); setLogInfo(null);   // a fresh comparison invalidates any merged test log
       const first = results.find((r) => r.result) || results[0];
       setActiveId(first?.module.id ?? null);
       show(first?.result ?? null);
@@ -871,6 +872,16 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         next[v] = byMod;
       }
       setLogByVer(next);
+      // The analysed log's time span — earliest start / latest end across every version's report.
+      let winStart: string | undefined, winEnd: string | undefined;
+      for (const { res } of perVer) {
+        for (const mr of res) {
+          const s = mr?.report?.logStart ?? undefined, e = mr?.report?.logEnd ?? undefined;
+          if (s && (!winStart || s < winStart)) winStart = s;
+          if (e && (!winEnd || e > winEnd)) winEnd = e;
+        }
+      }
+      setLogWindow(winStart || winEnd ? { start: winStart, end: winEnd } : null);
       const passed = Object.values(next).reduce((n, byMod) =>
         n + Object.values(byMod).reduce((k, mm) => k + Object.values(mm).filter((a) => a.tested).length, 0), 0);
       setLogInfo(`Merged test results across ${versions.size} version(s) — ${passed} executed API result(s)`);
@@ -984,9 +995,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   }).filter((m) => m.report || m.error);
 
   /** Detailed PDF — full route/class/test report for developers & testers. */
-  const exportPdf = () => { const mods = buildMods(); if (mods.length) exportDiffPdf(mods, app).catch(() => {}); };
+  const exportPdf = () => { const mods = buildMods(); if (mods.length) exportDiffPdf(mods, app, logWindow ?? undefined).catch(() => {}); };
   /** Summary PDF — 1–2 page RAG overview for release managers & delivery leads. */
-  const exportSummaryPdf = () => { const mods = buildMods(); if (mods.length) exportDiffSummaryPdf(mods, app).catch(() => {}); };
+  const exportSummaryPdf = () => { const mods = buildMods(); if (mods.length) exportDiffSummaryPdf(mods, app, logWindow ?? undefined).catch(() => {}); };
 
   /** The BC-impacted APIs across all modules — a shared BAU class or a BAU route the OLD app runs was changed. */
   const bcApis = (): ApiDiff[] => reports.flatMap((r) => r.result?.apis ?? []).filter(needsBC);
@@ -1084,7 +1095,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                      disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
             </label>
             {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
-            {hasLog && <button className="linkbtn" onClick={() => { setLogByVer({}); setLogInfo(null); }}>Clear</button>}
+            {hasLog && <button className="linkbtn" onClick={() => { setLogByVer({}); setLogWindow(null); setLogInfo(null); }}>Clear</button>}
           </div>
           <ImpactSummary report={report} log={activeLog} />
         </div>
@@ -1187,7 +1198,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               {logBusy && <span className="testlog-info">matching your log against the impacted APIs across versions…</span>}
               {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
               {hasLog && (
-                <button className="linkbtn" onClick={() => { setLogByVer({}); setLogInfo(null); }}>Clear</button>
+                <button className="linkbtn" onClick={() => { setLogByVer({}); setLogWindow(null); setLogInfo(null); }}>Clear</button>
               )}
             </div>
             <CodeChangeSummary report={report} />

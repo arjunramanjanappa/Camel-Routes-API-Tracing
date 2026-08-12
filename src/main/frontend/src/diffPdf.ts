@@ -1,5 +1,5 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { versionLabel } from './feature';
 import { backendPath } from './spl';
 
@@ -89,11 +89,20 @@ function testedTag(l?: ApiLogResult): { label: string; ramp: Ramp } | null {
 }
 
 /** Render the multi-module release-diff to one PDF: a per-module impact summary, then each module's changes. */
-export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
+export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }) {
   const r = await ReportDoc.create();
   const first = mods.find((m) => m.report)?.report;
   const ver = first?.version || 'N/A';
   const country = first?.country;
+
+  // Headline test tally across modules (of the to-test APIs, how many executed & passed) — for the title page.
+  const hasAnyLog = mods.some((m) => m.logByVer && Object.keys(m.logByVer).length);
+  let dpPassed = 0, dpVerified = 0;
+  if (hasAnyLog) for (const m of mods) {
+    const rep = m.report; if (!rep) continue;
+    const toTest = rep.apis.filter((a) => rep.snapshot ? !!a.codeChanged : (a.status === 'CHANGED' || a.status === 'NEW' || !!a.codeChanged));
+    for (const a of toTest) { const l = logAt(m.logByVer, a.targetVersion, a.api); if (l?.tested) { dpVerified++; if (l.status === 'SUCCESS') dpPassed++; } }
+  }
 
   const rows = mods.map((m) => {
     const rep = m.report;
@@ -112,7 +121,10 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string) {
   r.titlePage('Release Impact Report',
     `${app ? app + '  ·  ' : ''}Release ${ver}${country ? '  ·  ' + country : ''}${appVersion ? '  ·  app ' + appVersion : ''}`,
     [`Generated ${generatedStamp()}`, `${mods.length} module(s)`,
-      `${tot.changed + tot.added} API(s) to test  ·  ${tot.high} high-risk`]);
+      `${tot.changed + tot.added} API(s) to test  ·  ${tot.high} high-risk`,
+      hasAnyLog ? passRateLine(dpPassed, dpVerified) : null,
+      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null,
+    ].filter((l): l is string => !!l));
 
   // ===== Release Impact Summary =====
   r.bookmark('Release Impact Summary');

@@ -2,6 +2,7 @@ package com.uob.tracer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uob.tracer.service.AppConfigService;
+import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.ConfigSeeder;
 import com.uob.tracer.service.LogRulesService;
 import org.junit.jupiter.api.Test;
@@ -60,11 +61,15 @@ class ConfigSeedingTest {
         // document the format but must seed nothing — no empty config files on a fresh install.
         LogRulesService rules = new LogRulesService(dir.toString(), mapper);
         AppConfigService modules = new AppConfigService(dir.toString(), "", mapper);
+        CapabilityService capabilities = new CapabilityService(dir.toString());
 
-        new ConfigSeeder(rules, modules, mapper);   // reads the classpath config-seed/*.json placeholders
+        new ConfigSeeder(rules, modules, capabilities, mapper);   // reads the classpath config-seed/* placeholders
 
         assertThat(Files.exists(dir.resolve("log-rules.json"))).isFalse();
         assertThat(Files.exists(dir.resolve("app-modules.json"))).isFalse();
+        // No bundled VAL .xlsx in config-seed → nothing seeded either.
+        assertThat(Files.exists(dir.resolve("val-interface-spec.xlsx"))).isFalse();
+        assertThat(Files.exists(dir.resolve("val-capability-matrix.xlsx"))).isFalse();
     }
 
     @Test

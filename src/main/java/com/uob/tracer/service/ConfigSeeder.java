@@ -43,10 +43,31 @@ public class ConfigSeeder {
 
     private final ObjectMapper mapper;
 
-    public ConfigSeeder(LogRulesService logRules, AppConfigService appConfig, ObjectMapper mapper) {
+    public ConfigSeeder(LogRulesService logRules, AppConfigService appConfig, CapabilityService capabilities, ObjectMapper mapper) {
         this.mapper = mapper;
         apply("config-seed/log-rules.json", logRules.file(), logRules::seedIfAbsent, logRules::overwrite);
         apply("config-seed/app-modules.json", appConfig.file(), appConfig::seedIfAbsent, appConfig::overwrite);
+        // The VAL reports are binary .xlsx — seed-if-absent only (no 3-way merge). Drop the team's files at
+        // config-seed/val-interface-spec.xlsx / config-seed/val-capability-matrix.xlsx before packaging the exe;
+        // a fresh install gets them, and the user can later replace via ⚙ Config → Replace.
+        seedBinary("config-seed/val-interface-spec.xlsx", capabilities::seedInterfaceSpecIfAbsent);
+        seedBinary("config-seed/val-capability-matrix.xlsx", capabilities::seedCapabilityMatrixIfAbsent);
+    }
+
+    /** Seed a bundled BINARY resource (e.g. a VAL .xlsx) only when the target file doesn't exist yet. */
+    private void seedBinary(String resource, Predicate<byte[]> seedIfAbsent) {
+        ClassPathResource res = new ClassPathResource(resource);
+        if (!res.exists()) {
+            return;   // no bundled file — nothing to seed
+        }
+        try (InputStream in = res.getInputStream()) {
+            byte[] bytes = in.readAllBytes();
+            if (bytes.length > 0) {
+                seedIfAbsent.test(bytes);
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not seed the bundled resource {} ({})", resource, e.getMessage());
+        }
     }
 
     /**

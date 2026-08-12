@@ -98,6 +98,34 @@ public class CapabilityService {
 
     public void saveCapabilityMatrix(byte[] xlsx) { write(capabilityMatrixFile, xlsx); }
 
+    /** First-run seed (bundled exe setup): write the file only if none exists yet; a later Config → Replace wins.
+     *  Returns true if it wrote. Binary .xlsx — no merge, unlike the JSON config seeds. */
+    public boolean seedInterfaceSpecIfAbsent(byte[] xlsx) { return seedIfAbsent(interfaceSpecFile, xlsx); }
+
+    public boolean seedCapabilityMatrixIfAbsent(byte[] xlsx) { return seedIfAbsent(capabilityMatrixFile, xlsx); }
+
+    private boolean seedIfAbsent(Path file, byte[] xlsx) {
+        if (xlsx == null || xlsx.length == 0) {
+            return false;
+        }
+        synchronized (lock) {
+            if (Files.exists(file)) {
+                return false;   // the user already has one (seeded before, or attached) — never overwrite
+            }
+            try {
+                Files.createDirectories(home);
+                Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+                Files.write(tmp, xlsx);
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+                LOG.info("Seeded VAL report {} from the bundled setup", file.getFileName());
+                return true;
+            } catch (IOException e) {
+                LOG.warn("Could not seed VAL report {} ({})", file.getFileName(), e.getMessage());
+                return false;
+            }
+        }
+    }
+
     private void write(Path file, byte[] xlsx) {
         if (xlsx == null || xlsx.length == 0) {
             throw new IllegalArgumentException("Empty file");

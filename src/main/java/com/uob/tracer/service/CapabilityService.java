@@ -1,11 +1,15 @@
 package com.uob.tracer.service;
 
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -230,6 +234,7 @@ public class CapabilityService {
         Map<String, String> status = statusByApi == null ? Map.of() : statusByApi;
         boolean withStatus = !status.isEmpty();
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Map<String, CellStyle> statusStyles = new LinkedHashMap<>();   // one fill style per status label, per workbook
             Sheet sheet = wb.createSheet("Capabilities");
             writeRow(sheet, 0, header(withStatus, OUT_HEADERS));
             int r = 1;
@@ -241,7 +246,8 @@ public class CapabilityService {
                             c.linkedInterface(), c.linkedReport(), c.linkedTestCase(), c.entity(),
                             c.splDetailedInterfaceTable(), c.description(),
                             m.fe() ? "FE" : "BE", m.matchedInterface()};
-                    writeRow(sheet, r++, withStatus ? prepend(st, base) : base);
+                    Row row = writeRow(sheet, r++, withStatus ? prepend(st, base) : base);
+                    if (withStatus) colourStatus(wb, statusStyles, row.getCell(0), st);
                 }
             }
             Sheet un = wb.createSheet("Unmatched");
@@ -249,7 +255,9 @@ public class CapabilityService {
             int u = 1;
             for (Unmatched m : result.unmatched()) {
                 String[] base = {m.api(), m.fe() ? "FE" : "BE", m.reason()};
-                writeRow(un, u++, withStatus ? prepend(status.getOrDefault(m.api(), ""), base) : base);
+                String st = status.getOrDefault(m.api(), "");
+                Row row = writeRow(un, u++, withStatus ? prepend(st, base) : base);
+                if (withStatus) colourStatus(wb, statusStyles, row.getCell(0), st);
             }
             wb.write(out);
             return out.toByteArray();
@@ -270,12 +278,45 @@ public class CapabilityService {
         return out;
     }
 
-    private static void writeRow(Sheet sheet, int rowIdx, String[] values) {
+    private static Row writeRow(Sheet sheet, int rowIdx, String[] values) {
         Row row = sheet.createRow(rowIdx);
         for (int i = 0; i < values.length; i++) {
             row.createCell(i).setCellValue(values[i] == null ? "" : values[i]);
         }
+        return row;
     }
+
+    /** Fill the Test Status cell with a status colour (green/amber/red…) so the sheet is scannable at a glance. */
+    private static void colourStatus(XSSFWorkbook wb, Map<String, CellStyle> cache, Cell cell, String label) {
+        byte[] rgb = statusRgb(label);
+        if (cell == null || rgb == null) {
+            return;
+        }
+        CellStyle style = cache.computeIfAbsent(label, k -> {
+            XSSFCellStyle s = wb.createCellStyle();
+            s.setFillForegroundColor(new XSSFColor(rgb, null));
+            s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            return s;
+        });
+        cell.setCellStyle(style);
+    }
+
+    /** Excel fill for a verdict label (the classic conditional-format tints), or null for an unknown/blank one. */
+    private static byte[] statusRgb(String label) {
+        String l = label == null ? "" : label.trim().toLowerCase(Locale.ROOT);
+        return switch (l) {
+            case "success", "passed" -> rgb(0xC6, 0xEF, 0xCE);   // green
+            case "partial" -> rgb(0xFF, 0xEB, 0x9C);             // amber
+            case "failed" -> rgb(0xFF, 0xC7, 0xCE);              // red
+            case "not tested" -> rgb(0xFF, 0xD9, 0xB3);          // orange (a gap to cover)
+            case "timeout" -> rgb(0xFF, 0xC7, 0xCE);             // red
+            case "check", "indeterminate" -> rgb(0xBD, 0xD7, 0xEE); // blue (needs a look)
+            case "skipped" -> rgb(0xE7, 0xE6, 0xE6);             // grey (neutral)
+            default -> null;
+        };
+    }
+
+    private static byte[] rgb(int r, int g, int b) { return new byte[]{(byte) r, (byte) g, (byte) b}; }
 
     // --- parsing ---
 

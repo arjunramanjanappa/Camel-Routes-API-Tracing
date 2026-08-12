@@ -2,6 +2,7 @@ package com.uob.tracer;
 
 import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.CapabilityService.CapabilityResult;
+import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -135,6 +136,7 @@ class CapabilityServiceTest {
             Sheet caps = wb.getSheet("Capabilities");
             assertThat(caps.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Test Status");   // leading column
             assertThat(caps.getRow(1).getCell(0).getStringCellValue()).isEqualTo("Failed");         // the API's verdict
+            assertThat(caps.getRow(1).getCell(0).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.SOLID_FOREGROUND);  // colour-filled
             assertThat(caps.getRow(1).getCell(1).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");   // ID shifted to col 1
         }
         // Without statuses (Release Scope), the column is omitted — ID stays first.

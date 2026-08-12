@@ -4,11 +4,14 @@ import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.api.TraceRequest;
 import com.uob.tracer.service.AppConfigService;
+import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.LogAnalysisService;
 import com.uob.tracer.service.LogRulesService;
 import com.uob.tracer.service.RouteTraceService;
 import com.uob.tracer.service.SettingsService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,14 +45,17 @@ public class RouteGraphController {
     private final AppConfigService appConfig;
     private final SettingsService settings;
     private final LogRulesService logRules;
+    private final CapabilityService capabilities;
 
     public RouteGraphController(RouteTraceService service, LogAnalysisService logService,
-                                AppConfigService appConfig, SettingsService settings, LogRulesService logRules) {
+                                AppConfigService appConfig, SettingsService settings, LogRulesService logRules,
+                                CapabilityService capabilities) {
         this.settings = settings;
         this.service = service;
         this.logService = logService;
         this.appConfig = appConfig;
         this.logRules = logRules;
+        this.capabilities = capabilities;
     }
 
     /**
@@ -247,6 +253,54 @@ public class RouteGraphController {
     public Map<String, LogRulesService.AppRules> saveLogRules(@RequestBody Map<String, LogRulesService.AppRules> body) {
         return logRules.saveAll(body == null ? Map.of() : body);
     }
+
+    // --- VAL Capability Matrix: map impacted APIs → business capabilities (how to test) ---
+
+    /** Request for the capability lookup: the impacted front-end + backend API paths, scoped to a country. */
+    public record CapabilityRequest(List<String> feApis, List<String> beApis, String country) {}
+
+    /** Whether the two VAL reports are configured (a one-time config, like the log rules). */
+    @GetMapping("/internal/capability-config")
+    public Map<String, Object> capabilityConfig() {
+        return Map.of(
+                "interfaceSpec", capabilities.hasInterfaceSpec(),
+                "capabilityMatrix", capabilities.hasCapabilityMatrix());
+    }
+
+    /**
+     * Store the VAL reports (one-time config; re-upload when the VAL updates). Either file may be sent alone,
+     * so one can be replaced without re-uploading the other.
+     */
+    @PostMapping("/internal/capability-config")
+    public Map<String, Object> saveCapabilityConfig(
+            @RequestParam(value = "interfaceSpec", required = false) MultipartFile interfaceSpec,
+            @RequestParam(value = "capabilityMatrix", required = false) MultipartFile capabilityMatrix) throws IOException {
+        if (interfaceSpec != null && !interfaceSpec.isEmpty()) {
+            capabilities.saveInterfaceSpec(interfaceSpec.getBytes());
+        }
+        if (capabilityMatrix != null && !capabilityMatrix.isEmpty()) {
+            capabilities.saveCapabilityMatrix(capabilityMatrix.getBytes());
+        }
+        return capabilityConfig();
+    }
+
+    /** Resolve the impacted APIs to their capabilities (JSON) — drives the summary PDFs' capability columns. */
+    @PostMapping("/internal/capabilities")
+    public CapabilityService.CapabilityResult resolveCapabilities(@RequestBody CapabilityRequest req) {
+        return capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country());
+    }
+
+    /** The joined Capability export as an .xlsx download (one row per API→capability + an Unmatched sheet). */
+    @PostMapping("/internal/capabilities/export")
+    public ResponseEntity<byte[]> exportCapabilities(@RequestBody CapabilityRequest req) {
+        byte[] xlsx = capabilities.exportExcel(capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"capability-matrix.xlsx\"")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(xlsx);
+    }
+
+    private static List<String> safe(List<String> l) { return l == null ? List.of() : l; }
 
     private static String nz(String v) { return v == null ? "" : v; }
 

@@ -95,6 +95,14 @@
             <version>2.3.33</version>
         </dependency>
 
+        <!-- Apache POI: read the VAL Excel reports (Interface Spec + Capability Matrix) and write the
+             joined Capability export .xlsx. Only used by the capability-matrix feature. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

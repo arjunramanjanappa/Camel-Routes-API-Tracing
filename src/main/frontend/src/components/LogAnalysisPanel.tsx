@@ -606,7 +606,19 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       ...report.backends.map((b) => backendPath(b.backend)),
       ...report.apis.flatMap((a) => (a.backends || []).map((b) => backendPath(b.backend))),
     ].filter(Boolean))];
-    return { feApis, beApis, country };
+    // Per-API log verdict for the export's "Test Status" column (what to focus on): the FE API's verdict, and
+    // each backend's WORST status across the flows that hit it (lower SEVERITY index = worse).
+    const statusByApi: Record<string, string> = {};
+    for (const a of report.apis) statusByApi[a.api] = STATUS_LABEL[a.status];
+    const beWorst: Record<string, LogStatus> = {};
+    const consider = (raw: string, s: LogStatus) => {
+      const p = backendPath(raw);
+      if (p && (beWorst[p] === undefined || SEVERITY[s] < SEVERITY[beWorst[p]])) beWorst[p] = s;
+    };
+    report.backends.forEach((b) => consider(b.backend, b.status));
+    report.apis.forEach((a) => (a.backends || []).forEach((b) => consider(b.backend, b.status)));
+    for (const [p, s] of Object.entries(beWorst)) statusByApi[p] = STATUS_LABEL[s];
+    return { feApis, beApis, country, statusByApi };
   };
   /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team. */
   const exportCapabilities = () => { if (report) exportCapabilitiesXlsx(capabilityScope()).catch(() => {}); };

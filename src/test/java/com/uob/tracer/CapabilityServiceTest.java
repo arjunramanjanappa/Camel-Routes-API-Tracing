@@ -14,6 +14,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -121,6 +122,25 @@ class CapabilityServiceTest {
             Sheet un = wb.getSheet("Unmatched");
             assertThat(un).isNotNull();
             assertThat(un.getRow(1).getCell(0).getStringCellValue()).contains("/does/not/exist");
+        }
+    }
+
+    @Test
+    void exportAddsALeadingTestStatusColumnWhenVerdictsAreProvided(@TempDir Path home) throws Exception {
+        CapabilityService svc = configured(home);
+        CapabilityResult r = svc.resolve(List.of("/services/onboarding/security/fr/profile"), List.of(), "SG");
+        byte[] out = svc.exportExcel(r, Map.of("/services/onboarding/security/fr/profile", "Failed"));
+
+        try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(out))) {
+            Sheet caps = wb.getSheet("Capabilities");
+            assertThat(caps.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Test Status");   // leading column
+            assertThat(caps.getRow(1).getCell(0).getStringCellValue()).isEqualTo("Failed");         // the API's verdict
+            assertThat(caps.getRow(1).getCell(1).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");   // ID shifted to col 1
+        }
+        // Without statuses (Release Scope), the column is omitted — ID stays first.
+        byte[] noStatus = svc.exportExcel(r);
+        try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(noStatus))) {
+            assertThat(wb.getSheet("Capabilities").getRow(0).getCell(0).getStringCellValue()).isEqualTo("ID");
         }
     }
 

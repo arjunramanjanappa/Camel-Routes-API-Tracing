@@ -256,8 +256,13 @@ public class RouteGraphController {
 
     // --- VAL Capability Matrix: map impacted APIs → business capabilities (how to test) ---
 
-    /** Request for the capability lookup: the impacted front-end + backend API paths, scoped to a country. */
-    public record CapabilityRequest(List<String> feApis, List<String> beApis, String country) {}
+    /**
+     * Request for the capability lookup: the impacted front-end + backend API paths, scoped to a country.
+     * {@code statusByApi} (Release Test only) maps an API path to its log-analysis verdict (Passed / Failed /
+     * Partial / Not tested) so the Excel export can add a "Test Status" column — what the tester should focus on.
+     */
+    public record CapabilityRequest(List<String> feApis, List<String> beApis, String country,
+                                    Map<String, String> statusByApi) {}
 
     /** Whether the two VAL reports are configured (a one-time config, like the log rules). */
     @GetMapping("/internal/capability-config")
@@ -293,7 +298,9 @@ public class RouteGraphController {
     /** The joined Capability export as an .xlsx download (one row per API→capability + an Unmatched sheet). */
     @PostMapping("/internal/capabilities/export")
     public ResponseEntity<byte[]> exportCapabilities(@RequestBody CapabilityRequest req) {
-        byte[] xlsx = capabilities.exportExcel(capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()));
+        byte[] xlsx = capabilities.exportExcel(
+                capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()),
+                req.statusByApi() == null ? Map.of() : req.statusByApi());
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"capability-matrix.xlsx\"")
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))

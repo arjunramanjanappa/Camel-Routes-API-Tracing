@@ -216,32 +216,58 @@ public class CapabilityService {
             "Entity", "Linked SPL detailed Interface table", "Description", "FE/BE", "Matched Interface (Col G)"
     };
 
-    /** Build the joined Capability export workbook: a "Capabilities" sheet + an "Unmatched" sheet. */
+    /** Back-compat: export with no per-API test status (Release Scope — no logs). */
     public byte[] exportExcel(CapabilityResult result) {
+        return exportExcel(result, Map.of());
+    }
+
+    /**
+     * Build the joined Capability export workbook: a "Capabilities" sheet + an "Unmatched" sheet. When
+     * {@code statusByApi} is non-empty (Release Test — the log-analysis verdicts), a leading <b>Test Status</b>
+     * column is added to both sheets so the tester sees what to focus on (Failed / Partial / Not Tested).
+     */
+    public byte[] exportExcel(CapabilityResult result, Map<String, String> statusByApi) {
+        Map<String, String> status = statusByApi == null ? Map.of() : statusByApi;
+        boolean withStatus = !status.isEmpty();
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = wb.createSheet("Capabilities");
-            writeRow(sheet, 0, OUT_HEADERS);
+            writeRow(sheet, 0, header(withStatus, OUT_HEADERS));
             int r = 1;
             for (CapabilityMatch m : result.matched()) {
+                String st = status.getOrDefault(m.api(), "");
                 for (CapabilityRow c : m.capabilities()) {
-                    writeRow(sheet, r++, new String[]{
+                    String[] base = {
                             c.id(), c.l1(), c.l2(), c.l3(), c.l4(), c.l5(), c.l6Features(), c.dependentCapability(),
                             c.linkedInterface(), c.linkedReport(), c.linkedTestCase(), c.entity(),
                             c.splDetailedInterfaceTable(), c.description(),
-                            m.fe() ? "FE" : "BE", m.matchedInterface()});
+                            m.fe() ? "FE" : "BE", m.matchedInterface()};
+                    writeRow(sheet, r++, withStatus ? prepend(st, base) : base);
                 }
             }
             Sheet un = wb.createSheet("Unmatched");
-            writeRow(un, 0, new String[]{"API", "FE/BE", "Reason"});
+            writeRow(un, 0, header(withStatus, new String[]{"API", "FE/BE", "Reason"}));
             int u = 1;
             for (Unmatched m : result.unmatched()) {
-                writeRow(un, u++, new String[]{m.api(), m.fe() ? "FE" : "BE", m.reason()});
+                String[] base = {m.api(), m.fe() ? "FE" : "BE", m.reason()};
+                writeRow(un, u++, withStatus ? prepend(status.getOrDefault(m.api(), ""), base) : base);
             }
             wb.write(out);
             return out.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("Could not build the capability export: " + e.getMessage(), e);
         }
+    }
+
+    /** Prepend the "Test Status" header when a status is being written. */
+    private static String[] header(boolean withStatus, String[] base) {
+        return withStatus ? prepend("Test Status", base) : base;
+    }
+
+    private static String[] prepend(String first, String[] rest) {
+        String[] out = new String[rest.length + 1];
+        out[0] = first;
+        System.arraycopy(rest, 0, out, 1, rest.length);
+        return out;
     }
 
     private static void writeRow(Sheet sheet, int rowIdx, String[] values) {

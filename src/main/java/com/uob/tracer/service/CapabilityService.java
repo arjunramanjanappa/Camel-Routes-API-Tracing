@@ -237,7 +237,7 @@ public class CapabilityService {
     }
 
     /**
-     * General export: a matched sheet ({@code matchedSheet}) + an "Unmatched" sheet, both prefixed with leading
+     * General export: a matched sheet ({@code matchedSheet}) + a "Missed" sheet (APIs with no capability), both prefixed with leading
      * columns — a coloured <b>Test Status</b> (Release Test verdicts) followed by any {@code extraColumns}
      * (e.g. Old App Version / BC Reason for the Release Impact old-app list).
      */
@@ -273,7 +273,7 @@ public class CapabilityService {
                     colourLead(wb, statusStyles, row, lead, m.api());
                 }
             }
-            Sheet un = wb.createSheet("Unmatched");
+            Sheet un = wb.createSheet("Missed");
             writeRow(un, 0, concat(leadHeaders, new String[]{"API", "FE/BE", "Reason"}));
             int u = 1;
             for (Unmatched m : result.unmatched()) {

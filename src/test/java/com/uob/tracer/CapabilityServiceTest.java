@@ -119,8 +119,8 @@ class CapabilityServiceTest {
             Row first = caps.getRow(1);
             assertThat(first.getCell(0).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");
             assertThat(first.getCell(15).getStringCellValue()).contains("/services/onboarding/security/fr/profile");
-            // the unknown API lands in the Unmatched sheet.
-            Sheet un = wb.getSheet("Unmatched");
+            // the unknown API lands in the Missed sheet.
+            Sheet un = wb.getSheet("Missed");
             assertThat(un).isNotNull();
             assertThat(un.getRow(1).getCell(0).getStringCellValue()).contains("/does/not/exist");
         }

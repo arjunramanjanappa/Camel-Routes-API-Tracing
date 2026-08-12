@@ -36,6 +36,22 @@ export function generatedStamp(): string {
   return `${d.getDate()}-${MONTHS[d.getMonth()]}-${d.getFullYear()},  ${d.toLocaleTimeString()}`;
 }
 
+/** Strip the fractional seconds from a raw log timestamp for a compact title-page display. */
+export function tsShort(ts?: string | null): string { return (ts || '').replace(/[.:]\d{1,3}$/, '').trim(); }
+
+/** Title-page line "Logs: <start>  →  <end>" for the analysed log window, or null when no timestamps were read. */
+export function logWindowLine(logStart?: string | null, logEnd?: string | null): string | null {
+  const a = tsShort(logStart), b = tsShort(logEnd);
+  if (!a && !b) return null;
+  return `Logs: ${a}${b && b !== a ? '  →  ' + b : ''}`;
+}
+
+/** Title-page line "Pass rate: N% (passed/tested)" from passed + tested counts, or null when nothing was tested. */
+export function passRateLine(passed: number, tested: number): string | null {
+  if (!tested) return null;
+  return `Pass rate: ${Math.round((100 * passed) / tested)}%  (${passed}/${tested} tested)`;
+}
+
 /** A filename-safe local timestamp, e.g. 2026-06-24_153045 — appended to export filenames. */
 export function stamp(): string {
   const d = new Date();
@@ -137,11 +153,15 @@ export class ReportDoc {
   }
 
   /** Cover header: the TraceGuard brand mark (top-right), title, subtitle, one meta line, then a rule. */
-  header(title: string, subtitle: string, meta: string) {
+  header(title: string, subtitle: string, meta: string, extra?: (string | null)[]) {
     this.brandMark();   // logo + wordmark at top-right, so it's clear which app produced the report
     this.text(title, M, 'bold', 20, PAL.ink); this.y += 22;
     this.text(subtitle, M, 'normal', 11, PAL.accent); this.y += 16;
     this.text(meta, M, 'normal', 9, PAL.muted); this.y += 16;
+    // Optional extra meta lines (e.g. Pass rate / Logs window) printed under the Generated line.
+    for (const line of extra || []) {
+      if (line) { this.text(line, M, 'normal', 9, PAL.muted); this.y += 13; }
+    }
     this.rule();
   }
 

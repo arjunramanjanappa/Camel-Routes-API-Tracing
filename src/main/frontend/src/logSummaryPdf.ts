@@ -1,14 +1,24 @@
 import type { ApiLogResult, LogAnalysisReport, LogStatus } from './types';
 import type { CapabilityResult } from './api';
-import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { groupItemsByFeature } from './feature';
 
-/** FE API path → its distinct top-level "L1 › L2" capability labels (from the VAL Capability Matrix join). */
+/** A capability's "L1 > L2 > … > L5" path, stopping at the first blank level (e.g. "Wealth > UT Transactor"). */
+function capabilityPath(c: { l1: string; l2: string; l3: string; l4: string; l5: string }): string {
+  const out: string[] = [];
+  for (const l of [c.l1, c.l2, c.l3, c.l4, c.l5]) {
+    if (!l || !l.trim()) break;
+    out.push(l.trim());
+  }
+  return out.join(' > ');
+}
+
+/** FE API path → its distinct L1..L5 capability paths (from the VAL Capability Matrix join). */
 function capabilityLabels(caps?: CapabilityResult): Map<string, string[]> {
   const byApi = new Map<string, string[]>();
   for (const m of caps?.matched || []) {
     if (!m.fe) continue;   // the summary lists front-end APIs
-    const labels = [...new Set(m.capabilities.map((c) => [c.l1, c.l2].filter(Boolean).join(' > ')).filter(Boolean))];
+    const labels = [...new Set(m.capabilities.map(capabilityPath).filter(Boolean))];
     if (labels.length) byApi.set(m.api, labels);
   }
   return byApi;
@@ -59,7 +69,9 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
       `${app ? app + ' · ' : ''}Release ${ver}${ctry ? ' · ' + ctry : ''}`,
       `${report.transactions} transactions across ${report.matchedLines} matched log lines`,
       'Generated ' + generatedStamp(),
-    ]);
+      passRateLine(passed, passed + issues),
+      logWindowLine(report.logStart, report.logEnd),
+    ].filter((l): l is string => !!l));
 
   r.bookmark('Verification readiness');
   r.banner('Verification readiness', PAL.blue, `Release ${ver}${ctry ? ' · ' + ctry : ''} — from the uploaded run log.`);

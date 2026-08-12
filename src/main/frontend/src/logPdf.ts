@@ -1,5 +1,5 @@
 import type { ApiLogResult, BackendCallResult, BackendLogResult, LogAnalysisReport, LogStatus } from './types';
-import { ReportDoc, PAL, M, CONTENT_W, stamp, generatedStamp, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { backendPath } from './spl';
 
 const ST: Record<LogStatus, { label: string; ramp: Ramp }> = {
@@ -43,7 +43,8 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
 
   r.header('Verification Report',
     `${app ? app + '  -  ' : ''}Release ${ver}${report.country ? '  -  ' + report.country : ''}`,
-    `Generated ${generatedStamp()}`);
+    `Generated ${generatedStamp()}`,
+    [passRateLine(passed, passed + issues), logWindowLine(report.logStart, report.logEnd)]);
 
   // ===== Verification Summary =====
   r.banner('Verification Summary', PAL.blue);
@@ -162,10 +163,16 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
   const tot = { total: 0, passed: 0, issues: 0, notTested: 0 };
   rows.forEach((x) => { tot.total += x.total; tot.passed += x.passed; tot.issues += x.issues; tot.notTested += x.notTested; });
   const attention = rows.filter((x) => x.error || x.status === 'At risk' || x.status === 'Review').length;
+  // Combined log window across modules: earliest start, latest end (timestamps share a sortable format).
+  const starts = mods.map((m) => m.report?.logStart).filter(Boolean) as string[];
+  const ends = mods.map((m) => m.report?.logEnd).filter(Boolean) as string[];
+  const logStart = starts.length ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
+  const logEnd = ends.length ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
 
   r.header('Release Test Report',
     `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
-    `Generated ${generatedStamp()}`);
+    `Generated ${generatedStamp()}`,
+    [passRateLine(tot.passed, tot.passed + tot.issues), logWindowLine(logStart, logEnd)]);
 
   // ===== Release Test Summary =====
   r.banner('Release Test Summary', PAL.blue);

@@ -9,11 +9,21 @@ export interface ScopeModule { name: string; cat: CatalogResponse | null; error?
 
 function displayPath(p: string): string { return backendPath(p || ''); }
 
-/** API path → distinct top-level "L1 > L2" capability labels (FE and BE), from the VAL Capability Matrix join. */
+/** A capability's "L1 > L2 > … > L5" path, stopping at the first blank level (e.g. "Wealth > UT Transactor"). */
+function capabilityPath(c: { l1: string; l2: string; l3: string; l4: string; l5: string }): string {
+  const out: string[] = [];
+  for (const l of [c.l1, c.l2, c.l3, c.l4, c.l5]) {
+    if (!l || !l.trim()) break;
+    out.push(l.trim());
+  }
+  return out.join(' > ');
+}
+
+/** API path → distinct L1..L5 capability paths (FE and BE), from the VAL Capability Matrix join. */
 function capabilityLabels(caps?: CapabilityResult): Map<string, string[]> {
   const byApi = new Map<string, string[]>();
   for (const m of caps?.matched || []) {
-    const labels = [...new Set(m.capabilities.map((c) => [c.l1, c.l2].filter(Boolean).join(' > ')).filter(Boolean))];
+    const labels = [...new Set(m.capabilities.map(capabilityPath).filter(Boolean))];
     if (labels.length) byApi.set(m.api, labels);
   }
   return byApi;

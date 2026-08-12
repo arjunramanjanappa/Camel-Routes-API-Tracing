@@ -155,7 +155,10 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
         }
       }
     }
-    return { feApis: [...new Set(feApis.filter(Boolean))], beApis: [...new Set(beApis.filter(Boolean))], country };
+    return {
+      feApis: [...new Set(feApis.filter(Boolean))], beApis: [...new Set(beApis.filter(Boolean))], country,
+      sheetName: 'Scope Coverage', fileName: 'Release Scope - Capability Matrix',
+    };
   };
 
   /** VAL Capability Matrix export (.xlsx) for the in-scope APIs — how to test each, for the testing team. */
@@ -231,7 +234,7 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
             )}
           </div>
           <div className="export-bar-right">
-            <button className="minibtn" onClick={exportCapabilities} disabled={exporting} title="How to test each in-scope API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)">⤓ Capability matrix</button>
+            <button className="minibtn" onClick={exportCapabilities} disabled={exporting} title="How to test each in-scope API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)">⤓ Release Scope - Capability Matrix</button>
             <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads">⤓ Summary PDF</button>
             <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers">⤓ Detailed PDF</button>
           </div>

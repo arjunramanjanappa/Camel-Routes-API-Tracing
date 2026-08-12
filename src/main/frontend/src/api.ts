@@ -82,6 +82,63 @@ export async function saveLogRules(map: LogRulesMap): Promise<LogRulesMap> {
   return (await res.json()) as LogRulesMap;
 }
 
+// --- VAL Capability Matrix: impacted APIs → business capabilities (how to test) ---
+
+/** One Capability Matrix row (columns A–N). */
+export interface CapabilityRow {
+  id: string; l1: string; l2: string; l3: string; l4: string; l5: string;
+  l6Features: string; dependentCapability: string; linkedInterface: string; linkedReport: string;
+  linkedTestCase: string; entity: string; splDetailedInterfaceTable: string; description: string;
+}
+export interface CapabilityMatch { api: string; fe: boolean; matchedInterface: string; capabilities: CapabilityRow[]; }
+export interface CapabilityUnmatched { api: string; fe: boolean; reason: string; }
+export interface CapabilityResult { matched: CapabilityMatch[]; unmatched: CapabilityUnmatched[]; }
+export interface CapabilityConfigStatus { interfaceSpec: boolean; capabilityMatrix: boolean; }
+export interface CapabilityScope { feApis: string[]; beApis: string[]; country?: string }
+
+/** Whether the two VAL reports are configured. */
+export async function fetchCapabilityConfig(): Promise<CapabilityConfigStatus> {
+  const res = await fetch('/internal/capability-config');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as CapabilityConfigStatus;
+}
+
+/** Upload one or both VAL reports (a one-time config; either may be sent alone). */
+export async function saveCapabilityConfig(interfaceSpec?: File | null, capabilityMatrix?: File | null): Promise<CapabilityConfigStatus> {
+  const fd = new FormData();
+  if (interfaceSpec) fd.append('interfaceSpec', interfaceSpec);
+  if (capabilityMatrix) fd.append('capabilityMatrix', capabilityMatrix);
+  const res = await fetch('/internal/capability-config', { method: 'POST', body: fd });
+  if (!res.ok) {
+    const d = await res.json().catch(() => null);
+    throw new Error((d && d.error) || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as CapabilityConfigStatus;
+}
+
+/** Resolve the impacted APIs to their capabilities (drives the summary-PDF capability columns). */
+export async function resolveCapabilities(scope: CapabilityScope): Promise<CapabilityResult> {
+  const res = await fetch('/internal/capabilities', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scope),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as CapabilityResult;
+}
+
+/** Download the joined Capability export .xlsx for the current scope's impacted APIs. */
+export async function exportCapabilitiesXlsx(scope: CapabilityScope): Promise<void> {
+  const res = await fetch('/internal/capabilities/export', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scope),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'capability-matrix.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Build a query string; string values are set once, string[] values are appended once per entry (repeated params). */
 function qs(params: Record<string, string | string[] | undefined>): string {
   const p = new URLSearchParams();

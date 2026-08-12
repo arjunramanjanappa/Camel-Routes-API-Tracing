@@ -147,6 +147,28 @@ class CapabilityServiceTest {
     }
 
     @Test
+    void generalExportSupportsANamedSheetAndPlainExtraColumns(@TempDir Path home) throws Exception {
+        // The Release Impact "Old-app test list": a named matched sheet + Old App Version / BC Reason columns
+        // (plain, not coloured), prepended before the capability A–N columns.
+        CapabilityService svc = configured(home);
+        String api = "/services/onboarding/security/fr/profile";
+        CapabilityResult r = svc.resolve(List.of(api), List.of(), "SG");
+        byte[] out = svc.exportExcel(r, "Old-app test list", Map.of(), List.of(
+                new CapabilityService.ExtraColumn("Old App Version", Map.of(api, "9.10")),
+                new CapabilityService.ExtraColumn("BC Reason", Map.of(api, "BAU route modified"))));
+
+        try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(out))) {
+            Sheet s = wb.getSheet("Old-app test list");
+            assertThat(s).isNotNull();
+            assertThat(s.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Old App Version");
+            assertThat(s.getRow(0).getCell(1).getStringCellValue()).isEqualTo("BC Reason");
+            assertThat(s.getRow(1).getCell(0).getStringCellValue()).isEqualTo("9.10");
+            assertThat(s.getRow(1).getCell(1).getStringCellValue()).isEqualTo("BAU route modified");
+            assertThat(s.getRow(1).getCell(2).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");   // ID after the 2 extras
+        }
+    }
+
+    @Test
     void reportsMissingConfigAsUnmatched(@TempDir Path home) {
         CapabilityService svc = new CapabilityService(home.toString());   // nothing uploaded
         CapabilityResult r = svc.resolve(List.of("/services/x"), List.of("/y"), "SG");

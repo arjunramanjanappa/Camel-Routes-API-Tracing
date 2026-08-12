@@ -94,8 +94,19 @@ export interface CapabilityMatch { api: string; fe: boolean; matchedInterface: s
 export interface CapabilityUnmatched { api: string; fe: boolean; reason: string; }
 export interface CapabilityResult { matched: CapabilityMatch[]; unmatched: CapabilityUnmatched[]; }
 export interface CapabilityConfigStatus { interfaceSpec: boolean; capabilityMatrix: boolean; }
-/** statusByApi (Release Test only): API path → its log-analysis verdict, for the export's Test Status column. */
-export interface CapabilityScope { feApis: string[]; beApis: string[]; country?: string; statusByApi?: Record<string, string> }
+/** One extra per-API column prepended to the export (e.g. Old App Version / BC Reason on Release Impact). */
+export interface CapabilityExtraColumn { header: string; valueByApi: Record<string, string> }
+/**
+ * statusByApi (Release Test only): API path → its log-analysis verdict, for the coloured Test Status column.
+ * sheetName / extraColumns: used by the Release Impact "Old-app test list" (a named matched sheet + Old App
+ * Version / BC Reason columns).
+ */
+export interface CapabilityScope {
+  feApis: string[]; beApis: string[]; country?: string;
+  statusByApi?: Record<string, string>;
+  sheetName?: string;
+  extraColumns?: CapabilityExtraColumn[];
+}
 
 /** Whether the two VAL reports are configured. */
 export async function fetchCapabilityConfig(): Promise<CapabilityConfigStatus> {
@@ -135,7 +146,7 @@ export async function exportCapabilitiesXlsx(scope: CapabilityScope): Promise<vo
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'capability-matrix.xlsx';
+  a.href = url; a.download = (scope.sheetName || 'capability-matrix') + '.xlsx';
   a.click();
   URL.revokeObjectURL(url);
 }

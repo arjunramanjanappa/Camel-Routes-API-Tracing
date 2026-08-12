@@ -220,44 +220,66 @@ public class CapabilityService {
             "Entity", "Linked SPL detailed Interface table", "Description", "FE/BE", "Matched Interface (Col G)"
     };
 
+    /** An extra per-API column to prepend to the export (e.g. Old App Version / BC Reason for the Impact export). */
+    public record ExtraColumn(String header, Map<String, String> valueByApi) {}
+
+    /** A leading column: header + per-API values + whether to colour-fill it (only the Test Status column is). */
+    private record LeadColumn(String header, Map<String, String> valueByApi, boolean colour) {}
+
     /** Back-compat: export with no per-API test status (Release Scope — no logs). */
     public byte[] exportExcel(CapabilityResult result) {
-        return exportExcel(result, Map.of());
+        return build(result, "Capabilities", List.of());
+    }
+
+    /** Release Test: a leading coloured "Test Status" column when verdicts are supplied. */
+    public byte[] exportExcel(CapabilityResult result, Map<String, String> statusByApi) {
+        return exportExcel(result, "Capabilities", statusByApi, List.of());
     }
 
     /**
-     * Build the joined Capability export workbook: a "Capabilities" sheet + an "Unmatched" sheet. When
-     * {@code statusByApi} is non-empty (Release Test — the log-analysis verdicts), a leading <b>Test Status</b>
-     * column is added to both sheets so the tester sees what to focus on (Failed / Partial / Not Tested).
+     * General export: a matched sheet ({@code matchedSheet}) + an "Unmatched" sheet, both prefixed with leading
+     * columns — a coloured <b>Test Status</b> (Release Test verdicts) followed by any {@code extraColumns}
+     * (e.g. Old App Version / BC Reason for the Release Impact old-app list).
      */
-    public byte[] exportExcel(CapabilityResult result, Map<String, String> statusByApi) {
-        Map<String, String> status = statusByApi == null ? Map.of() : statusByApi;
-        boolean withStatus = !status.isEmpty();
+    public byte[] exportExcel(CapabilityResult result, String matchedSheet, Map<String, String> statusByApi,
+                              List<ExtraColumn> extraColumns) {
+        List<LeadColumn> lead = new ArrayList<>();
+        if (statusByApi != null && !statusByApi.isEmpty()) {
+            lead.add(new LeadColumn("Test Status", statusByApi, true));
+        }
+        if (extraColumns != null) {
+            for (ExtraColumn e : extraColumns) {
+                lead.add(new LeadColumn(e.header(), e.valueByApi() == null ? Map.of() : e.valueByApi(), false));
+            }
+        }
+        return build(result, matchedSheet, lead);
+    }
+
+    private byte[] build(CapabilityResult result, String matchedSheet, List<LeadColumn> lead) {
+        String[] leadHeaders = lead.stream().map(LeadColumn::header).toArray(String[]::new);
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Map<String, CellStyle> statusStyles = new LinkedHashMap<>();   // one fill style per status label, per workbook
-            Sheet sheet = wb.createSheet("Capabilities");
-            writeRow(sheet, 0, header(withStatus, OUT_HEADERS));
+            Sheet sheet = wb.createSheet(matchedSheet == null || matchedSheet.isBlank() ? "Capabilities" : matchedSheet);
+            writeRow(sheet, 0, concat(leadHeaders, OUT_HEADERS));
             int r = 1;
             for (CapabilityMatch m : result.matched()) {
-                String st = status.getOrDefault(m.api(), "");
                 for (CapabilityRow c : m.capabilities()) {
                     String[] base = {
                             c.id(), c.l1(), c.l2(), c.l3(), c.l4(), c.l5(), c.l6Features(), c.dependentCapability(),
                             c.linkedInterface(), c.linkedReport(), c.linkedTestCase(), c.entity(),
                             c.splDetailedInterfaceTable(), c.description(),
                             m.fe() ? "FE" : "BE", m.matchedInterface()};
-                    Row row = writeRow(sheet, r++, withStatus ? prepend(st, base) : base);
-                    if (withStatus) colourStatus(wb, statusStyles, row.getCell(0), st);
+                    Row row = writeRow(sheet, r++, concat(leadValues(lead, m.api()), base));
+                    colourLead(wb, statusStyles, row, lead, m.api());
                 }
             }
             Sheet un = wb.createSheet("Unmatched");
-            writeRow(un, 0, header(withStatus, new String[]{"API", "FE/BE", "Reason"}));
+            writeRow(un, 0, concat(leadHeaders, new String[]{"API", "FE/BE", "Reason"}));
             int u = 1;
             for (Unmatched m : result.unmatched()) {
                 String[] base = {m.api(), m.fe() ? "FE" : "BE", m.reason()};
-                String st = status.getOrDefault(m.api(), "");
-                Row row = writeRow(un, u++, withStatus ? prepend(st, base) : base);
-                if (withStatus) colourStatus(wb, statusStyles, row.getCell(0), st);
+                Row row = writeRow(un, u++, concat(leadValues(lead, m.api()), base));
+                colourLead(wb, statusStyles, row, lead, m.api());
             }
             wb.write(out);
             return out.toByteArray();
@@ -266,16 +288,24 @@ public class CapabilityService {
         }
     }
 
-    /** Prepend the "Test Status" header when a status is being written. */
-    private static String[] header(boolean withStatus, String[] base) {
-        return withStatus ? prepend("Test Status", base) : base;
+    private static String[] leadValues(List<LeadColumn> lead, String api) {
+        return lead.stream().map(l -> l.valueByApi().getOrDefault(api, "")).toArray(String[]::new);
     }
 
-    private static String[] prepend(String first, String[] rest) {
-        String[] out = new String[rest.length + 1];
-        out[0] = first;
-        System.arraycopy(rest, 0, out, 1, rest.length);
+    private static String[] concat(String[] a, String[] b) {
+        String[] out = new String[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
         return out;
+    }
+
+    /** Colour-fill the leading cells marked colour=true (the Test Status column) by their verdict. */
+    private void colourLead(XSSFWorkbook wb, Map<String, CellStyle> cache, Row row, List<LeadColumn> lead, String api) {
+        for (int i = 0; i < lead.size(); i++) {
+            if (lead.get(i).colour()) {
+                colourStatus(wb, cache, row.getCell(i), lead.get(i).valueByApi().getOrDefault(api, ""));
+            }
+        }
     }
 
     private static Row writeRow(Sheet sheet, int rowIdx, String[] values) {

@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { fetchVersionDiff, analyzeLogMulti } from '../api';
+import { fetchVersionDiff, analyzeLogMulti, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
 import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
@@ -988,6 +988,31 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   /** Summary PDF — 1–2 page RAG overview for release managers & delivery leads. */
   const exportSummaryPdf = () => { const mods = buildMods(); if (mods.length) exportDiffSummaryPdf(mods, app).catch(() => {}); };
 
+  /** The BC-impacted APIs across all modules — a shared BAU class or a BAU route the OLD app runs was changed. */
+  const bcApis = (): ApiDiff[] => reports.flatMap((r) => r.result?.apis ?? []).filter(needsBC);
+  /** "Old-app test list" export: the capabilities of the BC-impacted APIs the testing team must re-test with the
+   *  OLD app, with the old app version to use and why. FE only — each backend is covered by its FE API. */
+  const exportOldAppTestList = () => {
+    const apis = bcApis();
+    const versionByApi: Record<string, string> = {};
+    const reasonByApi: Record<string, string> = {};
+    for (const a of apis) {
+      if (!a.api) continue;
+      versionByApi[a.api] = a.lowerVersion || 'BAU / base';
+      reasonByApi[a.api] = bcReason(a);
+    }
+    const scope: CapabilityScope = {
+      feApis: [...new Set(apis.map((a) => a.api).filter(Boolean))],
+      beApis: [], country,
+      sheetName: 'Old-app test list',
+      extraColumns: [
+        { header: 'Old App Version', valueByApi: versionByApi },
+        { header: 'BC Reason', valueByApi: reasonByApi },
+      ],
+    };
+    exportCapabilitiesXlsx(scope).catch(() => {});
+  };
+
   return (
     <div className="impact">
       <div className="scope-controls">
@@ -1043,6 +1068,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
       {!loading && report && (
         <div className="export-bar">
           <div className="export-bar-right">
+            {bcApis().length > 0 && (
+              <button className="minibtn" onClick={exportOldAppTestList} title="Capabilities to re-test with the OLD app — the BC-impacted APIs (a BAU route/class the old app runs was changed), with the old app version to use (needs the VAL reports attached in ⚙ Config)">⤓ Old-app test list</button>
+            )}
             <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
             <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
           </div>

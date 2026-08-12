@@ -262,7 +262,8 @@ public class RouteGraphController {
      * Partial / Not tested) so the Excel export can add a "Test Status" column — what the tester should focus on.
      */
     public record CapabilityRequest(List<String> feApis, List<String> beApis, String country,
-                                    Map<String, String> statusByApi) {}
+                                    Map<String, String> statusByApi, String sheetName,
+                                    List<CapabilityService.ExtraColumn> extraColumns) {}
 
     /** Whether the two VAL reports are configured (a one-time config, like the log rules). */
     @GetMapping("/internal/capability-config")
@@ -298,9 +299,12 @@ public class RouteGraphController {
     /** The joined Capability export as an .xlsx download (one row per API→capability + an Unmatched sheet). */
     @PostMapping("/internal/capabilities/export")
     public ResponseEntity<byte[]> exportCapabilities(@RequestBody CapabilityRequest req) {
+        String sheet = req.sheetName() == null || req.sheetName().isBlank() ? "Capabilities" : req.sheetName();
         byte[] xlsx = capabilities.exportExcel(
                 capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()),
-                req.statusByApi() == null ? Map.of() : req.statusByApi());
+                sheet,
+                req.statusByApi() == null ? Map.of() : req.statusByApi(),
+                req.extraColumns() == null ? List.of() : req.extraColumns());
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"capability-matrix.xlsx\"")
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))

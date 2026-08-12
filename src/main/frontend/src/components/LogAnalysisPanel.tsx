@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { analyzeLog, analyzeLogMulti, type UploadProgress } from '../api';
+import { analyzeLog, analyzeLogMulti, resolveCapabilities, exportCapabilitiesXlsx, type UploadProgress, type CapabilityScope, type CapabilityResult } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
 import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
@@ -597,8 +597,26 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     if (!report) return;
     exportLogPdf(report, app, version, needsReview).catch(() => {});
   };
-  /** Leadership Summary PDF — from the combined report (covers all modules). */
-  const exportSummaryPdf = () => { if (report) exportLogSummaryPdf(report, app, version, country).catch(() => {}); };
+  /** The impacted FE + BE API paths of the current report, for the VAL capability lookup (backend paths are
+   *  stripped of the {{baseUrl}} placeholder so they match the Interface Spec Col G by ends-with). */
+  const capabilityScope = (): CapabilityScope => {
+    if (!report) return { feApis: [], beApis: [], country };
+    const feApis = [...new Set(report.apis.map((a) => a.api).filter(Boolean))];
+    const beApis = [...new Set([
+      ...report.backends.map((b) => backendPath(b.backend)),
+      ...report.apis.flatMap((a) => (a.backends || []).map((b) => backendPath(b.backend))),
+    ].filter(Boolean))];
+    return { feApis, beApis, country };
+  };
+  /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team. */
+  const exportCapabilities = () => { if (report) exportCapabilitiesXlsx(capabilityScope()).catch(() => {}); };
+  /** Leadership Summary PDF — from the combined report (covers all modules); enriched with capabilities when configured. */
+  const exportSummaryPdf = async () => {
+    if (!report) return;
+    let caps: CapabilityResult | undefined;
+    try { caps = await resolveCapabilities(capabilityScope()); } catch { caps = undefined; }
+    exportLogSummaryPdf(report, app, version, country, caps).catch(() => {});
+  };
 
   // Front-end APIs and backends are shown one section at a time. The segmented switch only
   // appears when a report has a STANDALONE backend section (a backend-scoped analysis). In a
@@ -734,6 +752,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       {report && (
         <div className="export-bar" style={{ paddingLeft: 0, paddingRight: 0 }}>
           <div className="export-bar-right">
+            <button className="minibtn" onClick={exportCapabilities} title="How to test each impacted API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)">⤓ Capability matrix</button>
             <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
             <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers">⤓ Detailed PDF</button>
           </div>

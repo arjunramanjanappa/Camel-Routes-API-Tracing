@@ -1,6 +1,18 @@
 import type { ApiLogResult, LogAnalysisReport, LogStatus } from './types';
+import type { CapabilityResult } from './api';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, type Ramp } from './pdfReport';
 import { groupItemsByFeature } from './feature';
+
+/** FE API path → its distinct top-level "L1 › L2" capability labels (from the VAL Capability Matrix join). */
+function capabilityLabels(caps?: CapabilityResult): Map<string, string[]> {
+  const byApi = new Map<string, string[]>();
+  for (const m of caps?.matched || []) {
+    if (!m.fe) continue;   // the summary lists front-end APIs
+    const labels = [...new Set(m.capabilities.map((c) => [c.l1, c.l2].filter(Boolean).join(' > ')).filter(Boolean))];
+    if (labels.length) byApi.set(m.api, labels);
+  }
+  return byApi;
+}
 
 /**
  * The 1–2 page leadership Summary PDF for the Release Test tab — verification readiness (passed / issues /
@@ -26,8 +38,10 @@ function remarkOf(a: ApiLogResult): string {
 }
 function pillCell(label: string, ramp: Ramp) { return { pill: { label, fill: ramp.fill, text: ramp.text, stripe: ramp.bar } }; }
 
-export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: string, version?: string, country?: string) {
+export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: string, version?: string, country?: string, caps?: CapabilityResult) {
   const r = await ReportDoc.create();
+  const capByApi = capabilityLabels(caps);
+  const hasCaps = capByApi.size > 0;
   const ver = version || report.clientVersion || 'BASE';
   const ctry = country || report.country || '';
   const apis = [...report.apis].sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status] || a.api.localeCompare(b.api));
@@ -60,14 +74,22 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
   if (total) {
     r.bookmark('Results');
     r.banner('Results', PAL.purple, 'Per-API verdict from the log, grouped by business feature, worst first within each. Full detail (response codes, latency, backends) is in the Detailed report.');
-    const cols = [{ header: 'API', w: 0.38, mono: true }, { header: 'Latest Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
+    // When the VAL Capability Matrix is configured, add a business-capability column (L1 › L2) so leadership
+    // reads capabilities, not raw paths. Otherwise keep the original 3-column layout.
+    const cols = hasCaps
+      ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Capability', w: 0.28 }, { header: 'Latest Result', w: 0.18 }, { header: 'Remark', w: 0.28 }]
+      : [{ header: 'API', w: 0.38, mono: true }, { header: 'Latest Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
     const rowCells = (a: ApiLogResult) => {
       const res = resultRamp(a.status);
-      return [
+      const base = [
         { text: a.api, mono: true, color: PAL.ink },
         pillCell(res.label, res.ramp),
         { text: remarkOf(a), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
       ];
+      if (!hasCaps) return base;
+      const labels = capByApi.get(a.api);
+      const cap = { text: labels && labels.length ? labels.join('\n') : '—', color: labels && labels.length ? PAL.body : PAL.muted };
+      return [base[0], cap, base[1], base[2]];
     };
     for (const fg of groupItemsByFeature(apis, (a) => a.api)) {
       r.para(`${fg.feature}  (${fg.items.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
@@ -80,6 +102,7 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
     'Failed / Timeout / Partial - executed with a non-success or incomplete result; investigate.',
     'Not tested - no matching transaction was found in the uploaded log.',
     'Remark - the response description / code (or reason) from the log.',
+    ...(hasCaps ? ['Capability - the business capability (L1 > L2) this API delivers, from the VAL matrix.'] : []),
   ]);
 
   const footer = `TraceGuard - Release ${ver}${ctry ? ' · ' + ctry : ''}${app ? ' · ' + app : ''} - Test Summary`;

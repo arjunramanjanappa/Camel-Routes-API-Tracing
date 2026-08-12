@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { analyze, fetchMeta } from '../api';
+import { analyze, fetchMeta, resolveCapabilities, exportCapabilitiesXlsx, type CapabilityScope, type CapabilityResult } from '../api';
 import type { AnalyzeResponse, CatalogResponse, DepSource, Meta } from '../types';
+import { backendPath } from '../spl';
 import { derive, opNamesOf } from '../graphModel';
 import { apiIdsForGroup, baseCount, filterGraphByApis, inScopeCount, isNaVersion, NO_ROUTE } from '../catalog';
 import ControlPanel from '../components/ControlPanel';
@@ -140,11 +141,38 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
     finally { setExporting(false); }
   };
 
+  /** The impacted FE + BE API paths across every module's catalog, for the VAL capability lookup. */
+  const capabilityScope = (): CapabilityScope => {
+    const feApis: string[] = [];
+    const beApis: string[] = [];
+    for (const rr of catalogs) {
+      const cat = asCatalog(rr.result);
+      if (!cat) continue;
+      for (const g of cat.groups || []) {
+        for (const t of g.traces || []) {
+          if (t.api) feApis.push(t.api);
+          (t.backendApis || []).forEach((b) => beApis.push(backendPath(b)));
+        }
+      }
+    }
+    return { feApis: [...new Set(feApis.filter(Boolean))], beApis: [...new Set(beApis.filter(Boolean))], country };
+  };
+
+  /** VAL Capability Matrix export (.xlsx) for the in-scope APIs — how to test each, for the testing team. */
+  const exportCapabilities = async () => {
+    setExporting(true); setError(null);
+    try { await exportCapabilitiesXlsx(capabilityScope()); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setExporting(false); }
+  };
+
   const exportSummaryPdf = async () => {
     setExporting(true); setError(null);
     try {
       const cats = catalogs.map((r) => ({ name: r.name, cat: asCatalog(r.result), error: r.error })).filter((c) => c.cat || c.error);
-      if (cats.length) await exportScopeSummaryPdf(cats as { name: string; cat: CatalogResponse | null; error?: string }[], app, version, country);
+      let caps: CapabilityResult | undefined;
+      try { caps = await resolveCapabilities(capabilityScope()); } catch { caps = undefined; }
+      if (cats.length) await exportScopeSummaryPdf(cats as { name: string; cat: CatalogResponse | null; error?: string }[], app, version, country, caps);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setExporting(false); }
   };
@@ -203,6 +231,7 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
             )}
           </div>
           <div className="export-bar-right">
+            <button className="minibtn" onClick={exportCapabilities} disabled={exporting} title="How to test each in-scope API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)">⤓ Capability matrix</button>
             <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads">⤓ Summary PDF</button>
             <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers">⤓ Detailed PDF</button>
           </div>

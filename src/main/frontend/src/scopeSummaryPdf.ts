@@ -1,4 +1,5 @@
 import type { CatalogResponse } from './types';
+import type { CapabilityResult } from './api';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp } from './pdfReport';
 import { groupByFeature, versionLabel } from './feature';
 import { backendPath } from './spl';
@@ -7,6 +8,16 @@ import { backendPath } from './spl';
 export interface ScopeModule { name: string; cat: CatalogResponse | null; error?: string; }
 
 function displayPath(p: string): string { return backendPath(p || ''); }
+
+/** API path → distinct top-level "L1 > L2" capability labels (FE and BE), from the VAL Capability Matrix join. */
+function capabilityLabels(caps?: CapabilityResult): Map<string, string[]> {
+  const byApi = new Map<string, string[]>();
+  for (const m of caps?.matched || []) {
+    const labels = [...new Set(m.capabilities.map((c) => [c.l1, c.l2].filter(Boolean).join(' > ')).filter(Boolean))];
+    if (labels.length) byApi.set(m.api, labels);
+  }
+  return byApi;
+}
 
 /** APIs per version group for one side (front-end paths / backend APIs), grouped by feature. */
 function bySide(cat: CatalogResponse, side: 'fe' | 'be') {
@@ -23,8 +34,10 @@ function bySide(cat: CatalogResponse, side: 'fe' | 'be') {
  * and backend APIs in scope, grouped by version (BAU for base routes) and business feature. The full
  * route-flow report is {@link exportApiTracePdf}.
  */
-export async function exportScopeSummaryPdf(mods: ScopeModule[], app?: string, version?: string, country?: string) {
+export async function exportScopeSummaryPdf(mods: ScopeModule[], app?: string, version?: string, country?: string, caps?: CapabilityResult) {
   const r = await ReportDoc.create();
+  const capByApi = capabilityLabels(caps);
+  const hasCaps = capByApi.size > 0;
   const ver = version || 'N/A';
   const ctry = country || mods.find((m) => m.cat)?.cat?.country || '';
   const withCat = mods.filter((m) => m.cat);
@@ -53,9 +66,24 @@ export async function exportScopeSummaryPdf(mods: ScopeModule[], app?: string, v
   const featureTable = (perGroup: ReturnType<typeof bySide>) => {
     for (const g of perGroup) {
       r.para(`${versionLabel(g.version)}  (${g.count})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
-      r.wrapTable(
-        [{ header: 'Feature', w: 0.22 }, { header: 'APIs', w: 0.78, mono: true }],
-        g.features.map((f) => [f.feature, { text: f.items.map(displayPath).join(', '), mono: true, color: PAL.ink }]));
+      if (hasCaps) {
+        // With the VAL matrix configured: one row per API, with its business capability (L1 > L2) — so
+        // leadership reads capabilities, not raw paths.
+        const rows = g.features.flatMap((f) => f.items.map((item) => {
+          const p = displayPath(item);
+          const labels = capByApi.get(p) || [];
+          return [
+            f.feature,
+            { text: p, mono: true, color: PAL.ink },
+            { text: labels.length ? labels.join('\n') : '—', color: labels.length ? PAL.body : PAL.muted },
+          ];
+        }));
+        r.wrapTable([{ header: 'Feature', w: 0.20 }, { header: 'API', w: 0.44, mono: true }, { header: 'Capability', w: 0.36 }], rows);
+      } else {
+        r.wrapTable(
+          [{ header: 'Feature', w: 0.22 }, { header: 'APIs', w: 0.78, mono: true }],
+          g.features.map((f) => [f.feature, { text: f.items.map(displayPath).join(', '), mono: true, color: PAL.ink }]));
+      }
     }
   };
 

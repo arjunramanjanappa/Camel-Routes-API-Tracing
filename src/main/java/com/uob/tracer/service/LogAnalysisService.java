@@ -30,6 +30,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
@@ -326,14 +330,7 @@ public class LogAnalysisService {
                             ingest(event, lines, counters, markers);
                         }
                     }
-                    default -> {
-                        counters[0]++;
-                        ingest(firstNonBlank, lines, counters, markers);
-                        while ((line = r.readLine()) != null) {
-                            counters[0]++;
-                            ingest(line, lines, counters, markers);
-                        }
-                    }
+                    default -> parseRawParallel(r, firstNonBlank, Map.of("", markers), Map.of("", lines), Map.of("", counters));
                 }
             }
         }
@@ -422,12 +419,7 @@ public class LogAnalysisService {
                             }
                         }
                     }
-                    default -> {
-                        ingestAll(firstNonBlank, flavours, linesByKey, countersByKey);
-                        while ((line = r.readLine()) != null) {
-                            ingestAll(line, flavours, linesByKey, countersByKey);
-                        }
-                    }
+                    default -> parseRawParallel(r, firstNonBlank, flavours, linesByKey, countersByKey);
                 }
             }
         }
@@ -445,6 +437,81 @@ public class LogAnalysisService {
             out.put(k, new Parsed(toTxns(lines), detected, c[0], lines.size(), c[1], w, rangeOf(lines)));
         }
         return out;
+    }
+
+    /**
+     * Parse the RAW log lines across CPU cores. A single reader thread streams the lines (I/O stays sequential —
+     * gzip/decode can't be split) and hands fixed-size batches to a bounded worker pool; each worker does the
+     * expensive per-line work (marker pre-filter + regex + JSON) into a worker-LOCAL partial, then merges it under
+     * one lock. Order-independent and equal to the sequential parse — correlation groups by id and sorts by ts, so
+     * the collected lines can arrive in any order. A bounded queue + CallerRuns backpressure keeps memory in check.
+     */
+    private void parseRawParallel(BufferedReader r, String firstLine, Map<String, Markers> flavours,
+                                  Map<String, List<LogLine>> linesByKey, Map<String, int[]> countersByKey) throws IOException {
+        List<String> keys = new ArrayList<>(flavours.keySet());
+        int workers = Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors() - 1));
+        if (workers == 1) {   // single core — no point paying for threads
+            ingestAll(firstLine, flavours, linesByKey, countersByKey);
+            String line;
+            while ((line = r.readLine()) != null) {
+                ingestAll(line, flavours, linesByKey, countersByKey);
+            }
+            return;
+        }
+        final int batchSize = 2000;
+        ExecutorService pool = new ThreadPoolExecutor(workers, workers, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(workers * 2), new ThreadPoolExecutor.CallerRunsPolicy());
+        Object mergeLock = new Object();
+        try {
+            List<String> batch = new ArrayList<>(batchSize);
+            batch.add(firstLine);
+            String line;
+            while ((line = r.readLine()) != null) {
+                batch.add(line);
+                if (batch.size() >= batchSize) {
+                    submitBatch(pool, batch, flavours, keys, linesByKey, countersByKey, mergeLock);
+                    batch = new ArrayList<>(batchSize);
+                }
+            }
+            if (!batch.isEmpty()) {
+                submitBatch(pool, batch, flavours, keys, linesByKey, countersByKey, mergeLock);
+            }
+        } finally {
+            pool.shutdown();
+            try {
+                pool.awaitTermination(1, TimeUnit.HOURS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /** Parse one batch into worker-local per-flavour partials, then merge them into the shared maps under lock. */
+    private void submitBatch(ExecutorService pool, List<String> batch, Map<String, Markers> flavours, List<String> keys,
+                             Map<String, List<LogLine>> linesByKey, Map<String, int[]> countersByKey, Object mergeLock) {
+        pool.execute(() -> {
+            Map<String, List<LogLine>> local = new HashMap<>();
+            Map<String, int[]> localCounts = new HashMap<>();
+            for (String k : keys) {
+                local.put(k, new ArrayList<>());
+                localCounts.put(k, new int[2]);
+            }
+            for (String s : batch) {
+                for (String k : keys) {
+                    localCounts.get(k)[0]++;
+                    ingest(s, local.get(k), localCounts.get(k), flavours.get(k));
+                }
+            }
+            synchronized (mergeLock) {
+                for (String k : keys) {
+                    linesByKey.get(k).addAll(local.get(k));
+                    int[] c = countersByKey.get(k);
+                    int[] lc = localCounts.get(k);
+                    c[0] += lc[0];
+                    c[1] += lc[1];
+                }
+            }
+        });
     }
 
     /** Feed one raw log line to every flavour (each does its own cheap marker pre-filter). */

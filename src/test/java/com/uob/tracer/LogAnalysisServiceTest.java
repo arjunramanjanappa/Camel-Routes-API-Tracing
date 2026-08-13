@@ -360,6 +360,28 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void parallelRawParseAcrossManyBatchesCountsEveryTransaction() throws IOException {
+        // 2500 transactions => 5000 lines => several 2000-line batches through the parallel raw parser. Every
+        // transaction must be parsed and correlated exactly once (order-independent merge), same as sequential.
+        String path = "/mty-banking/services/sg/payment/v2/fund/submit";
+        StringBuilder log = new StringBuilder();
+        int n = 2500;
+        for (int i = 0; i < n; i++) {
+            String corr = String.format("%032d", i);
+            int mm = 10 + (i % 40);
+            log.append("2026-06-11 18.").append(mm).append(".00.100 [t] INFO [MightyMessage][MTY][s][u][9.4][")
+               .append(corr).append("][IOS][]-").append(path).append(" -Request - {\"x\":1}\n");
+            log.append("2026-06-11 18.").append(mm).append(".00.400 [t] INFO [MightyMessage][MTY][s][u][9.4][")
+               .append(corr).append("][IOS][300ms]-").append(path).append(" -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n");
+        }
+        LogAnalysisReport r = analyzeText(log.toString(), "9.4");
+        ApiLogResult v2 = api(r, V2);
+        assertThat(r.transactions()).isEqualTo(n);
+        assertThat(v2.attempts()).isEqualTo(n);
+        assertThat(v2.successCount()).isEqualTo(n);
+    }
+
+    @Test
     void reportsTheLogTimeSpanFromEarliestToLatestTimestamp() throws IOException {
         // The report carries the window the log actually covers: the earliest and latest raw timestamps
         // (order-independent — not assuming the export was sorted) and the seconds between them.

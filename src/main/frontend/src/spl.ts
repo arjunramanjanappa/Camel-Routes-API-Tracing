@@ -219,7 +219,8 @@ export function markersFor(app: string, secure: boolean): string[] {
  * its flavour on upload (and now parses in parallel). Saves running 3 separate per-app queries.
  */
 export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
-                                       flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS): string {
+                                       flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS,
+                                       mode: 'scoped' | 'all' = 'all', paths: string[] = []): string {
   const markerSet = new Set<string>();
   for (const f of flavours) markersFor(f.app, f.secure).forEach((m) => markerSet.add(m));
   const markers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
@@ -230,7 +231,17 @@ export function buildMergedAllLinesSpl(index: string, earliest: string, sources:
   const slim = slimToResponseObject(responseKeys) + '\n';
   // AND in the direction filter so only Request/Response lines are fetched (not other host chatter).
   const dir = `(${DIRECTION_PHRASES.map((p) => `"${p}"`).join(' OR ')})`;
-  return `index=${index} ${win}${src}(${markers}) ${dir}\n${slim}| sort 0 -_time\n| table _raw`;
+  // Scoped: AND in the selected API URLs (front-end paths + backend hosturls), searched as raw phrases, so the
+  // export only carries the chosen APIs' lines. In the raw log the path is plain text, so a phrase match works
+  // for both FE and BE lines. Nothing selected → no query yet. (Path-less lines — e.g. a corrId-only response —
+  // are the reason "All log lines" exists; it drops this clause and keeps every marker line.)
+  let scope = '';
+  if (mode === 'scoped') {
+    const uniq = [...new Set((paths || []).map((p) => p.trim()).filter(Boolean))];
+    if (!uniq.length) return '';
+    scope = ` (${uniq.map((p) => `"${p}"`).join(' OR ')})`;
+  }
+  return `index=${index} ${win}${src}(${markers}) ${dir}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

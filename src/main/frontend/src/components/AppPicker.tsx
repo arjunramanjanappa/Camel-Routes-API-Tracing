@@ -9,7 +9,9 @@ interface AppDef {
 
 const APPS: AppDef[] = [
   { id: 'Mighty', name: 'Mighty', desc: 'Trace, impact-analyse and verify the Mighty application.', accent: '#2563eb' },
-  { id: 'SPL', name: 'SPL', desc: 'Trace, impact-analyse and verify the SPL application (incl. the intercepted-UFW variant, auto-detected).', accent: '#0891b2' },
+  // id stays 'SPL' — the internal identity behind all markers, storage keys and log correlation. Only the
+  // landing-page label is 'TMRW'.
+  { id: 'SPL', name: 'TMRW', desc: 'Trace, impact-analyse and verify the TMRW application (incl. the intercepted-UFW variant, auto-detected).', accent: '#0891b2' },
 ];
 
 /** The TraceGuard mark: a shield (guard) wrapping a small route graph (trace). */

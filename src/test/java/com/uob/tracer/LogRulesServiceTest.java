@@ -90,9 +90,12 @@ class LogRulesServiceTest {
     }
 
     @Test
-    void globMatchIsCaseInsensitiveWholeString() {
+    void globMatchIsCaseInsensitiveEndsWith() {
+        // A plain path matches any hosturl ENDING with it — a context prefix is tolerated, no leading * needed.
+        assertTrue(LogRulesService.globMatches("/api/session/query", "/mty-banking-01/api/session/query"));
         assertTrue(LogRulesService.globMatches("*/host/xyz", "/BFS/HOST/XYZ"));
         assertTrue(LogRulesService.globMatches("/host/limit/?", "/host/limit/1"));
-        assertFalse(LogRulesService.globMatches("*/host/xyz", "/host/xyz/more"));   // whole-string: trailing text fails
+        assertFalse(LogRulesService.globMatches("/api/session/query", "/api/session/query/more"));   // trailing text fails
+        assertFalse(LogRulesService.globMatches("/api/session/query", "/api/session/other"));
     }
 }

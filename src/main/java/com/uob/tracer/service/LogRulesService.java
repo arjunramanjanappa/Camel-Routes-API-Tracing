@@ -240,9 +240,14 @@ public class LogRulesService {
         return Path.of(System.getProperty("user.home", "."), ".traceguard");
     }
 
-    /** Case-insensitive glob match ({@code *} = any run, {@code ?} = one char), whole-string. */
+    /**
+     * Case-insensitive <b>ends-with</b> glob match ({@code *} = any run, {@code ?} = one char). A plain path like
+     * {@code /api/session/query} matches any hosturl ending with it (so a context prefix such as
+     * {@code /ctx/api/session/query} is tolerated — no leading {@code *} needed). {@code *} still works for a
+     * contains/anchored match. Implemented by anchoring the pattern at the END of the path.
+     */
     public static boolean globMatches(String glob, String path) {
-        StringBuilder re = new StringBuilder();
+        StringBuilder re = new StringBuilder(".*");   // ends-with: allow any prefix, then match the glob to the end
         for (int i = 0; i < glob.length(); i++) {
             char c = glob.charAt(i);
             if (c == '*') {

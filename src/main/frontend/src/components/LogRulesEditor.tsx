@@ -60,7 +60,8 @@ export default function LogRulesEditor() {
   return (
     <div className="cfg-field">
       <div className="sub" style={{ marginTop: 0 }}>
-        <b>Match</b> — backend hosturl glob (empty = all hosts). <b>Field name</b> — JSON key holding the code
+        <b>Match</b> — backend hosturl, matched by <b>ends-with</b> (a plain path like <code>/api/session/query</code>
+        matches any host ending with it — no leading <code>*</code> needed; empty = all hosts). <b>Field name</b> — JSON key holding the code
         (e.g. <code>resultCode</code>, <code>errorcode</code>). <b>Success codes</b> — comma-separated, any one
         passes. <b>Svc version</b> — expected service version (exact match); set it only when the version is set
         in Java so the route scan can't derive it. <b>Skip</b> — exclude from the verdict. Save, then
@@ -77,7 +78,7 @@ export default function LogRulesEditor() {
       <input type="text" spellCheck={false} placeholder="resultCode, statusCode"
              value={cur.codeFields.join(',')} onChange={(e) => setCodeFields(e.target.value)} />
 
-      <label style={{ marginTop: 8 }}>Rules <span className="muted">(Match = the backend hosturl glob — <code>*</code> or empty = every host; or e.g. <code>*/limit/*</code>)</span></label>
+      <label style={{ marginTop: 8 }}>Rules <span className="muted">(Match = the backend hosturl by ends-with — e.g. <code>/api/session/query</code>; empty = every host; <code>*</code>/<code>?</code> wildcards allowed)</span></label>
       <table className="logrules-tbl">
         <thead>
           <tr><th>Match (hosturl glob · empty = global)</th><th>Field name</th><th>Success codes</th><th title="Expected service version (exact match). Set only when the version is defined in Java and the scan can't read it.">Svc version</th><th>Skip</th><th /></tr>
@@ -86,7 +87,7 @@ export default function LogRulesEditor() {
           {cur.rules.length === 0 && <tr><td colSpan={6} className="muted">No rules — add one below.</td></tr>}
           {cur.rules.map((r, i) => (
             <tr key={i}>
-              <td><input value={r.match} spellCheck={false} placeholder="*/host/xyz  (empty = all hosts)" onChange={(e) => setRule(i, { match: e.target.value })} /></td>
+              <td><input value={r.match} spellCheck={false} placeholder="/host/xyz  (ends-with; empty = all)" onChange={(e) => setRule(i, { match: e.target.value })} /></td>
               <td><input value={r.codeField} spellCheck={false} placeholder="resultCode" onChange={(e) => setRule(i, { codeField: e.target.value })} /></td>
               <td><input value={r.successCodes.join(',')} spellCheck={false} placeholder="000000,200"
                          disabled={r.skip}

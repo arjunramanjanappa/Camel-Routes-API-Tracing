@@ -23,10 +23,11 @@ export default function LogRulesEditor() {
   const cur = useMemo<AppLogRules>(() => map[app] ?? EMPTY, [map, app]);
   const setCur = (next: AppLogRules) => { setMap((m) => ({ ...m, [app]: next })); setSaved(false); };
 
-  // NOTE: do NOT filter empties here — that strips the comma the moment you type it (join() drops the trailing
-  // empty), so you could never start a second value. Empties are trimmed on save instead.
+  // NOTE: keep the raw typed text — do NOT trim or filter per keystroke. Trimming re-inserts the ", " separator
+  // that join() shows, so you can't backspace past it; filtering drops the comma the moment you type it. The
+  // value is round-tripped as-is (split(',') <-> join(',')); empties/whitespace are trimmed on SAVE.
   const setCodeFields = (csv: string) =>
-    setCur({ ...cur, codeFields: csv.split(',').map((s) => s.trim()) });
+    setCur({ ...cur, codeFields: csv.split(',') });
   const setRule = (i: number, patch: Partial<LogRule>) =>
     setCur({ ...cur, rules: cur.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
   const addRule = () =>
@@ -42,9 +43,9 @@ export default function LogRulesEditor() {
       for (const [k, v] of Object.entries(map)) {
         // Trim the typing-time empties now (a trailing comma leaves an ""), then keep meaningful rules.
         const rules = v.rules
-          .map((r) => ({ ...r, successCodes: r.successCodes.filter(Boolean), svcVersion: (r.svcVersion || '').trim() }))
-          .filter((r) => r.match.trim() || r.codeField.trim() || r.successCodes.length > 0 || r.skip || r.svcVersion);
-        const codeFields = v.codeFields.filter(Boolean);
+          .map((r) => ({ ...r, codeField: r.codeField.trim(), successCodes: r.successCodes.map((s) => s.trim()).filter(Boolean), svcVersion: (r.svcVersion || '').trim() }))
+          .filter((r) => r.match.trim() || r.codeField || r.successCodes.length > 0 || r.skip || r.svcVersion);
+        const codeFields = v.codeFields.map((s) => s.trim()).filter(Boolean);
         if (codeFields.length || rules.length) clean[k] = { codeFields, rules };
       }
       setMap(await saveLogRules(clean));
@@ -74,7 +75,7 @@ export default function LogRulesEditor() {
 
       <label style={{ marginTop: 8 }}>Fallback field name(s) <span className="muted">(comma-separated; responseCode is always tried)</span></label>
       <input type="text" spellCheck={false} placeholder="resultCode, statusCode"
-             value={cur.codeFields.join(', ')} onChange={(e) => setCodeFields(e.target.value)} />
+             value={cur.codeFields.join(',')} onChange={(e) => setCodeFields(e.target.value)} />
 
       <label style={{ marginTop: 8 }}>Rules <span className="muted">(Match = the backend hosturl glob — <code>*</code> or empty = every host; or e.g. <code>*/limit/*</code>)</span></label>
       <table className="logrules-tbl">
@@ -87,9 +88,9 @@ export default function LogRulesEditor() {
             <tr key={i}>
               <td><input value={r.match} spellCheck={false} placeholder="*/host/xyz  (empty = all hosts)" onChange={(e) => setRule(i, { match: e.target.value })} /></td>
               <td><input value={r.codeField} spellCheck={false} placeholder="resultCode" onChange={(e) => setRule(i, { codeField: e.target.value })} /></td>
-              <td><input value={r.successCodes.join(', ')} spellCheck={false} placeholder="000000, 200"
+              <td><input value={r.successCodes.join(',')} spellCheck={false} placeholder="000000,200"
                          disabled={r.skip}
-                         onChange={(e) => setRule(i, { successCodes: e.target.value.split(',').map((s) => s.trim()) })} /></td>
+                         onChange={(e) => setRule(i, { successCodes: e.target.value.split(',') })} /></td>
               <td><input value={r.svcVersion || ''} spellCheck={false} placeholder="2.3" style={{ width: 64 }}
                          disabled={r.skip}
                          title="Expected service version — exact match. Leave blank unless the version is set in Java."

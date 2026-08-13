@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { backendPath, buildEventsSpl, downloadText, TIME_PRESETS, DEFAULT_HEADER_KEYS } from '../spl';
+import { backendPath, buildEventsSpl, buildMergedAllLinesSpl, downloadText, TIME_PRESETS, DEFAULT_HEADER_KEYS } from '../spl';
 import CopyBtn from './CopyBtn';
 import SplunkDownloadLinks from './SplunkDownloadLinks';
 
@@ -20,6 +20,8 @@ interface Props {
   country?: string;
   /** Auto-detected SPL-Secure flavour — uses the SPLAppLog/SPLWSAppLog/SPLHostMessage query shape. */
   secure?: boolean;
+  /** All app flavours across the modules — when >1, a single MERGED query (one export for all apps) is offered. */
+  flavours?: { app: string; secure: boolean }[];
 }
 
 function pref(k: string, d: string) { return localStorage.getItem('tracer.' + k) ?? d; }
@@ -51,7 +53,7 @@ function environmentsFor(country: string | undefined): { label: string; source: 
  * log analyser reads back, so the exported report drives the correlation. Each
  * backend is searched together with its traced service version.
  */
-export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version, country, secure = false }: Props) {
+export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version, country, secure = false, flavours = [] }: Props) {
   const application = app && app.trim() ? app.trim() : 'Mighty';
   // SPL-Secure front-end lines use two loggers; the backend stays <app>HostMessage.
   const feMarker = secure ? 'SPLAppLog / SPLWSAppLog' : application + 'Message';   // front-end log lines
@@ -98,6 +100,10 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   // Always search the raw event (empty FE/BE field names) so the export is the _raw format the analyser
   // reads — the user only chooses index / time / which APIs; the query resolves to the analysis format.
   const spl = buildEventsSpl(index, '', fe, '', be, earliest, beVer, 'serviceVersionNumber', false, feMarker, beMarker, mode, clientVersion, secure, sources, respKeys);
+  // A single merged query covering every app flavour (Mighty + SPL + SPL-Secure) — one export instead of 3.
+  const distinctFlavours = [...new Map(flavours.map((f) => [f.app + '|' + f.secure, f])).values()];
+  const mergedSpl = distinctFlavours.length > 1
+    ? buildMergedAllLinesSpl(index, earliest, sources, distinctFlavours, respKeys) : '';
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
 
   return (
@@ -176,6 +182,20 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         </div>
         <pre>{spl || '— select one or more APIs to build the query —'}</pre>
       </div>
+
+      {mergedSpl && (
+        <div className="spl-block" style={{ marginTop: 10 }}>
+          <div className="row between">
+            <b>Merged query — all apps in one export <span className="muted">({distinctFlavours.map((f) => f.secure ? f.app + '-Secure' : f.app).join(' + ')})</span></b>
+            <span className="row" style={{ gap: 6 }}>
+              <CopyBtn text={mergedSpl} />
+              <button className="minibtn" onClick={() => downloadText('analysis-merged.spl', mergedSpl)}>.spl</button>
+            </span>
+          </div>
+          <div className="sub" style={{ marginBottom: 4 }}>Run this ONE query to get every app&rsquo;s lines in a single export — no need to run the per-app queries separately. Upload it once under &ldquo;Verify with logs&rdquo;; the analyser sorts each line to its app and parses in parallel.</div>
+          <pre>{mergedSpl}</pre>
+        </div>
+      )}
 
       <SplunkDownloadLinks />
 

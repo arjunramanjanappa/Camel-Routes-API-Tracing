@@ -202,6 +202,30 @@ export function buildEventsSpl(
   return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
+/** The log-line markers for one flavour: {@code <app>Message}/{@code <app>HostMessage}, or the SPL-Secure loggers. */
+export function markersFor(app: string, secure: boolean): string[] {
+  const a = app && app.trim() ? app.trim() : 'Mighty';
+  return secure ? ['SPLAppLog', 'SPLWSAppLog', 'SPLHostMessage'] : [a + 'Message', a + 'HostMessage'];
+}
+
+/**
+ * A SINGLE merged Splunk query covering every app flavour (Mighty + SPL + SPL-Secure) in one export — the union
+ * of all their markers, in the "all log lines" shape. Run once, get one file; the analyser buckets each line to
+ * its flavour on upload (and now parses in parallel). Saves running 3 separate per-app queries.
+ */
+export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
+                                       flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS): string {
+  const markerSet = new Set<string>();
+  for (const f of flavours) markersFor(f.app, f.secure).forEach((m) => markerSet.add(m));
+  const markers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
+  if (!markers) return '';
+  const win = earliest ? `earliest=${earliest} latest=now ` : '';
+  const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
+  const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
+  const slim = slimToResponseObject(responseKeys) + '\n';
+  return `index=${index} ${win}${src}(${markers})\n${slim}| sort 0 -_time\n| table _raw`;
+}
+
 export function downloadText(name: string, text: string): void {
   const a = document.createElement('a');
   a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);

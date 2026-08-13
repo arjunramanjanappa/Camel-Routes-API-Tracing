@@ -169,6 +169,13 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
       return { id: r.module.id, name: r.name, app: markerAppFor(app, pos < 0 ? 1 : pos), sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch };
     }), [reports, modules, app]);
 
+  // Distinct app flavours across the modules (+ SPL-Secure when detected) — drives the single merged Splunk query.
+  const splFlavours = useMemo(() => {
+    const list = [...new Set(logModules.map((m) => m.app))].map((a) => ({ app: a, secure: false }));
+    if (idx?.commandDispatch) list.push({ app: 'SPL', secure: true });
+    return list;
+  }, [logModules, idx]);
+
   const exportPdf = () => {
     if (!idx) return;
     exportImpactPdf({
@@ -370,6 +377,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
                 version={version}
                 country={country}
                 secure={!!idx.commandDispatch}
+                flavours={splFlavours}
                 frontendApis={selectedApiList}
                 backendApis={splBackends}
                 backendVersions={backendVersionMap}

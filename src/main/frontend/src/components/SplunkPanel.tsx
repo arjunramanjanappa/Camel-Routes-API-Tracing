@@ -105,20 +105,29 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
   const mergedSpl = distinctFlavours.length > 1
     ? buildMergedAllLinesSpl(index, earliest, sources, distinctFlavours, respKeys) : '';
   const rangeLabel = TIME_PRESETS.find((p) => p.earliest === earliest)?.label ?? earliest;
+  // When several app flavours are in scope, the single query is the CONSOLIDATED all-apps query (Mighty + SPL +
+  // SPL-Secure) — one export for every module. Otherwise it's the selected app's scoped/all query.
+  const merged = !!mergedSpl;
+  const query = merged ? mergedSpl : spl;
+  const appList = distinctFlavours.map((f) => f.secure ? f.app + '-Secure' : f.app).join(' + ');
 
   return (
     <div className="panel">
       <div className="row between">
         <h2 style={{ margin: 0 }}>{title}</h2>
-        <div className="seg">
-          <button className={mode === 'scoped' ? 'on' : ''} onClick={() => set('splMode', 'scoped', (v) => setMode(v as 'scoped'))}>Scoped</button>
-          <button className={mode === 'all' ? 'on' : ''} onClick={() => set('splMode', 'all', (v) => setMode(v as 'all'))}>All log lines</button>
-        </div>
+        {!merged && (
+          <div className="seg">
+            <button className={mode === 'scoped' ? 'on' : ''} onClick={() => set('splMode', 'scoped', (v) => setMode(v as 'scoped'))}>Scoped</button>
+            <button className={mode === 'all' ? 'on' : ''} onClick={() => set('splMode', 'all', (v) => setMode(v as 'all'))}>All log lines</button>
+          </div>
+        )}
       </div>
       <div className="sub" style={{ marginTop: 4 }}>
-        {mode === 'scoped'
-          ? <>Only the selected API(s): their front-end paths + backend (hosturl) paths.</>
-          : <>Every <code>{feMarker}</code> + <code>{beMarker}</code> line in the window — the analyser scopes to your selection on upload (can&rsquo;t miss a line).</>}
+        {merged
+          ? <>One consolidated query for <b>{appList}</b> across all modules — every marker line in the window, in a single export. The analyser sorts each line to its app on upload and parses in parallel.</>
+          : mode === 'scoped'
+            ? <>Only the selected API(s): their front-end paths + backend (hosturl) paths.</>
+            : <>Every <code>{feMarker}</code> + <code>{beMarker}</code> line in the window — the analyser scopes to your selection on upload (can&rsquo;t miss a line).</>}
       </div>
 
       <div className="spl-config">
@@ -151,7 +160,9 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
       </div>
 
       <div className="sub" style={{ marginTop: 8 }}>
-        {mode === 'all'
+        {merged
+          ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <b>{appList}</b> log lines (<code>_raw</code>) in one export — same as a raw output log, for every app.</>
+          : mode === 'all'
           ? <>Returns the last <b>{rangeLabel}</b> of <b>all</b> <code>{feMarker}</code> + <code>{beMarker}</code> events (<code>_raw</code>) — same as a raw output log.</>
           : <>Searches the last <b>{rangeLabel}</b> and returns raw events (<code>_raw</code>) for <b>{fe.length}</b> front-end
             + <b>{be.length}</b> backend path(s). Front-end paths are scoped to the <code>{feMarker}</code> log lines and backends
@@ -162,7 +173,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         {' '}Export the result as CSV (or JSON) and upload it under <b>Verify with logs</b>.
       </div>
 
-      {mode === 'scoped' && be.length > 0 && Object.keys(beVer).length > 0 && (
+      {!merged && mode === 'scoped' && be.length > 0 && Object.keys(beVer).length > 0 && (
         <div className="kv" style={{ marginTop: 4 }}>
           {be.map((p) => (
             <span key={p} className="tag backend" style={{ marginRight: 6 }}>
@@ -176,26 +187,12 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
         <div className="row between">
           <b>Splunk search → export → upload</b>
           <span className="row" style={{ gap: 6 }}>
-            <CopyBtn text={spl} />
-            <button className="minibtn" disabled={!spl} onClick={() => downloadText('analysis.spl', spl)}>.spl</button>
+            <CopyBtn text={query} />
+            <button className="minibtn" disabled={!query} onClick={() => downloadText('analysis.spl', query)}>.spl</button>
           </span>
         </div>
-        <pre>{spl || '— select one or more APIs to build the query —'}</pre>
+        <pre>{query || '— select one or more APIs to build the query —'}</pre>
       </div>
-
-      {mergedSpl && (
-        <div className="spl-block" style={{ marginTop: 10 }}>
-          <div className="row between">
-            <b>Merged query — all apps in one export <span className="muted">({distinctFlavours.map((f) => f.secure ? f.app + '-Secure' : f.app).join(' + ')})</span></b>
-            <span className="row" style={{ gap: 6 }}>
-              <CopyBtn text={mergedSpl} />
-              <button className="minibtn" onClick={() => downloadText('analysis-merged.spl', mergedSpl)}>.spl</button>
-            </span>
-          </div>
-          <div className="sub" style={{ marginBottom: 4 }}>Run this ONE query to get every app&rsquo;s lines in a single export — no need to run the per-app queries separately. Upload it once under &ldquo;Verify with logs&rdquo;; the analyser sorts each line to its app and parses in parallel.</div>
-          <pre>{mergedSpl}</pre>
-        </div>
-      )}
 
       <SplunkDownloadLinks />
 

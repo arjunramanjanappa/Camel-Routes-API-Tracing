@@ -205,7 +205,7 @@ export function buildEventsSpl(
 // Only Request/Response log lines are needed for correlation — everything else (host chatter, errors, etc.)
 // is noise. These direction phrases are ANDed into the consolidated query so the export carries only those.
 // Covers all flavours: Mighty/SPL emit " - Request -" / "- Response -"; SPL-Secure hosts emit [Request]/[Response].
-export const DIRECTION_PHRASES = [' - Request -', '[Request]', '[Response]', '- Response -'];
+export const DIRECTION_PHRASES = ['- Request -', '[Request]', '[Response]', '- Response -'];
 
 /** The log-line markers for one flavour: {@code <app>Message}/{@code <app>HostMessage}, or the SPL-Secure loggers. */
 export function markersFor(app: string, secure: boolean): string[] {

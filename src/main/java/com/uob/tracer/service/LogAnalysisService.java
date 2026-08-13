@@ -110,15 +110,15 @@ public class LogAnalysisService {
     // version is found by its 9.18 shape and the latency by its 500ms shape.
     // ts [thread] LEVEL [marker][...fields...] -<path> - [Request|Response] (- OR :) json
     // Bracket fields are located by PATTERN not position. A host line may carry a
-    // "[jwt]: true,  -" prefix before the backend URL, and the JSON may follow the
-    // direction with a ":" instead of a "-" — both shapes are tolerated, as is varying
-    // whitespace around every separator.
+    // "[jwt]: true, ..." prefix before the backend URL (with OR without a trailing "-"), and the JSON may
+    // follow the direction with a ":" instead of a "-" — all shapes are tolerated, as is varying whitespace
+    // around every separator. The jwt prefix is consumed only up to the first "/" so it can never swallow the URL.
     private static final Pattern LINE = Pattern.compile(
             "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}[.:]\\d{2}[.:]\\d{2}[.:]\\d{1,3})\\s+"
                     + "\\[[^\\]]*\\]\\s+\\S+\\s+"
                     + "\\[([A-Za-z0-9_]+Message)\\]"             // app marker, e.g. MightyMessage / SPLHostMessage
                     + "((?:\\[[^\\]]*\\])+?)\\s*-\\s*"           // bracket meta fields, then a separator dash
-                    + "(?:\\[jwt\\][^-]*-\\s*)?"                 // optional "[jwt]: true,  -" prefix before the URL
+                    + "(?:\\[jwt\\][^/]*)?"                      // optional "[jwt]: true, ..." prefix — up to the URL's '/'
                     + "(\\S+)\\s*-\\s*\\[?(Request|Response)\\]?\\s*[-:]\\s*(.*)$");
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
     private static final Pattern TOOK = Pattern.compile("(\\d+)\\s*ms");

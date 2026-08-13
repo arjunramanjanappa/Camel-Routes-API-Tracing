@@ -213,6 +213,37 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aHostLineWithAJwtPrefixButNoDashBeforeTheUrlStillParsesAndResolves(@TempDir Path home) throws IOException {
+        // Real Mighty format: "[jwt]: true,  /path" — the jwt prefix has NO trailing '-' before the hosturl,
+        // and the hosturl carries no context prefix. The line must still parse; a rule (field request_result,
+        // success "success", matched by ends-with) must then resolve the backend to SUCCESS.
+        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
+        rules.saveApp("Mighty", false, new AppRules(List.of(),
+                List.of(new LogRulesService.Rule("/bfs/ft/own/submit", "request_result", List.of("success"), false))));
+        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
+
+        String fe = "/mty-banking-01/services/sg/payment/v2/fund/submit";
+        String be = "/bfs/ft/own/submit";   // no context prefix; rule matches by ends-with
+        String corr = "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1";
+        String log =
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][]-" + fe + " - Request - {}\n"
+          + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][IOS][] -[jwt]: true,  "
+                + be + " - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n"
+          + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][IOS][230ms] -[jwt]: true,  "
+                + be + " - [Response] : {\"serviceResponse\":{\"request_result\":\"success\"}}\n"
+          + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][300ms]-" + fe + " - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = svc.analyze(in, "jwt-nodash.log", "9.4", null, FW, null, null, true, "Mighty");
+        }
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);   // request_result "success" read + matched by the rule
+        });
+    }
+
+    @Test
     void backendCodeFromACustomFieldPassesWhenARuleDeclaresIt(@TempDir Path home) throws IOException {
         // A BACKEND host whose response reports its outcome under a custom key (ResponseHeader.errorcode:"0000",
         // no responseCode). A rule matching that hosturl, field errorcode, success 0000, must read + pass it.

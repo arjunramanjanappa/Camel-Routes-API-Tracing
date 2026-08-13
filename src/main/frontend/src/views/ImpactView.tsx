@@ -169,12 +169,19 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
       return { id: r.module.id, name: r.name, app: markerAppFor(app, pos < 0 ? 1 : pos), sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch };
     }), [reports, modules, app]);
 
-  // Distinct app flavours across the modules (+ SPL-Secure when detected) — drives the single merged Splunk query.
-  const splFlavours = useMemo(() => {
-    const list = [...new Set(logModules.map((m) => m.app))].map((a) => ({ app: a, secure: false }));
-    if (idx?.commandDispatch) list.push({ app: 'SPL', secure: true });
+  // Flavours for the single consolidated Splunk query. It must cover EVERY log flavour a release of this app
+  // can produce, regardless of which module tab is active — Mighty orchestrates SPL + SPL-Secure sub-services,
+  // so a Mighty run always spans all three (Mighty + SPL + SPL-Secure); an SPL run spans SPL + SPL-Secure.
+  // Fixed per entry app — deliberately NOT gated on the ACTIVE module's command-dispatch flag (that only tells
+  // you about the module you're viewing, which wrongly dropped SPL-Secure unless the spl-secure repo was open).
+  const splFlavours = useMemo<{ app: string; secure: boolean }[]>(() => {
+    const entry = (app || 'Mighty').trim();
+    const list: { app: string; secure: boolean }[] = [];
+    if (entry !== 'SPL') list.push({ app: entry, secure: false });   // entry-app markers (e.g. Mighty) — omitted for an SPL run
+    list.push({ app: 'SPL', secure: false });                        // SPL sub-service markers
+    list.push({ app: 'SPL', secure: true });                         // SPL-Secure markers
     return list;
-  }, [logModules, idx]);
+  }, [app]);
 
   const exportPdf = () => {
     if (!idx) return;

@@ -202,6 +202,11 @@ export function buildEventsSpl(
   return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
+// Only Request/Response log lines are needed for correlation — everything else (host chatter, errors, etc.)
+// is noise. These direction phrases are ANDed into the consolidated query so the export carries only those.
+// Covers all flavours: Mighty/SPL emit " - Request -" / "- Response -"; SPL-Secure hosts emit [Request]/[Response].
+export const DIRECTION_PHRASES = [' - Request -', '[Request]', '[Response]', '- Response -'];
+
 /** The log-line markers for one flavour: {@code <app>Message}/{@code <app>HostMessage}, or the SPL-Secure loggers. */
 export function markersFor(app: string, secure: boolean): string[] {
   const a = app && app.trim() ? app.trim() : 'Mighty';
@@ -223,7 +228,9 @@ export function buildMergedAllLinesSpl(index: string, earliest: string, sources:
   const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
   const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
   const slim = slimToResponseObject(responseKeys) + '\n';
-  return `index=${index} ${win}${src}(${markers})\n${slim}| sort 0 -_time\n| table _raw`;
+  // AND in the direction filter so only Request/Response lines are fetched (not other host chatter).
+  const dir = `(${DIRECTION_PHRASES.map((p) => `"${p}"`).join(' OR ')})`;
+  return `index=${index} ${win}${src}(${markers}) ${dir}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

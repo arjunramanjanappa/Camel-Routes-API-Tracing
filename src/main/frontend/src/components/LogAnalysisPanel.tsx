@@ -3,7 +3,7 @@ import { analyzeLog, analyzeLogMulti, resolveCapabilities, exportCapabilitiesXls
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
 import { exportLogPdf, exportLogPdfMulti } from '../logPdf';
-import { exportLogSummaryPdf } from '../logSummaryPdf';
+import { exportLogSummaryPdf, exportLogSummaryPdfMulti } from '../logSummaryPdf';
 import TestSummary from './TestSummary';
 
 type InputType = 'OUTPUT_LOG' | 'SPLUNK';
@@ -599,19 +599,30 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   };
   /** The impacted FE + BE API paths of the current report, for the VAL capability lookup (backend paths are
    *  stripped of the {{baseUrl}} placeholder so they match the Interface Spec Col G by ends-with). */
-  const capabilityScope = (): CapabilityScope => {
-    if (!report) return { feApis: [], beApis: [], country };
-    // FE APIs only — each backend is exercised as part of its FE API's end-to-end test, so the capability
-    // list stays at the FE level. statusByApi is the FE API's log verdict for the coloured Test Status column.
-    const feApis = [...new Set(report.apis.map((a) => a.api).filter(Boolean))];
+  // FE APIs only — each backend is exercised as part of its FE API's end-to-end test, so the capability
+  // list stays at the FE level. statusByApi is the FE API's log verdict for the coloured Test Status column.
+  const scopeForReport = (rep: LogAnalysisReport): CapabilityScope => {
+    const feApis = [...new Set(rep.apis.map((a) => a.api).filter(Boolean))];
     const statusByApi: Record<string, string> = {};
-    for (const a of report.apis) statusByApi[a.api] = STATUS_LABEL[a.status];
+    for (const a of rep.apis) statusByApi[a.api] = STATUS_LABEL[a.status];
     return { feApis, beApis: [], country, statusByApi, sheetName: 'New App Coverage', fileName: 'Release Test - Capability Matrix' };
   };
+  const capabilityScope = (): CapabilityScope => (report ? scopeForReport(report) : { feApis: [], beApis: [], country });
   /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team. */
   const exportCapabilities = () => { if (report) exportCapabilitiesXlsx(capabilityScope()).catch(() => {}); };
-  /** Leadership Summary PDF — from the combined report (covers all modules); enriched with capabilities when configured. */
+  /** Leadership Summary PDF. Multi-module: ONE consolidated doc across every module (like Release Impact),
+   *  each module's APIs enriched with its own VAL capabilities. Single module: the one report. */
   const exportSummaryPdf = async () => {
+    if (multi) {
+      if (!perModule.length) return;
+      const mods = await Promise.all(perModule.map(async (p) => {
+        let caps: CapabilityResult | undefined;
+        if (p.report) { try { caps = await resolveCapabilities(scopeForReport(p.report)); } catch { caps = undefined; } }
+        return { name: p.name, report: p.report, error: p.error, caps };
+      }));
+      exportLogSummaryPdfMulti(mods, app, version, country).catch(() => {});
+      return;
+    }
     if (!report) return;
     let caps: CapabilityResult | undefined;
     try { caps = await resolveCapabilities(capabilityScope()); } catch { caps = undefined; }

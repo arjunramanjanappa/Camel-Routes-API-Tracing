@@ -533,6 +533,22 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aHostPathLoggedWithoutALeadingSlashStillMatchesTheTracedTail() throws IOException {
+        // The host logs a path with NO leading slash — hostUrl "cur/bfs/fx/rates" is printed verbatim as
+        // "cur/bfs/fx/rates" (not "/cur/..."). The traced tail is normalised to "/cur/bfs/fx/rates", so a
+        // naive endsWith("/cur/bfs/fx/rates") on the slash-less observed path was one char short and read the
+        // backend as Not Tested despite the log being present. The observed path must get the same leading '/'.
+        LogAnalysisReport r = analyzeBackends("analysis-hosturl-noslash.log", "9.14",
+                List.of("cur/bfs/fx/rates"));
+
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.tested()).isTrue();                       // was Not Tested before the leading-slash fix
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(be.latencyMs()).isEqualTo(150);
+        assertThat(be.loggedServiceVersion()).isEqualTo("2.2");
+    }
+
+    @Test
     void jwtHostRequestIsParsedAndColonSeparatedResponseMatches() throws IOException {
         // The real MightyHostMessage shapes: the Request carries the backend URL after a
         // "[jwt]: true,  -" prefix, and the JSON follows the direction with a ":" (not a

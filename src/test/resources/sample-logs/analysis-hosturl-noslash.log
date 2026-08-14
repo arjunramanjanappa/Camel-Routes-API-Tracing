@@ -1,0 +1,4 @@
+2026-06-11 18:43:44.901 [XNIO-1 task-3] INFO  [MightyMessage][MTY][sess01][Testuser][9.14][a1b2c3d4e5f60718a1b2c3d4e5f60718][Andriod][] -/services/sg/fx/getFxRate - Request - {"serviceRequest":{}}
+2026-06-11 18:43:44.919 [XNIO-1 task-3] INFO  [MightyHostMessage][MTY][sess01][Testuser][9.14][a1b2c3d4e5f60718a1b2c3d4e5f60718][Andriod][] - cur/bfs/fx/rates - [Request] - {"serviceVersionNumber":"2.2"}
+2026-06-11 18:43:45.146 [XNIO-1 task-3] INFO  [MightyHostMessage][MTY][sess01][Testuser][9.14][a1b2c3d4e5f60718a1b2c3d4e5f60718][Andriod][150ms] - cur/bfs/fx/rates - [Response] - {"serviceResponse":{"responseCode":"0000000"}}
+2026-06-11 18:43:45.194 [XNIO-1 task-3] INFO  [MightyMessage][MTY][sess01][Testuser][9.14][a1b2c3d4e5f60718a1b2c3d4e5f60718][Andriod][294ms] -/services/sg/fx/getFxRate - Response - {"serviceResponse":{"responseCode":"000000"}}

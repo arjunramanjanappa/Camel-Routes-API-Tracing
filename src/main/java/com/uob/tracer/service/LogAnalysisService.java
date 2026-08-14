@@ -1868,6 +1868,14 @@ public class LogAnalysisService {
         if (tbPath.isEmpty() || op.isEmpty()) {
             return false;
         }
+        // The traced tail is always normalised to start with '/' (see backendPathPart), but the host may
+        // log the path WITHOUT a leading slash — e.g. hostUrl "cur/bfs/fx/rates" is logged verbatim as
+        // "cur/bfs/fx/rates". Give the observed path the same leading '/' so a slash-less host path still
+        // ends-with the traced tail at a segment boundary (else "cur/bfs/fx/rates" would fail to end with
+        // "/cur/bfs/fx/rates" — one char short — and read as Not Tested despite the log being present).
+        if (!op.startsWith("/")) {
+            op = "/" + op;
+        }
         // The traced backend keeps a {{placeholder}} (e.g. {{dge.bfs.XX}}) that is
         // stripped to the path tail; in the log that placeholder is resolved to a host
         // + context of ANY length, so the observed path simply ENDS WITH the traced tail

@@ -12,6 +12,7 @@ import { depParams, loadDeps, saveDeps } from '../deps';
 import ResultPanels from '../components/ResultPanels';
 import DetailPanel from '../components/DetailPanel';
 import ScopeSummary from '../components/ScopeSummary';
+import { initialCountry } from '../countries';
 import RouteGraph, { type GraphHandle } from '../components/RouteGraph';
 import Legend from '../components/Legend';
 import Loader, { SCAN_MESSAGES } from '../components/Loader';
@@ -30,7 +31,7 @@ function asCatalog(r: AnalyzeResponse | null): CatalogResponse | null {
 
 export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detailed' }: { app?: string; colorMode: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
-  const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) || '');
+  const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base (per-run)
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
   const [catalogs, setCatalogs] = useState<ModuleResult<AnalyzeResponse>[]>([]);

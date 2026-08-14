@@ -10,6 +10,8 @@ import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
 import { sourceParams } from '../components/SourceFields';
 import ModulesEditor from '../components/ModulesEditor';
+import CountrySelect from '../components/CountrySelect';
+import { initialCountry } from '../countries';
 import ModuleSummary, { type ModuleStat } from '../components/ModuleSummary';
 import NeedsReviewBox from '../components/NeedsReviewBox';
 import InfoBanner from '../components/InfoBanner';
@@ -765,7 +767,7 @@ function VersionChips({ value, onChange, onSubmit }: { value: string; onChange: 
 export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = 'detailed' }: { app?: string; colorMode?: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app || 'Mighty');
   const [modulesOpen, setModulesOpen] = useState(true);
-  const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
+  const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
   // Optional app/commit version (e.g. 19.18.0) for Java code-change detection — the version token in commits.
   const [appVersion, setAppVersion] = useState(() => localStorage.getItem(appKey(app, 'appVersion')) ?? '');
@@ -1031,7 +1033,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         <div className="context-bar">
           <div style={{ width: 160 }}>
             <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
-            <input value={country} placeholder="SG / MY / ID / TH / VN" onChange={(e) => setCountry(e.target.value)} />
+            <CountrySelect value={country} onChange={setCountry} />
           </div>
           <div style={{ width: 200 }}>
             <label>API Version <span style={{ color: '#dc2626' }}>*</span></label>

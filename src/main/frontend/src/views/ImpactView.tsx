@@ -16,6 +16,7 @@ import Loader, { IMPACT_MESSAGES } from '../components/Loader';
 import Collapsible from '../components/Collapsible';
 import Steps, { type StepState } from '../components/Steps';
 import { analyzeModules, markerAppFor, moduleValid, type ModuleResult } from '../modules';
+import { initialCountry } from '../countries';
 import { useAppModules } from '../appModules';
 
 // The context (country + modules) is remembered per application — Mighty and SPL are separate
@@ -26,7 +27,7 @@ const EMPTY_META: Meta = { countries: [], versions: [], transferTypes: [] };
 export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMode = 'detailed' }: { app?: string; colorMode?: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
-  const [country, setCountry] = useState(() => localStorage.getItem(appKey(app, 'country')) ?? '');
+  const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const [reports, setReports] = useState<ModuleResult<ImpactIndex>[]>([]);

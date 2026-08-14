@@ -1,5 +1,6 @@
 import type { Meta } from '../types';
 import ModulesEditor from './ModulesEditor';
+import CountrySelect from './CountrySelect';
 import type { ModuleSource } from '../modules';
 import { moduleValid } from '../modules';
 
@@ -36,9 +37,7 @@ export default function ControlPanel({ modules, onModulesChange, names, country,
       <div className="context-bar">
         <div style={{ width: 150 }}>
           <label>Country <span style={{ color: '#dc2626' }}>*</span></label>
-          <input list="countryList" value={country} placeholder="SG / MY / ID / TH / VN"
-                 onChange={(e) => onField({ country: e.target.value })} />
-          <datalist id="countryList">{meta.countries.map((c) => <option key={c} value={c} />)}</datalist>
+          <CountrySelect value={country} onChange={(c) => onField({ country: c })} />
         </div>
         <div style={{ width: 200 }}>
           <label>API Version <span style={{ color: '#dc2626' }}>*</span></label>

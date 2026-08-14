@@ -1838,6 +1838,11 @@ public class LogAnalysisService {
         if (c.code() == null) {
             return LogStatus.INDETERMINATE;
         }
+        // "Any value" rule: the code field is DYNAMIC (no fixed success list) — a present, non-blank value is
+        // success by itself (we're already past the null check; an absent field reads INDETERMINATE above).
+        if (rule != null && rule.anyCode() && !c.code().trim().isEmpty()) {
+            return LogStatus.SUCCESS;
+        }
         boolean ok = (rule != null && !rule.successCodes().isEmpty())
                 ? rule.successCodes().stream().anyMatch(v -> v != null && v.trim().equalsIgnoreCase(c.code().trim()))
                 : isBackendSuccess(c.code(), secure);

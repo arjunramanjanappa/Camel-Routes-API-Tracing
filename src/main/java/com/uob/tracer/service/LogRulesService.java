@@ -47,7 +47,8 @@ public class LogRulesService {
      * not attributed to the flow. For backends whose version is set in Java / a runtime property, which the route
      * scan can't read — so it has no expected version of its own. Blank = no version check.
      */
-    public record Rule(String match, String codeField, List<String> successCodes, boolean skip, String svcVersion) {
+    public record Rule(String match, String codeField, List<String> successCodes, boolean skip, String svcVersion,
+                       boolean anyCode) {
         public Rule {
             match = match == null ? "" : match.trim();
             codeField = codeField == null ? "" : codeField.trim();
@@ -55,9 +56,14 @@ public class LogRulesService {
             svcVersion = svcVersion == null ? "" : svcVersion.trim();
         }
 
+        /** Back-compat: a rule with no {@code anyCode} flag (judges by successCodes / default). */
+        public Rule(String match, String codeField, List<String> successCodes, boolean skip, String svcVersion) {
+            this(match, codeField, successCodes, skip, svcVersion, false);
+        }
+
         /** Back-compat: a rule with no expected service version. */
         public Rule(String match, String codeField, List<String> successCodes, boolean skip) {
-            this(match, codeField, successCodes, skip, "");
+            this(match, codeField, successCodes, skip, "", false);
         }
     }
 

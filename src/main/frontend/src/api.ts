@@ -58,7 +58,7 @@ export async function saveSettings(patch: { bitbucketToken?: string; npmToken?: 
 }
 
 /** One host response-code rule (matched on a backend hosturl glob). */
-export interface LogRule { match: string; codeField: string; successCodes: string[]; skip: boolean; svcVersion?: string; }
+export interface LogRule { match: string; codeField: string; successCodes: string[]; skip: boolean; svcVersion?: string; anyCode?: boolean; }
 /** Per-app host response-code rules: ordered fallback code keys + per-hosturl rules. */
 export interface AppLogRules { codeFields: string[]; rules: LogRule[]; }
 /** The whole log-rules.json — keyed by app/marker (Mighty / SPL / SPL-Secure). */

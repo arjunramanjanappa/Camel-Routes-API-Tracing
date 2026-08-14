@@ -336,6 +336,39 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void anAnyValueRulePassesADynamicCodeWhateverItsValue(@TempDir Path home) throws IOException {
+        // The host's outcome field is DYNAMIC (a per-call reference, no fixed success list). An "any value" rule
+        // (field ErrorCode, anyCode=true, no success codes) passes the backend whenever that field is present,
+        // whatever the value — here a non-zero, unlisted "XYZ789". A missing field would stay indeterminate.
+        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
+        rules.saveApp("Mighty", false, new AppRules(List.of(),
+                List.of(new Rule("*/bfs/ft/own/submit", "ErrorCode", List.of(), false, "", true))));
+        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
+
+        String fe = "/mty-banking/services/sg/payment/v2/fund/submit";
+        String be = "/mty-banking-01/bfs/ft/own/submit";
+        String corr = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+        String log =
+            "2026-06-11 18.43.45.100 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][]-" + fe
+                + " -Request - {\"x\":1}\n"
+            + "2026-06-11 18.43.45.205 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][Android][] -"
+                + be + " - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n"
+            + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.4][" + corr + "][Android][230ms] -"
+                + be + " - [Response] : {\"ResponseHeader\":{\"ErrorCode\":\"XYZ789\"}}\n"
+            + "2026-06-11 18.43.45.400 [t] INFO [MightyMessage][MTY][s][u][9.4][" + corr + "][IOS][300ms]-" + fe
+                + " -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = svc.analyze(in, "dyn-be.log", "9.4", null, FW, null, null, true, "Mighty");
+        }
+        ApiLogResult v2 = api(r, V2);
+        assertThat(v2.backends()).anySatisfy(b -> {
+            assertThat(b.backend()).contains("/bfs/ft/own/submit");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);   // dynamic value still passes (any-value rule)
+        });
+    }
+
+    @Test
     void analyzeModulesParsesTheUploadOnceAcrossFlavours() throws IOException {
         // Two modules of DIFFERENT flavours (Mighty + SPL) go through analyzeModules, which parses the upload
         // ONCE and buckets records per flavour in a single read. The Mighty module must get exactly the same

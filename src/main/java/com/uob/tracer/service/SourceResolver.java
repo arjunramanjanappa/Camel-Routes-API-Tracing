@@ -5,6 +5,7 @@ import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.TransportConfigCallback;
 import org.eclipse.jgit.api.errors.CheckoutConflictException;
 import org.eclipse.jgit.api.errors.JGitInternalException;
+import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.transport.RefSpec;
@@ -178,6 +179,13 @@ public class SourceResolver {
                         url, rev, rootMessage(e));
                 rebuild = true;
             }
+        } catch (RepositoryNotFoundException e) {
+            // The cached .git is present but NOT a valid/complete repository — a clone that was interrupted
+            // (app killed, disk full, or a Windows long-path failure part-way through) leaves a partial .git
+            // that Git.open() rejects as "repository not found". The gate only checks that .git exists, so it
+            // routed here instead of re-cloning. Discard the poisoned cache and clone fresh.
+            LOG.warn("Cached repo at {} is corrupt/incomplete ({}); re-cloning from scratch.", dir, rootMessage(e));
+            rebuild = true;
         }
         if (rebuild) {
             cloneFresh(dir, url, rev, key);

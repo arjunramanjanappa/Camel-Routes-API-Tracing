@@ -106,6 +106,52 @@ class SourceResolverTest {
     }
 
     @Test
+    void aCorruptCachedRepoIsReclonedNotFailed(@TempDir Path tmp) throws Exception {
+        // A prior clone left a .git directory that is present but INVALID (interrupted / partial clone). The
+        // cache gate only checks that .git exists, so it opens it → JGit "repository not found". The resolver
+        // must discard the poisoned cache and re-clone, not fail. A FRESH resolver models an app restart, so
+        // there's no warm fetch-throttle state to skip the open.
+        Path remote = tmp.resolve("remote");
+        Files.createDirectories(remote);
+        try (Git git = Git.init().setDirectory(remote.toFile()).setInitialBranch("main").call()) {
+            Files.writeString(remote.resolve("common.txt"), "shared");
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("init").setAuthor("t", "t@t").setCommitter("t", "t@t").call();
+        }
+        String url = remote.toUri().toString();
+        Path work = tmp.resolve("work");
+
+        Path dir = new SourceResolver("", work.toString()).resolve(url, "main");   // first run: clones fine
+        assertThat(dir.resolve("common.txt")).exists();
+
+        // Corrupt the cache: replace .git with an EMPTY directory (present, but not a valid repository).
+        Path gitDir = dir.resolve(".git");
+        deleteRecursively(gitDir);
+        Files.createDirectories(gitDir);
+
+        // A fresh resolver must recover (re-clone) rather than surface "repository not found".
+        Path recovered = new SourceResolver("", work.toString()).resolve(url, "main");
+        assertThat(recovered).isEqualTo(dir);
+        assertThat(recovered.resolve("common.txt")).exists();
+        assertThat(Files.isDirectory(recovered.resolve(".git"))).isTrue();
+    }
+
+    private static void deleteRecursively(Path p) throws Exception {
+        if (!Files.exists(p)) {
+            return;
+        }
+        try (var s = Files.walk(p)) {
+            s.sorted(java.util.Comparator.reverseOrder()).forEach(x -> {
+                try {
+                    Files.delete(x);
+                } catch (Exception ignored) {
+                    // best-effort cleanup for the test
+                }
+            });
+        }
+    }
+
+    @Test
     void aMissingBranchGivesAClearError(@TempDir Path tmp) throws Exception {
         Path remote = tmp.resolve("remote");
         Files.createDirectories(remote);

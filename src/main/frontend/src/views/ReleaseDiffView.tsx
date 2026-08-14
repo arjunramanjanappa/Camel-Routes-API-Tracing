@@ -992,7 +992,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
     return { name: r.name, report: r.result, error: r.error,
       logByVer: Object.keys(byVer).length ? byVer : undefined,
       remarks: Object.keys(rem).length ? rem : undefined };
-  }).filter((m) => m.report || m.error);
+  // Skip dependency repos (analysed but with no APIs of their own — shared code, not part of this release's
+  // surface); keep errored modules so their failure is still surfaced.
+  }).filter((m) => m.error || (m.report && m.report.apis.length > 0));
 
   /** Detailed PDF — full route/class/test report for developers & testers. */
   const exportPdf = () => { const mods = buildMods(); if (mods.length) exportDiffPdf(mods, app, logWindow ?? undefined).catch(() => {}); };

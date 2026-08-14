@@ -608,8 +608,31 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     return { feApis, beApis: [], country, statusByApi, sheetName: 'New App Coverage', fileName: 'Release Test - Capability Matrix' };
   };
   const capabilityScope = (): CapabilityScope => (report ? scopeForReport(report) : { feApis: [], beApis: [], country });
-  /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team. */
-  const exportCapabilities = () => { if (report) exportCapabilitiesXlsx(capabilityScope()).catch(() => {}); };
+  /** Combined scope across EVERY module — one consolidated Capability Matrix for a multi-module run. The FE APIs
+   *  are unioned; when the same path appears in more than one module its most severe log verdict wins. */
+  const capabilityScopeAll = (): CapabilityScope => {
+    const feSet = new Set<string>();
+    const statusByApi: Record<string, string> = {};
+    const sevByApi: Record<string, number> = {};
+    for (const p of perModule) {
+      if (!p.report) continue;
+      for (const a of p.report.apis) {
+        if (!a.api) continue;
+        feSet.add(a.api);
+        if (sevByApi[a.api] === undefined || SEVERITY[a.status] < sevByApi[a.api]) {
+          sevByApi[a.api] = SEVERITY[a.status];
+          statusByApi[a.api] = STATUS_LABEL[a.status];
+        }
+      }
+    }
+    return { feApis: [...feSet], beApis: [], country, statusByApi, sheetName: 'New App Coverage', fileName: 'Release Test - Capability Matrix' };
+  };
+  /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team.
+   *  Multi-module: ONE consolidated file covering every module's APIs (like the consolidated PDFs). */
+  const exportCapabilities = () => {
+    const scope = multi ? capabilityScopeAll() : capabilityScope();
+    if (scope.feApis.length) exportCapabilitiesXlsx(scope).catch(() => {});
+  };
   /** Leadership Summary PDF. Multi-module: ONE consolidated doc across every module (like Release Impact),
    *  each module's APIs enriched with its own VAL capabilities. Single module: the one report. */
   const exportSummaryPdf = async () => {

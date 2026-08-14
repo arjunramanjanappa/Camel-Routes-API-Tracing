@@ -263,7 +263,11 @@ public class RouteGraphController {
      */
     public record CapabilityRequest(List<String> feApis, List<String> beApis, String country,
                                     Map<String, String> statusByApi, String sheetName,
-                                    List<CapabilityService.ExtraColumn> trailingColumns) {}
+                                    List<CapabilityService.ExtraColumn> trailingColumns,
+                                    List<ModuleGroup> modules) {}
+
+    /** One module's APIs + log verdicts for a per-module-tab export (a sheet per module). */
+    public record ModuleGroup(String name, List<String> feApis, List<String> beApis, Map<String, String> statusByApi) {}
 
     /** Whether the two VAL reports are configured (a one-time config, like the log rules). */
     @GetMapping("/internal/capability-config")
@@ -299,12 +303,23 @@ public class RouteGraphController {
     /** The joined Capability export as an .xlsx download (one row per API→capability + an Unmatched sheet). */
     @PostMapping("/internal/capabilities/export")
     public ResponseEntity<byte[]> exportCapabilities(@RequestBody CapabilityRequest req) {
-        String sheet = req.sheetName() == null || req.sheetName().isBlank() ? "Capabilities" : req.sheetName();
-        byte[] xlsx = capabilities.exportExcel(
-                capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()),
-                sheet,
-                req.statusByApi() == null ? Map.of() : req.statusByApi(),
-                req.trailingColumns() == null ? List.of() : req.trailingColumns());
+        byte[] xlsx;
+        if (req.modules() != null && !req.modules().isEmpty()) {
+            // Multi-module: one sheet per module (the tab name IS the module) — each module's APIs resolved on their own.
+            List<CapabilityService.ModuleCapabilities> mods = new ArrayList<>();
+            for (ModuleGroup g : req.modules()) {
+                CapabilityService.CapabilityResult res = capabilities.resolve(safe(g.feApis()), safe(g.beApis()), req.country());
+                mods.add(new CapabilityService.ModuleCapabilities(g.name(), res, g.statusByApi() == null ? Map.of() : g.statusByApi()));
+            }
+            xlsx = capabilities.exportByModule(mods);
+        } else {
+            String sheet = req.sheetName() == null || req.sheetName().isBlank() ? "Capabilities" : req.sheetName();
+            xlsx = capabilities.exportExcel(
+                    capabilities.resolve(safe(req.feApis()), safe(req.beApis()), req.country()),
+                    sheet,
+                    req.statusByApi() == null ? Map.of() : req.statusByApi(),
+                    req.trailingColumns() == null ? List.of() : req.trailingColumns());
+        }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"capability-matrix.xlsx\"")
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))

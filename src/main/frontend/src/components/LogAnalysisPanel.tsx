@@ -608,30 +608,29 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     return { feApis, beApis: [], country, statusByApi, sheetName: 'New App Coverage', fileName: 'Release Test - Capability Matrix' };
   };
   const capabilityScope = (): CapabilityScope => (report ? scopeForReport(report) : { feApis: [], beApis: [], country });
-  /** Combined scope across EVERY module — one consolidated Capability Matrix for a multi-module run. The FE APIs
-   *  are unioned; when the same path appears in more than one module its most severe log verdict wins. */
-  const capabilityScopeAll = (): CapabilityScope => {
-    const feSet = new Set<string>();
-    const statusByApi: Record<string, string> = {};
-    const sevByApi: Record<string, number> = {};
-    for (const p of perModule) {
-      if (!p.report) continue;
-      for (const a of p.report.apis) {
-        if (!a.api) continue;
-        feSet.add(a.api);
-        if (sevByApi[a.api] === undefined || SEVERITY[a.status] < sevByApi[a.api]) {
-          sevByApi[a.api] = SEVERITY[a.status];
-          statusByApi[a.api] = STATUS_LABEL[a.status];
-        }
-      }
-    }
-    return { feApis: [...feSet], beApis: [], country, statusByApi, sheetName: 'New App Coverage', fileName: 'Release Test - Capability Matrix' };
+  /** Per-module scope for a multi-module run — ONE workbook with a sheet PER MODULE (the tab name is the module,
+   *  so no Module column is needed). Each module carries its own FE APIs + log verdicts. */
+  const capabilityScopeByModule = (): CapabilityScope => {
+    const groups = perModule
+      .filter((p) => p.report)
+      .map((p) => {
+        const rep = p.report!;
+        const feApis = [...new Set(rep.apis.map((a) => a.api).filter(Boolean))];
+        const statusByApi: Record<string, string> = {};
+        for (const a of rep.apis) statusByApi[a.api] = STATUS_LABEL[a.status];
+        return { name: p.name, feApis, beApis: [], statusByApi };
+      });
+    return { feApis: [], beApis: [], country, modules: groups, fileName: 'Release Test - Capability Matrix' };
   };
   /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team.
-   *  Multi-module: ONE consolidated file covering every module's APIs (like the consolidated PDFs). */
+   *  Multi-module: ONE workbook with a tab per module (like the consolidated PDFs). */
   const exportCapabilities = () => {
-    const scope = multi ? capabilityScopeAll() : capabilityScope();
-    if (scope.feApis.length) exportCapabilitiesXlsx(scope).catch(() => {});
+    if (multi) {
+      const scope = capabilityScopeByModule();
+      if (scope.modules && scope.modules.length) exportCapabilitiesXlsx(scope).catch(() => {});
+      return;
+    }
+    if (report) exportCapabilitiesXlsx(capabilityScope()).catch(() => {});
   };
   /** Leadership Summary PDF. Multi-module: ONE consolidated doc across every module (like Release Impact),
    *  each module's APIs enriched with its own VAL capabilities. Single module: the one report. */

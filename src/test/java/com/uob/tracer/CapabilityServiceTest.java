@@ -168,6 +168,43 @@ class CapabilityServiceTest {
     }
 
     @Test
+    void perModuleExportPutsEachModuleInItsOwnTab(@TempDir Path home) throws Exception {
+        // The consolidated Release Test export: ONE workbook, a sheet per module (tab name = module), so no
+        // Module column is needed. Each tab holds that module's capabilities; unmapped APIs sit in a section below.
+        CapabilityService svc = configured(home);
+        CapabilityResult mighty = svc.resolve(List.of("/services/onboarding/security/fr/profile"), List.of(), "SG");
+        CapabilityResult spl = svc.resolve(List.of("/services/does/not/exist"), List.of(), "SG");   // no capability → unmapped
+        byte[] out = svc.exportByModule(List.of(
+                new CapabilityService.ModuleCapabilities("mighty-banking", mighty,
+                        Map.of("/services/onboarding/security/fr/profile", "Passed")),
+                new CapabilityService.ModuleCapabilities("spl-onboarding", spl, Map.of())));
+
+        try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(out))) {
+            // One tab per module, named by the module.
+            assertThat(wb.getSheetName(0)).isEqualTo("mighty-banking");
+            assertThat(wb.getSheetName(1)).isEqualTo("spl-onboarding");
+            Sheet m = wb.getSheet("mighty-banking");
+            assertThat(m.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Test Status");      // its verdicts lead
+            assertThat(m.getRow(1).getCell(0).getStringCellValue()).isEqualTo("Passed");
+            assertThat(m.getRow(1).getCell(1).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");
+            // The other module's tab carries its unmapped API under the labelled section.
+            Sheet s = wb.getSheet("spl-onboarding");
+            boolean hasUnmappedHeader = false, hasUnknownApi = false;
+            for (int r = 0; r <= s.getLastRowNum(); r++) {
+                Row row = s.getRow(r);
+                if (row == null) continue;
+                for (int c = 0; row.getCell(c) != null && c < row.getLastCellNum(); c++) {
+                    String v = row.getCell(c).getStringCellValue();
+                    if (v.startsWith("Unmapped Interface spec")) hasUnmappedHeader = true;
+                    if (v.contains("/does/not/exist")) hasUnknownApi = true;
+                }
+            }
+            assertThat(hasUnmappedHeader).isTrue();
+            assertThat(hasUnknownApi).isTrue();
+        }
+    }
+
+    @Test
     void reportsMissingConfigAsUnmatched(@TempDir Path home) {
         CapabilityService svc = new CapabilityService(home.toString());   // nothing uploaded
         CapabilityResult r = svc.resolve(List.of("/services/x"), List.of("/y"), "SG");

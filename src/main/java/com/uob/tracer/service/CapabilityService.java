@@ -318,6 +318,81 @@ public class CapabilityService {
         }
     }
 
+    /** One module's resolved capabilities + its per-API log verdicts, for a per-module-tab export. */
+    public record ModuleCapabilities(String name, CapabilityResult result, Map<String, String> statusByApi) {}
+
+    /**
+     * Consolidated multi-module Release Test export: ONE workbook with a sheet PER MODULE — the tab name IS the
+     * module, so testers see which module each API/capability belongs to without a Module column. Each sheet
+     * carries that module's matched capabilities (coloured Test Status + capability columns); any APIs with no
+     * capability match are listed under an "Unmapped Interface spec" section at the bottom of the same sheet.
+     */
+    public byte[] exportByModule(List<ModuleCapabilities> modules) {
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Map<String, CellStyle> statusStyles = new LinkedHashMap<>();   // one fill style per status label, per workbook
+            Set<String> used = new LinkedHashSet<>();
+            for (ModuleCapabilities mod : modules) {
+                List<LeadColumn> lead = new ArrayList<>();
+                if (mod.statusByApi() != null && !mod.statusByApi().isEmpty()) {
+                    lead.add(new LeadColumn("Test Status", mod.statusByApi(), true));
+                }
+                String[] leadHeaders = lead.stream().map(LeadColumn::header).toArray(String[]::new);
+                Sheet sheet = wb.createSheet(uniqueSheetName(mod.name(), used));
+                writeRow(sheet, 0, concat(leadHeaders, OUT_HEADERS));
+                int r = 1;
+                for (CapabilityMatch m : mod.result().matched()) {
+                    for (CapabilityRow c : m.capabilities()) {
+                        String[] base = {
+                                c.id(), c.l1(), c.l2(), c.l3(), c.l4(), c.l5(), c.l6Features(), c.dependentCapability(),
+                                c.linkedInterface(), c.linkedReport(), c.linkedTestCase(), c.entity(),
+                                c.splDetailedInterfaceTable(), c.description(),
+                                m.fe() ? "FE" : "BE", m.matchedInterface()};
+                        Row row = writeRow(sheet, r++, concat(leadValues(lead, m.api()), base));
+                        colourLead(wb, statusStyles, row, lead, m.api());
+                    }
+                }
+                // Unmapped APIs (no capability match) as a labelled section below — the module keeps ONE tab.
+                if (!mod.result().unmatched().isEmpty()) {
+                    r++;   // spacer row
+                    writeRow(sheet, r++, new String[]{"Unmapped Interface spec (no capability match)"});
+                    writeRow(sheet, r++, concat(leadHeaders, new String[]{"API", "FE/BE", "Reason"}));
+                    for (Unmatched m : mod.result().unmatched()) {
+                        String[] base = {m.api(), m.fe() ? "FE" : "BE", m.reason()};
+                        Row row = writeRow(sheet, r++, concat(leadValues(lead, m.api()), base));
+                        colourLead(wb, statusStyles, row, lead, m.api());
+                    }
+                }
+            }
+            if (modules.isEmpty()) {
+                wb.createSheet("Capabilities");   // POI cannot write a workbook with no sheets
+            }
+            wb.write(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not build the capability export: " + e.getMessage(), e);
+        }
+    }
+
+    /** A valid, unique Excel sheet name from a module name: ≤31 chars, none of {@code []:*?/\}, non-blank, de-duplicated. */
+    private static String uniqueSheetName(String raw, Set<String> used) {
+        String base = (raw == null ? "" : raw).replaceAll("[\\[\\]:*?/\\\\]", " ").trim();
+        if (base.isEmpty()) {
+            base = "Module";
+        }
+        if (base.length() > 31) {
+            base = base.substring(0, 31).trim();
+        }
+        String name = base;
+        int n = 2;
+        while (used.contains(name.toLowerCase(Locale.ROOT))) {
+            String suffix = " (" + n++ + ")";
+            String head = base.length() + suffix.length() > 31 ? base.substring(0, 31 - suffix.length()).trim() : base;
+            name = head + suffix;
+        }
+        used.add(name.toLowerCase(Locale.ROOT));
+        return name;
+    }
+
     private static String[] leadValues(List<LeadColumn> lead, String api) {
         return lead.stream().map(l -> l.valueByApi().getOrDefault(api, "")).toArray(String[]::new);
     }

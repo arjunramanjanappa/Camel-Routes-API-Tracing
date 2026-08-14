@@ -96,10 +96,13 @@ export interface CapabilityResult { matched: CapabilityMatch[]; unmatched: Capab
 export interface CapabilityConfigStatus { interfaceSpec: boolean; capabilityMatrix: boolean; }
 /** One extra per-API column appended LAST to the export (e.g. Impact Reason on Release Impact). */
 export interface CapabilityExtraColumn { header: string; valueByApi: Record<string, string> }
+/** One module's APIs + verdicts for a per-module-tab export (a sheet per module; the tab name is the module). */
+export interface CapabilityModuleGroup { name: string; feApis: string[]; beApis?: string[]; statusByApi?: Record<string, string> }
 /**
  * statusByApi (Release Test only): API path → its log-analysis verdict, for the coloured Test Status column.
  * sheetName = the matched sheet/page name; fileName = the download name; trailingColumns are appended last
- * (e.g. Impact Reason for the Release Impact export).
+ * (e.g. Impact Reason for the Release Impact export). `modules`, when set, produces ONE workbook with a sheet
+ * per module (a consolidated multi-module Release Test export) instead of a single sheet.
  */
 export interface CapabilityScope {
   feApis: string[]; beApis: string[]; country?: string;
@@ -107,6 +110,7 @@ export interface CapabilityScope {
   sheetName?: string;
   fileName?: string;
   trailingColumns?: CapabilityExtraColumn[];
+  modules?: CapabilityModuleGroup[];
 }
 
 /** Whether the two VAL reports are configured. */

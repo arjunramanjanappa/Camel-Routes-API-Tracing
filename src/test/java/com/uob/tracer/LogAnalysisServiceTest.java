@@ -276,6 +276,32 @@ class LogAnalysisServiceTest {
     }
 
     @Test
+    void aHostResponseWithBracketedColonAndNestedCustomErrorCodeFieldPasses(@TempDir Path home) throws IOException {
+        // The real MightyHostMessage shape "- /api/session/query - [Response] : {json}" with the outcome under a
+        // NESTED custom key (ResponseHeader.ErrorCode:"0000", no responseCode). A rule (field ErrorCode, success
+        // 0000) must read it — case-insensitively, at any depth — and pass the backend, not read Not Tested.
+        LogRulesService rules = new LogRulesService(home.toString(), new ObjectMapper());
+        rules.saveApp("Mighty", false, new AppRules(List.of(),
+                List.of(new Rule("/api/session/query", "ErrorCode", List.of("0000"), false))));
+        LogAnalysisService svc = new LogAnalysisService(new RouteTraceService(FW), rules);
+        String corr = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+        String log =
+            "2026-06-11 18.43.45.100 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][" + corr + "][IOS][] -/services/sg/session/query - Request - {\"serviceRequest\":{}}\n"
+          + "2026-06-11 18.43.45.205 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][" + corr + "][Android][] - /api/session/query - [Request] : {\"serviceVersionNumber\":\"2.2\"}\n"
+          + "2026-06-11 18.43.45.318 [XNIO-1 task-4] INFO [MightyHostMessage][MTY][sess1][user1][9.4][" + corr + "][Android][230ms] - /api/session/query - [Response] : {\"ResponseHeader\":{\"ErrorCode\": \"0000\", \"ResponseContext\":{}}}\n"
+          + "2026-06-11 18.43.45.400 [XNIO-1 task-4] INFO [MightyMessage][MTY][sess1][user1][9.4][" + corr + "][IOS][300ms] -/services/sg/session/query - Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+        LogAnalysisReport r;
+        try (InputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
+            r = svc.analyze(in, "q.log", "9.4", null, FW, List.of(), List.of("/api/session/query"), false, "Mighty");
+        }
+        assertThat(r.unparsedLines()).isZero();          // all 4 lines parse (bracketed [Response] : colon shape)
+        BackendLogResult be = r.backends().get(0);
+        assertThat(be.tested()).isTrue();                // was the user's "not seen" symptom
+        assertThat(be.status()).isEqualTo(LogStatus.SUCCESS);
+        assertThat(be.responseCode()).isEqualTo("0000"); // nested ResponseHeader.ErrorCode, read by the rule
+    }
+
+    @Test
     void backendRuleFieldWinsOverAStrayResponseCodeInThePayload(@TempDir Path home) throws IOException {
         // The host's authoritative code is under the rule's field (errorcode:0000 = success), but the payload
         // ALSO carries a responseCode elsewhere (e.g. an echoed/nested non-zero). The matched rule's field must

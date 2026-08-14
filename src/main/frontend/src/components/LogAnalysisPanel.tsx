@@ -588,10 +588,15 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   };
   const pick = (f: LogStatus | 'ALL' | 'ISSUES') => setFilter((cur) => (cur === f ? 'ALL' : f));
 
+  // Dependency repos analyse to zero APIs of their own (shared code, not part of this release's surface) — so
+  // they're excluded from every export. An errored module is kept in the PDFs so its failure is still surfaced.
+  const exportableModules = () => perModule.filter((p) => p.error || (p.report && p.report.apis.length > 0));
+
   const exportPdf = () => {
     if (multi) {
-      if (!perModule.length) return;
-      exportLogPdfMulti(perModule.map((p) => ({ name: p.name, report: p.report, error: p.error })), app, version, needsReview).catch(() => {});
+      const mods = exportableModules();
+      if (!mods.length) return;
+      exportLogPdfMulti(mods.map((p) => ({ name: p.name, report: p.report, error: p.error })), app, version, needsReview).catch(() => {});
       return;
     }
     if (!report) return;
@@ -612,7 +617,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
    *  so no Module column is needed). Each module carries its own FE APIs + log verdicts. */
   const capabilityScopeByModule = (): CapabilityScope => {
     const groups = perModule
-      .filter((p) => p.report)
+      .filter((p) => p.report && p.report.apis.length > 0)   // skip dependency repos (no APIs of their own)
       .map((p) => {
         const rep = p.report!;
         const feApis = [...new Set(rep.apis.map((a) => a.api).filter(Boolean))];
@@ -636,8 +641,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
    *  each module's APIs enriched with its own VAL capabilities. Single module: the one report. */
   const exportSummaryPdf = async () => {
     if (multi) {
-      if (!perModule.length) return;
-      const mods = await Promise.all(perModule.map(async (p) => {
+      const src = exportableModules();
+      if (!src.length) return;
+      const mods = await Promise.all(src.map(async (p) => {
         let caps: CapabilityResult | undefined;
         if (p.report) { try { caps = await resolveCapabilities(scopeForReport(p.report)); } catch { caps = undefined; } }
         return { name: p.name, report: p.report, error: p.error, caps };

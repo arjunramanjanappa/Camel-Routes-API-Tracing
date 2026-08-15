@@ -848,6 +848,19 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
             );
           })()}
 
+          {/* Readiness KPI band — the mock's hero tiles (total / passed / issues / not tested). */}
+          {(() => {
+            const t = tally(report);
+            return (
+              <div className="mod-rollup" style={{ marginTop: 10 }}>
+                <div className="mr-tile"><div className="mr-n info">{t.total}</div><div className="mr-l">Total APIs</div></div>
+                <div className="mr-tile"><div className="mr-n good">{t.passed}</div><div className="mr-l">Passed</div></div>
+                <div className="mr-tile"><div className="mr-n bad">{t.issues}</div><div className="mr-l">Issues</div></div>
+                <div className="mr-tile"><div className="mr-n warn">{t.notTested}</div><div className="mr-l">Not tested</div></div>
+              </div>
+            );
+          })()}
+
           <div className="report-summary">
             <Donut counts={counts} />
             <div className="report-side">

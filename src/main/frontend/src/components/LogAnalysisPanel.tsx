@@ -43,7 +43,13 @@ function Badge({ s }: { s: LogStatus }) {
 function SvcChip({ expected, logged, ok, pass, seen }: { expected?: string | null; logged?: string | null; ok?: boolean | null; pass?: boolean; seen?: boolean }) {
   if (!expected && !logged) return null;
   if (ok === true) return <span className="svcchip ok" title={'expected ' + expected}>svc {logged} ✓</span>;
-  if (ok === false) return <span className="svcchip bad" title={'expected ' + expected}>svc {logged} ✗ (exp {expected})</span>;
+  // Mismatch = the run tested a DIFFERENT backend service version than the release expects — surface it as the
+  // shared version-change chip (tested-old → expects-new) so it reads at a glance across every tab.
+  if (ok === false) return (
+    <span className="vbump bad" title={'This run tested svc ' + logged + ', but the release expects ' + expected + ' — re-test on the new version'}>
+      svc got <span className="vo">{logged}</span> · exp <span className="vn">{expected}</span>
+    </span>
+  );
   // No expected version to compare against. If the call PASSED, the version that was actually used is fine —
   // show it green so it reads consistently with the green Success status (not as an unresolved grey warning).
   if (logged) return (

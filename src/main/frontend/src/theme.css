@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * TraceGuard design tokens — the single source of truth for the redesigned UI.
+ * Colours are "R G B" triplets so Tailwind's rgb(var(--x) / <alpha>) opacity modifiers work.
+ * Consumed by Tailwind utilities (bg-accent, text-crit, …) and by component CSS via var().
+ * Light is the bare :root; dark overrides under [data-theme="dark"] (the app's existing switch);
+ * the per-app accent (TMRW/SPL = cyan) rides on .app[data-app].
+ */
+:root {
+  --tg-bg: 238 242 247;
+  --tg-surface: 255 255 255;
+  --tg-surface-2: 248 250 252;
+  --tg-ink: 15 23 42;
+  --tg-ink-2: 51 65 85;
+  --tg-muted: 100 116 139;
+  --tg-faint: 148 163 184;
+  --tg-hair: 229 233 240;
+  --tg-hair-2: 238 242 247;
+  --tg-accent: 29 78 216;
+  --tg-accent-soft: 232 240 255;
+  --tg-accent-ink: 29 78 216;
+  --tg-ok: 21 128 61;
+  --tg-ok-soft: 220 252 231;
+  --tg-warn: 180 83 9;
+  --tg-warn-soft: 254 243 199;
+  --tg-crit: 185 28 28;
+  --tg-crit-soft: 254 226 226;
+  --tg-info: 109 40 217;
+  --tg-info-soft: 237 233 254;
+  --tg-bc: 147 51 234;
+  --tg-bc-soft: 243 232 255;
+  --tg-navy: 14 26 47;
+  /* severity stripe accents (slightly brighter than the text tokens) */
+  --tg-stripe-ok: 34 197 94;
+  --tg-stripe-warn: 245 158 11;
+  --tg-stripe-crit: 239 68 68;
+  --tg-stripe-info: 139 92 246;
+  --tg-stripe-low: 148 163 184;
+}
+
+[data-theme="dark"] {
+  --tg-bg: 10 17 32;
+  --tg-surface: 17 28 48;
+  --tg-surface-2: 14 23 40;
+  --tg-ink: 232 238 248;
+  --tg-ink-2: 195 207 224;
+  --tg-muted: 132 150 174;
+  --tg-faint: 92 107 131;
+  --tg-hair: 31 45 69;
+  --tg-hair-2: 24 35 55;
+  --tg-accent: 59 130 246;
+  --tg-accent-soft: 18 34 64;
+  --tg-accent-ink: 147 192 255;
+  --tg-ok: 74 222 128;
+  --tg-ok-soft: 12 42 23;
+  --tg-warn: 251 191 36;
+  --tg-warn-soft: 44 33 9;
+  --tg-crit: 248 113 113;
+  --tg-crit-soft: 44 18 20;
+  --tg-info: 196 181 253;
+  --tg-info-soft: 30 24 54;
+  --tg-bc: 216 180 254;
+  --tg-bc-soft: 36 20 54;
+  --tg-navy: 10 20 36;
+  --tg-stripe-low: 71 85 105;
+}
+
+/* Per-app accent — TMRW (internal id "SPL") is cyan, matching the app-picker card + shell. */
+.app[data-app="SPL"] {
+  --tg-accent: 8 145 178;
+  --tg-accent-soft: 236 254 255;
+  --tg-accent-ink: 14 116 144;
+}
+[data-theme="dark"] .app[data-app="SPL"] {
+  --tg-accent: 34 211 238;
+  --tg-accent-soft: 6 38 48;
+  --tg-accent-ink: 103 232 249;
+}

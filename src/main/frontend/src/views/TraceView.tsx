@@ -32,9 +32,10 @@ function asCatalog(r: AnalyzeResponse | null): CatalogResponse | null {
 export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detailed' }: { app?: string; colorMode: 'light' | 'dark'; viewMode?: 'summary' | 'detailed' }) {
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
-  // Persist the country on every change (not just on Analyse) so it's shared across all tabs — pick it once.
+  const [version, setVersion] = useState(() => localStorage.getItem(appKey(app, 'version')) || 'N/A');   // shared across tabs
+  // Persist country + API version on every change (not just on Analyse) so they're shared across all tabs.
   useEffect(() => { localStorage.setItem(appKey(app, 'country'), country); }, [app, country]);
-  const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base (per-run)
+  useEffect(() => { localStorage.setItem(appKey(app, 'version'), version); }, [app, version]);
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
   const [catalogs, setCatalogs] = useState<ModuleResult<AnalyzeResponse>[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);

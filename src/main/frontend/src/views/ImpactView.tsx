@@ -28,9 +28,10 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
   const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
-  // Persist the country on every change (not just on Analyse) so it's shared across all tabs — pick it once.
+  const [version, setVersion] = useState(() => localStorage.getItem(appKey(app, 'version')) || 'N/A');   // shared across tabs
+  // Persist country + API version on every change (not just on Analyse) so they're shared across all tabs.
   useEffect(() => { localStorage.setItem(appKey(app, 'country'), country); }, [app, country]);
-  const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
+  useEffect(() => { localStorage.setItem(appKey(app, 'version'), version); }, [app, version]);
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const [reports, setReports] = useState<ModuleResult<ImpactIndex>[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -57,8 +58,6 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
   const resetSelection = () => { setManualRoutes(new Set()); setManualBackends(new Set()); setSelectedApis(new Set()); setFlowApi(null); };
 
   const load = async () => {
-    localStorage.setItem(appKey(app, 'country'), country);
-    localStorage.removeItem(appKey(app, 'version'));   // version is per-test, never persisted
     saveDeps(appKey(app, 'deps'), deps);
     setLoading(true); setError(null); setAnalysed(false); resetSelection();
     try {

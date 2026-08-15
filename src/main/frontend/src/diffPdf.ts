@@ -1,5 +1,6 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import { appLabel } from './appName';
 import { versionLabel } from './feature';
 import { backendPath } from './spl';
 
@@ -118,13 +119,11 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   const appVersion = mods.find((m) => m.report?.appVersion)?.report?.appVersion || null;
 
   // ===== Title page =====
-  r.titlePage('Release Impact Report',
-    `${app ? app + '  ·  ' : ''}Release ${ver}${country ? '  ·  ' + country : ''}${appVersion ? '  ·  app ' + appVersion : ''}`,
-    [`Generated ${generatedStamp()}`, `${mods.length} module(s)`,
-      `${tot.changed + tot.added} API(s) to test  ·  ${tot.high} high-risk`,
+  r.coverBand('Release Impact Report',
+    [appLabel(app), country, `Release ${ver}`, appVersion ? `commit ${appVersion}` : '', `${mods.length} module(s)`].filter((c): c is string => !!c),
+    ['Generated ' + generatedStamp(),
       hasAnyLog ? passRateLine(dpPassed, dpVerified) : null,
-      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null,
-    ].filter((l): l is string => !!l));
+      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null]);
 
   // ===== Release Impact Summary =====
   r.bookmark('Release Impact Summary');

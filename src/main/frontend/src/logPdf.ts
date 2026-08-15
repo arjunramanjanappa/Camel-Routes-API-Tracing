@@ -1,5 +1,6 @@
 import type { ApiLogResult, BackendCallResult, BackendLogResult, LogAnalysisReport, LogStatus } from './types';
 import { ReportDoc, PAL, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import { appLabel } from './appName';
 import { backendPath } from './spl';
 
 const ST: Record<LogStatus, { label: string; ramp: Ramp }> = {
@@ -41,10 +42,9 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
   const notTested = counts.NOT_TESTED;
   const issues = total - passed - notTested - counts.SKIPPED;   // skipped is neutral, not an issue
 
-  r.header('Verification Report',
-    `${app ? app + '  -  ' : ''}Release ${ver}${report.country ? '  -  ' + report.country : ''}`,
-    `Generated ${generatedStamp()}`,
-    [passRateLine(passed, passed + issues), logWindowLine(report.logStart, report.logEnd)]);
+  r.coverBand('Release Test Report',
+    [appLabel(app), report.country, `Release ${ver}`].filter((c): c is string => !!c),
+    ['Generated ' + generatedStamp(), logWindowLine(report.logStart, report.logEnd), passRateLine(passed, passed + issues)]);
 
   // ===== Verification Summary =====
   r.banner('Verification Summary', PAL.blue);
@@ -169,10 +169,9 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
   const logStart = starts.length ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
   const logEnd = ends.length ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
 
-  r.header('Release Test Report',
-    `${app ? app + '  -  ' : ''}${mods.length} module(s)  -  Release ${ver}${country ? '  -  ' + country : ''}`,
-    `Generated ${generatedStamp()}`,
-    [passRateLine(tot.passed, tot.passed + tot.issues), logWindowLine(logStart, logEnd)]);
+  r.coverBand('Release Test Report',
+    [appLabel(app), country, `Release ${ver}`, `${mods.length} module(s)`].filter((c): c is string => !!c),
+    ['Generated ' + generatedStamp(), logWindowLine(logStart, logEnd), passRateLine(tot.passed, tot.passed + tot.issues)]);
 
   // ===== Release Test Summary =====
   r.banner('Release Test Summary', PAL.blue);

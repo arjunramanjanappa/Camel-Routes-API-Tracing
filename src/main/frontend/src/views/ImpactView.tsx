@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, DepSource, ImpactIndex, Meta } from '../types';
 import { sourceParams } from '../components/SourceFields';
@@ -28,6 +28,8 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app);
   const [modulesOpen, setModulesOpen] = useState(true);   // collapses to chips after a multi-module analysis
   const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
+  // Persist the country on every change (not just on Analyse) so it's shared across all tabs — pick it once.
+  useEffect(() => { localStorage.setItem(appKey(app, 'country'), country); }, [app, country]);
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base. Per-test, never persisted
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
   const [reports, setReports] = useState<ModuleResult<ImpactIndex>[]>([]);

@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { fetchVersionDiff, analyzeLogMulti, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
 import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
@@ -768,6 +768,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   const { modules, setModules, fromConfig, hasConfig, hasLocal, resetToConfig, saveAsDefault, saving } = useAppModules(app || 'Mighty');
   const [modulesOpen, setModulesOpen] = useState(true);
   const [country, setCountry] = useState(() => initialCountry(localStorage.getItem(appKey(app, 'country'))));
+  // Persist the country on every change (not just on Analyse) so it's shared across all tabs — pick it once.
+  useEffect(() => { localStorage.setItem(appKey(app, 'country'), country); }, [app, country]);
   const [version, setVersion] = useState('N/A');   // mandatory; N/A = latest per API, else base
   // Optional app/commit version (e.g. 19.18.0) for Java code-change detection — the version token in commits.
   const [appVersion, setAppVersion] = useState(() => localStorage.getItem(appKey(app, 'appVersion')) ?? '');

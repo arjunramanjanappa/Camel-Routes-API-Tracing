@@ -1,5 +1,6 @@
 import type { ApiDiff, ApiLogResult, DiffStatus } from './types';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import { appLabel } from './appName';
 import type { ModuleDiff } from './diffPdf';
 
 /**
@@ -114,28 +115,21 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
   }
   const verified = passed + failed;
 
-  // ---- Page 1: cover ----
-  r.titlePage('Release Impact — Summary', '',
-    [
-      `${app ? app + ' · ' : ''}Release ${ver}${country ? ' · ' + country : ''}`,
-      appVersion ? `Commit/App version(s): ${appVersion}` : '',
-      'Generated ' + generatedStamp(),
-      hasAnyLog ? passRateLine(passed, verified) : null,
-      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null,
-    ].filter((l): l is string => !!l));
+  // ---- Page 1: branded cover band + impact overview ----
+  r.coverBand('Release Impact — Change Summary',
+    [appLabel(app), country, `Release ${ver}`, appVersion ? `commit ${appVersion}` : ''].filter((c): c is string => !!c),
+    ['Generated ' + generatedStamp(),
+     hasAnyLog ? passRateLine(passed, verified) : null,
+     hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null]);
 
-  // ---- Release health — New & Changed only (Unchanged is BAU, not shown) ----
-  r.bookmark('Release health');
-  r.banner('Release health', PAL.blue, `Release ${ver}${country ? ' · ' + country : ''} — what this release touches.`);
-  r.statBand([
-    { n: tot.added, label: 'New', ramp: PAL.blue },
+  // ---- Impact overview — New & Changed only (Unchanged is BAU, not shown) ----
+  r.bookmark('Impact overview');
+  r.banner('Impact overview', PAL.blue, `Release ${ver}${country ? ' · ' + country : ''} — what this release touches · ${rows.length} to verify.`);
+  r.kpiBand([
     { n: tot.changed, label: 'Changed', ramp: PAL.amber },
-  ]);
-  r.statBand([
+    { n: tot.added, label: 'New', ramp: PAL.blue },
+    { n: tot.bc, label: 'BC required', ramp: PAL.purple },
     { n: tot.high, label: 'High risk', ramp: PAL.red },
-    { n: tot.bc, label: 'Need backward-compat', ramp: PAL.amber },
-    { n: rows.length, label: 'To verify', ramp: PAL.purple },
-    { n: hasAnyLog ? verified : 0, label: hasAnyLog ? 'Verified' : 'Verified (no log)', ramp: PAL.green },
   ]);
   if (hasAnyLog) {
     r.paragraph(`Test readiness — ${verified} of ${rows.length} verified: ${passed} passed, ${failed} failed, ${notTested} not tested.`);

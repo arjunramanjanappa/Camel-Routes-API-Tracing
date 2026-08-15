@@ -146,6 +146,56 @@ export class ReportDoc {
     this.doc.addPage(); this.y = M;
   }
 
+  /**
+   * A branded cover BAND across the top of the current page (navy) — logo + wordmark, the report title, a row
+   * of context chips (app / country / release), and right-aligned meta (Generated / Logs / pass rate). Unlike
+   * {@link titlePage} it does NOT break the page, so the readiness/summary band renders directly below it — the
+   * redesigned report opens on the dashboard, not a near-empty title page. Matches the approved report mock.
+   */
+  coverBand(title: string, chips: string[], rightLines: (string | null)[]) {
+    const navy: RGB = [14, 26, 47], white: RGB = [255, 255, 255], sky: RGB = [143, 176, 230], chipbg: RGB = [32, 46, 70];
+    const h = 96;
+    this.fl(navy); this.doc.rect(0, 0, PAGE.w, h, 'F');
+    try { this.doc.addImage(TG_LOGO, 'PNG', M, 20, 24, 24); } catch { /* logo optional */ }
+    this.text('TraceGuard', M + 31, 'bold', 14, white, 32);
+    this.text('RELEASE INTELLIGENCE', M + 31, 'normal', 6.5, sky, 42);
+    // right-aligned meta lines (Generated / Logs window / pass rate)
+    let ry = 28;
+    for (const line of rightLines) { if (line) { this.rtext(line, PAGE.w - M, 'normal', 8.5, sky, ry); ry += 12; } }
+    // report title
+    this.text(title, M, 'bold', 19, white, 70);
+    // context chips (app · country · release)
+    let cx = M;
+    for (const c of chips) {
+      if (!c) continue;
+      this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(8.5);
+      const w = this.doc.getTextWidth(ascii(c)) + 14;
+      this.fl(chipbg); this.doc.roundedRect(cx, 79, w, 15, 4, 4, 'F');
+      this.st(white); this.doc.text(ascii(c), cx + 7, 89);
+      cx += w + 6;
+    }
+    this.y = h + 18;
+  }
+
+  /**
+   * A row of colour-coded KPI tiles — big number + label with a top accent — the redesigned readiness/risk
+   * band's hero tiles. Distinct from {@link statBand} (flat filled boxes): these are white tiles with a
+   * coloured number, matching the mock. Advances this.y.
+   */
+  kpiBand(tiles: { n: number | string; label: string; ramp: Ramp }[]) {
+    const gap = 12, boxH = 56, boxW = (CONTENT_W - (tiles.length - 1) * gap) / tiles.length;
+    this.ensure(boxH + 8);
+    tiles.forEach((t, i) => {
+      const x = M + i * (boxW + gap);
+      this.fl([255, 255, 255]); this.dr(PAL.rule);
+      this.doc.roundedRect(x, this.y, boxW, boxH, 8, 8, 'FD');
+      this.fl(t.ramp.bar); this.doc.roundedRect(x, this.y, boxW, 3, 2, 2, 'F');   // top accent
+      this.text(String(t.n), x + 12, 'bold', 24, t.ramp.text, this.y + 33);
+      this.text(t.label.toUpperCase(), x + 12, 'bold', 7.5, PAL.muted, this.y + 47);
+    });
+    this.y += boxH + 14;
+  }
+
   /** Register a PDF outline bookmark for the current page (no-op if the jsPDF build lacks outlines). */
   bookmark(title: string) {
     try { this.doc.outline.add(null, ascii(title), { pageNumber: this.doc.internal.getNumberOfPages() }); }

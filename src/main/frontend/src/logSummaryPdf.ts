@@ -2,6 +2,7 @@ import type { ApiLogResult, LogAnalysisReport, LogStatus } from './types';
 import type { CapabilityResult } from './api';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { groupItemsByFeature } from './feature';
+import { appLabel } from './appName';
 
 /** A capability's "L1 > L2 > … > L5" path, stopping at the first blank level (e.g. "Wealth > UT Transactor"). */
 function capabilityPath(c: { l1: string; l2: string; l3: string; l4: string; l5: string }): string {
@@ -64,18 +65,13 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
   }
   const total = apis.length;
 
-  r.titlePage('Release Test — Verification Summary', '',
-    [
-      `${app ? app + ' · ' : ''}Release ${ver}${ctry ? ' · ' + ctry : ''}`,
-      `${report.transactions} transactions across ${report.matchedLines} matched log lines`,
-      'Generated ' + generatedStamp(),
-      passRateLine(passed, passed + issues),
-      logWindowLine(report.logStart, report.logEnd),
-    ].filter((l): l is string => !!l));
+  r.coverBand('Release Test — Verification Summary',
+    [appLabel(app), ctry, `Release ${ver}`].filter((c): c is string => !!c),
+    ['Generated ' + generatedStamp(), logWindowLine(report.logStart, report.logEnd), passRateLine(passed, passed + issues)]);
 
   r.bookmark('Verification readiness');
-  r.banner('Verification readiness', PAL.blue, `Release ${ver}${ctry ? ' · ' + ctry : ''} — from the uploaded run log.`);
-  r.statBand([
+  r.banner('Verification readiness', PAL.blue, `${report.transactions} transactions · ${report.matchedLines} matched log lines — from the uploaded run.`);
+  r.kpiBand([
     { n: total, label: 'APIs checked', ramp: PAL.blue },
     { n: passed, label: 'Passed', ramp: PAL.green },
     { n: issues, label: 'Issues', ramp: PAL.red },
@@ -167,18 +163,13 @@ export async function exportLogSummaryPdfMulti(mods: ModuleLogSummary[], app?: s
   const logStart = starts.length ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
   const logEnd = ends.length ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
 
-  r.titlePage('Release Test — Verification Summary', '',
-    [
-      `${app ? app + ' · ' : ''}Release ${ver}${ctry ? ' · ' + ctry : ''} · ${mods.length} module(s)`,
-      `${txns} transactions across ${matched} matched log lines`,
-      'Generated ' + generatedStamp(),
-      passRateLine(agg.passed, agg.passed + agg.issues),
-      logWindowLine(logStart, logEnd),
-    ].filter((l): l is string => !!l));
+  r.coverBand('Release Test — Verification Summary',
+    [appLabel(app), ctry, `Release ${ver}`, `${mods.length} module(s)`].filter((c): c is string => !!c),
+    ['Generated ' + generatedStamp(), logWindowLine(logStart, logEnd), passRateLine(agg.passed, agg.passed + agg.issues)]);
 
   r.bookmark('Verification readiness');
-  r.banner('Verification readiness', PAL.blue, `Release ${ver}${ctry ? ' · ' + ctry : ''} — across ${mods.length} module(s), from the uploaded run log.`);
-  r.statBand([
+  r.banner('Verification readiness', PAL.blue, `${txns} transactions · ${matched} matched log lines across ${mods.length} module(s).`);
+  r.kpiBand([
     { n: agg.total, label: 'APIs checked', ramp: PAL.blue },
     { n: agg.passed, label: 'Passed', ramp: PAL.green },
     { n: agg.issues, label: 'Issues', ramp: PAL.red },

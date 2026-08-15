@@ -124,6 +124,17 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .spin-label { margin-left: 10px; color: #475569; font-size: 13px; font-weight: 600; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- skeleton loaders (shimmer placeholders shown while analysing) ---- */
+.sk { display: block; border-radius: 8px; background: linear-gradient(90deg, #e6ebf2 25%, #f2f5fa 37%, #e6ebf2 63%); background-size: 400% 100%; animation: tg-shimmer 1.3s ease infinite; }
+@keyframes tg-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+[data-theme="dark"] .sk { background: linear-gradient(90deg, #17233b 25%, #1e2d49 37%, #17233b 63%); background-size: 400% 100%; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.sk-report { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+.sk-band { display: flex; gap: 12px; }
+.sk-band .sk { flex: 1; height: 62px; border-radius: 11px; }
+.sk-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.sk-rows .sk { height: 40px; border-radius: 10px; }
+
 .loader { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 22px; max-width: 360px; text-align: center; }
 .loader-bar { width: 260px; max-width: 70vw; height: 6px; border-radius: 999px; background: #e4e7eb; overflow: hidden; position: relative; }
 .loader-bar span { position: absolute; top: 0; height: 100%; width: 38%; border-radius: 999px; background: var(--accent, #2563eb); animation: loader-slide 1.25s ease-in-out infinite; }

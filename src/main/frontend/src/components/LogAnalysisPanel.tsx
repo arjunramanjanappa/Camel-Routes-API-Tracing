@@ -752,6 +752,13 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
         );
       })()}
 
+      {loading && !report && perModule.length === 0 && (
+        <div className="sk-report" aria-hidden="true">
+          <div className="sk-band"><span className="sk" /><span className="sk" /><span className="sk" /><span className="sk" /></div>
+          <div className="sk-rows"><span className="sk" /><span className="sk" /><span className="sk" /><span className="sk" /><span className="sk" /></div>
+        </div>
+      )}
+
       {error && <div className="err">Error: {error}</div>}
 
       {multi && perModule.length > 0 && (

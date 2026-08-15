@@ -1069,7 +1069,15 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
 
       {error && <div className="err" style={{ padding: '0 18px' }}>Error: {error}</div>}
 
-      {loading && <div className="impact-loading"><Loader messages={DIFF_MESSAGES} note="comparing versions" /></div>}
+      {loading && (
+        <div style={{ padding: '0 18px' }}>
+          <div className="impact-loading"><Loader messages={DIFF_MESSAGES} note="comparing versions" /></div>
+          <div className="sk-report" aria-hidden="true">
+            <div className="sk-band"><span className="sk" /><span className="sk" /><span className="sk" /><span className="sk" /></div>
+            <div className="sk-rows"><span className="sk" /><span className="sk" /><span className="sk" /></div>
+          </div>
+        </div>
+      )}
 
       {!loading && !report && !error && (
         <div className="impact-empty">

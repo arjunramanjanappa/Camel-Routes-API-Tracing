@@ -661,9 +661,9 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
                       <div key={s.backend} className="diff-svc-row">
                         <span className="diff-svc-label">backend service version</span>
                         <code>{s.backend}</code>
-                        <span className="svc-from">{s.fromVersion}</span>
-                        <span className="diff-arrow">→</span>
-                        <span className="svc-to">{s.toVersion}</span>
+                        <span className="vbump" title={'Backend service version bumped from ' + s.fromVersion + ' to ' + s.toVersion}>
+                          svc <span className="vo">{s.fromVersion}</span><span className="va">→</span><span className="vn">{s.toVersion}</span>
+                        </span>
                       </div>
                     ))}
                   </div>

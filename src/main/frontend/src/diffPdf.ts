@@ -128,13 +128,12 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   // ===== Release Impact Summary =====
   r.bookmark('Release Impact Summary');
   r.banner('Release Impact Summary', PAL.blue);
-  const band = [
+  r.kpiBand([
     { n: tot.changed, label: 'Changed', ramp: PAL.amber },
-    { n: tot.added, label: 'New', ramp: PAL.green },
-    { n: mods.length, label: 'Modules', ramp: PAL.gray },
-  ];
-  if (appVersion) band.splice(2, 0, { n: tot.code, label: 'Code changed', ramp: PAL.purple });
-  r.statBand(band);
+    { n: tot.added, label: 'New', ramp: PAL.blue },
+    { n: tot.bc, label: 'BC required', ramp: PAL.purple },
+    { n: tot.high, label: 'High risk', ramp: PAL.red },
+  ]);
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
     + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged`
     + `${appVersion ? `. App version ${appVersion} changed shared Java classes affecting ${tot.code} API(s)` : ''}. Impact by module:`);

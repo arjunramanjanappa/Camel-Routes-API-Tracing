@@ -48,11 +48,11 @@ export async function exportLogPdf(report: LogAnalysisReport, app?: string, vers
 
   // ===== Verification Summary =====
   r.banner('Verification Summary', PAL.blue);
-  r.statBand([
-    { n: total, label: 'Total APIs', ramp: PAL.gray },
+  r.kpiBand([
+    { n: total, label: 'Total APIs', ramp: PAL.blue },
     { n: passed, label: 'Passed', ramp: PAL.green },
-    { n: issues, label: 'Issues', ramp: PAL.orange },
-    { n: notTested, label: 'Not tested', ramp: PAL.red },
+    { n: issues, label: 'Issues', ramp: PAL.red },
+    { n: notTested, label: 'Not tested', ramp: PAL.amber },
   ]);
   r.paragraph(`Of ${total} API(s) checked for release ${ver}, ${passed} passed end-to-end, `
     + `${issues} had issues and ${notTested} were not seen in the uploaded logs.`
@@ -175,11 +175,11 @@ export async function exportLogPdfMulti(mods: ModuleLog[], app?: string, version
 
   // ===== Release Test Summary =====
   r.banner('Release Test Summary', PAL.blue);
-  r.statBand([
-    { n: tot.total, label: 'Total APIs', ramp: PAL.gray },
+  r.kpiBand([
+    { n: tot.total, label: 'Total APIs', ramp: PAL.blue },
     { n: tot.passed, label: 'Passed', ramp: PAL.green },
-    { n: tot.issues, label: 'Issues', ramp: PAL.orange },
-    { n: tot.notTested, label: 'Not tested', ramp: PAL.red },
+    { n: tot.issues, label: 'Issues', ramp: PAL.red },
+    { n: tot.notTested, label: 'Not tested', ramp: PAL.amber },
   ]);
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} verified across ${mods.length} module(s): `
     + `${tot.passed} passed end-to-end, ${tot.issues} had issues and ${tot.notTested} were not seen in the uploaded logs`

@@ -227,7 +227,9 @@ code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 [data-theme="dark"] .flow-modal-head, [data-theme="dark"] .flow-modal-foot { border-color: #1e293b; }
 [data-theme="dark"] .flow-modal-title { color: #e2e8f0; }
 
-table.grid { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+/* display:table is explicit so it wins over Tailwind's .grid (display:grid) utility, which
+   otherwise collides with this long-standing component class and breaks column alignment. */
+table.grid { display: table; width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
 table.grid th { text-align: left; color: #64748b; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e4e7eb; padding: 9px 10px; background: #f8fafc; }
 table.grid td { border-bottom: 1px solid #eef2f7; padding: 9px 10px; vertical-align: top; }
 table.grid tr:hover td { background: #f7f9fb; }

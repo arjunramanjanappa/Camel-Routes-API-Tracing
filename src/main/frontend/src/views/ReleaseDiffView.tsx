@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Table2, FileText, FileStack, Paperclip } from 'lucide-react';
 import { fetchVersionDiff, analyzeLogMulti, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
 import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
@@ -1090,10 +1091,10 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         <div className="export-bar">
           <div className="export-bar-right">
             {bcApis().length > 0 && (
-              <button className="minibtn" onClick={exportBauCapabilityMatrix} title="BAU App Coverage — capabilities to re-test with the OLD app: the BC-impacted APIs where a BAU route/class the old app runs was changed, with the impact reason (needs the VAL reports attached in ⚙ Config)">⤓ Release Impact - Capability Matrix</button>
+              <button className="minibtn" onClick={exportBauCapabilityMatrix} title="BAU App Coverage — capabilities to re-test with the OLD app: the BC-impacted APIs where a BAU route/class the old app runs was changed, with the impact reason (needs the VAL reports attached in ⚙ Config)"><Table2 aria-hidden="true" /> Release Impact - Capability Matrix</button>
             )}
-            <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads">⤓ Summary PDF</button>
-            <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers">⤓ Detailed PDF</button>
+            <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page overview for release managers & delivery leads"><FileText aria-hidden="true" /> Summary PDF</button>
+            <button className="minibtn" onClick={exportPdf} title="Full route/class/test report for developers & testers"><FileStack aria-hidden="true" /> Detailed PDF</button>
           </div>
         </div>
       )}
@@ -1105,7 +1106,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
           <TemplateIssuesPanel report={report} />
           <div className="testlog-bar" style={{ marginTop: 10 }}>
             <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">
-              {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</> : '⤒ Attach test log'}
+              {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</> : <><Paperclip size={14} aria-hidden="true" /> Attach test log</>}
               <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
                      disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
             </label>
@@ -1206,7 +1207,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log — TraceGuard correlates it and shows which of these APIs were executed and passed">
                 {logBusy
                   ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</>
-                  : '⤒ Attach test log'}
+                  : <><Paperclip size={14} aria-hidden="true" /> Attach test log</>}
                 <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
                        disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
               </label>

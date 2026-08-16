@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Plus, FileStack } from 'lucide-react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, DepSource, ImpactIndex, Meta } from '../types';
 import { sourceParams } from '../components/SourceFields';
@@ -335,11 +336,11 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
                 <h2 style={{ margin: 0 }}>Impacted APIs <span className="muted">{impacted.length} of {idx.apis.length}</span></h2>
                 {impacted.length > 0 && (
                   <span className="row" style={{ gap: 6 }}>
-                    <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}>+ select for analysis</button>
+                    <button className="minibtn" onClick={() => setMany(selectedApis, setSelectedApis, feApis, true)}><Plus aria-hidden="true" /> select for analysis</button>
                     {/* Multi-module: the one Release Test report is the log verification below (all modules),
                         so the per-module impact-footprint export is hidden to keep a single, common export. */}
                     {!multi && (
-                      <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report">⤓ Export PDF</button>
+                      <button className="minibtn" onClick={exportPdf} title="Download a shareable PDF report"><FileStack aria-hidden="true" /> Export PDF</button>
                     )}
                   </span>
                 )}

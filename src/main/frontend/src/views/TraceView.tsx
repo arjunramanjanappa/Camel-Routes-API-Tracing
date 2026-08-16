@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Table2, FileText, FileStack } from 'lucide-react';
 import { analyze, fetchMeta, resolveCapabilities, exportCapabilitiesXlsx, type CapabilityScope, type CapabilityResult } from '../api';
 import type { AnalyzeResponse, CatalogResponse, DepSource, Meta } from '../types';
 import { backendPath } from '../spl';
@@ -238,9 +239,9 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
             )}
           </div>
           <div className="export-bar-right">
-            <button className="minibtn" onClick={exportCapabilities} disabled={exporting} title="How to test each in-scope API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)">⤓ Release Scope - Capability Matrix</button>
-            <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads">⤓ Summary PDF</button>
-            <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers">⤓ Detailed PDF</button>
+            <button className="minibtn" onClick={exportCapabilities} disabled={exporting} title="How to test each in-scope API — the VAL Capability Matrix rows for the FE + BE APIs (needs the VAL reports attached in ⚙ Config)"><Table2 aria-hidden="true" /> Release Scope - Capability Matrix</button>
+            <button className="minibtn" onClick={exportSummaryPdf} disabled={exporting} title="1–2 page scope overview for release managers & delivery leads"><FileText aria-hidden="true" /> Summary PDF</button>
+            <button className="minibtn" onClick={exportPdf} disabled={exporting} title="Full route-flow report for developers & testers"><FileStack aria-hidden="true" /> Detailed PDF</button>
           </div>
         </div>
       )}

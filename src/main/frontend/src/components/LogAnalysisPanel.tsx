@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { RotateCw, Table2, FileText, FileStack } from 'lucide-react';
 import { analyzeLog, analyzeLogMulti, resolveCapabilities, exportCapabilitiesXlsx, type UploadProgress, type CapabilityScope, type CapabilityResult } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
@@ -727,9 +728,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
           {loading ? 'Analysing…' : files.length > 1 ? `Analyse ${files.length} files` : 'Analyse'}
         </button>
         {report && canAnalyse && !loading && (
-          <button className="minibtn" onClick={run}
+          <button className="minibtn accent" onClick={run}
                   title="Re-analyse the SAME uploaded log(s) with the current host response-code rules — no need to re-attach the file after editing a rule.">
-            ↻ Re-run with current rules
+            <RotateCw aria-hidden="true" /> Re-run with current rules
           </button>
         )}
       </div>
@@ -804,9 +805,9 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
       {report && (
         <div className="export-bar" style={{ paddingLeft: 0, paddingRight: 0 }}>
           <div className="export-bar-right">
-            <button className="minibtn" onClick={exportCapabilities} title="How to test each impacted API — the VAL Capability Matrix rows for the FE APIs, with each API's test verdict (needs the VAL reports attached in ⚙ Config)">⤓ Release Test - Capability Matrix</button>
-            <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads">⤓ Summary PDF</button>
-            <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers">⤓ Detailed PDF</button>
+            <button className="minibtn" onClick={exportCapabilities} title="How to test each impacted API — the VAL Capability Matrix rows for the FE APIs, with each API's test verdict (needs the VAL reports attached in ⚙ Config)"><Table2 aria-hidden="true" /> Release Test - Capability Matrix</button>
+            <button className="minibtn" onClick={exportSummaryPdf} title="1–2 page verification summary for release managers & delivery leads"><FileText aria-hidden="true" /> Summary PDF</button>
+            <button className="minibtn" onClick={exportPdf} title="Full verification report (response codes, latency, backends) for developers & testers"><FileStack aria-hidden="true" /> Detailed PDF</button>
           </div>
         </div>
       )}

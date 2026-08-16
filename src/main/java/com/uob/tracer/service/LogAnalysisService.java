@@ -1525,7 +1525,12 @@ public class LogAnalysisService {
                 out.addAll(flowRows(tb, ver, e.getValue(), forVersion, universe, hosturls, secure, strict, rule));
             }
             if (byVer.isEmpty() && bau.isEmpty()) {
-                out.addAll(flowRows(tb, null, List.of("(flow)"), forVersion, universe, hosturls, secure, false, rule));
+                // No change flow and no BAU service-version split for this backend. A release-version (change)
+                // backend always records a change flow (even with no service version), so reaching here means
+                // this backend is reached ONLY via a resolved-down (BAU) route that set no service version of
+                // its own. Show it as a labelled BAU row (never in the verdict), not a change flow — a BAU
+                // failure/timeout must not fail the new-app verdict.
+                out.add(bauRow(tb, null, forVersion, universe, hosturls, secure, false, rule));
             }
             for (String bv : bau) {
                 out.add(bauRow(tb, bv, forVersion, universe, hosturls, secure, strict, rule));

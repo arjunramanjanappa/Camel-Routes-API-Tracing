@@ -643,8 +643,15 @@ public class RouteTraverser {
         // Is this reach a lower/BAU version route (e.g. R8.8_apiC when analysing 9.14) reusing the same
         // backend? Those are unchanged and not verified. Base/shared routes (no route version) and the
         // release's own version ARE the change.
+        // Two signals mark it BAU: the version of the route whose TEMPLATE set the service version, AND the
+        // version of the route that SET the api (the flow's own route). The latter catches a resolved-down
+        // route that carries no service-version template of its own (svcRouteVersion stays null/inherited) —
+        // without it, an R8.16_ leg with no template is mis-scored as a 9.14 change and its failure/timeout
+        // wrongly fails the new-app verdict. Base/unversioned routes (null) apply to all apps → CHANGE.
+        String flowRouteVersion = routeVersion(flowRoute);
         boolean bauReuse = requestClientVersion != null && !requestClientVersion.isBlank()
-                && svcRouteVersion != null && !svcRouteVersion.equals(requestClientVersion);
+                && ((svcRouteVersion != null && !svcRouteVersion.equals(requestClientVersion))
+                 || (flowRouteVersion != null && !flowRouteVersion.equals(requestClientVersion)));
         if (serviceVersion != null && !serviceVersion.isBlank()) {
             // A backend URL may be called with several versions (different branches /
             // templates) — accumulate the distinct ones, e.g. "2.2 / 3.3".

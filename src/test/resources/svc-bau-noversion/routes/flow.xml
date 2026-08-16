@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Entry: R9.14_apiA. Always calls the 9.14 change backend /precapture (svc 2.3), then branches:
+         when → a bean (no backend), otherwise → resolved-down BAU R8.16_utAccount. -->
+    <route id="R9.14_apiA">
+        <from uri="direct:R9.14_apiA"/>
+        <to uri="direct:R9.14_callPrecapture"/>
+        <choice>
+            <when>
+                <simple>${header.branch} == 'otp'</simple>
+                <to uri="bean:otpProcessor"/>
+            </when>
+            <otherwise>
+                <to uri="direct:R8.16_utAccount"/>
+            </otherwise>
+        </choice>
+    </route>
+
+    <!-- 9.14 change: /precapture at serviceVersionNumber 2.3 (its own template). -->
+    <route id="R9.14_callPrecapture">
+        <from uri="direct:R9.14_callPrecapture"/>
+        <to uri="framework:META-INF/templates/precapture/precapture.ftl"/>
+        <setProperty name="api"><simple>/precapture</simple></setProperty>
+        <to uri="direct:callBackend"/>
+    </route>
+
+    <!-- BAU: R8.16 is resolved-down for a 9.14 release. Its backend /utAccount sets NO serviceVersionNumber
+         (no template) — so today the BAU-by-svc-version detection misses it and scores it as a 9.14 change. -->
+    <route id="R8.16_utAccount">
+        <from uri="direct:R8.16_utAccount"/>
+        <setProperty name="api"><simple>/utAccount</simple></setProperty>
+        <to uri="direct:callBackend"/>
+    </route>
+
+    <route id="callBackend">
+        <from uri="direct:callBackend"/>
+        <to uri="https://host/dispatch"/>
+    </route>
+
+</routes>

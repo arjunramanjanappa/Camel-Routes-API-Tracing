@@ -9,6 +9,10 @@ package com.uob.tracer.api;
  * @param routeId        the release route that owns this flow (e.g. R9.14_ftOwnAccountSubmit)
  * @param backend        the backend api it calls (e.g. {{baseUrl}}/bfs/ft/own/submit)
  * @param serviceVersion the service version its template sends, or null when the route sets none
+ * @param branchRoute    the route a dynamic {@code direct:${FINAL_ROUTE_NAME}} choice branch resolved to,
+ *                       when this flow is reached through one — so the results can show the full path
+ *                       (branch → owning route → backend) and two branches converging on one shared route
+ *                       stay two distinct flows. Null for a normal (non-dynamic-dispatch) flow.
  */
-public record ChangeFlow(String routeId, String backend, String serviceVersion) {
+public record ChangeFlow(String routeId, String backend, String serviceVersion, String branchRoute) {
 }

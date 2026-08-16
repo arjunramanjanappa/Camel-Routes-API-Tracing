@@ -53,6 +53,10 @@ public class TraceResponse {
      * which a transaction must cover. BAU reuse is excluded.
      */
     private final java.util.List<ChangeFlow> changeFlows = new java.util.ArrayList<>();
+    /** BAU (lower/unchanged-version) flows reached through a dynamic {@code direct:${FINAL_ROUTE_NAME}}
+     *  dispatch — kept only to carry their branch/owning-route labels so the BAU rows can show the full
+     *  path (branch → route → backend). Never part of the change verdict. */
+    private final java.util.List<ChangeFlow> bauFlows = new java.util.ArrayList<>();
     /** Backend api value → its "hosturl" property (the path the host logs in MightyHostMessage). */
     private final java.util.Map<String, String> backendHosturls = new java.util.LinkedHashMap<>();
     /** Distinct request-body template uris referenced in this flow (for the payload-change diff). */
@@ -109,6 +113,7 @@ public class TraceResponse {
     public java.util.Map<String, String> getChangeBackendVersions() { return changeBackendVersions; }
     public java.util.Set<String> getUnconditionalBackends() { return unconditionalBackends; }
     public java.util.List<ChangeFlow> getChangeFlows() { return changeFlows; }
+    public java.util.List<ChangeFlow> getBauFlows() { return bauFlows; }
     public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public java.util.Set<String> getTemplateUris() { return templateUris; }
     public List<String> getWarnings() { return warnings; }

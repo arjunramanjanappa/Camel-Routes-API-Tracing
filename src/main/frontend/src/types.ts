@@ -294,6 +294,9 @@ export interface BackendCallResult {
   /** The release route that owns this flow (e.g. R9.14_routeX) — labels the row so two routes on the same
    *  backend+version are distinct. null for a BAU / single-URL row. */
   flowRoute?: string | null;
+  /** The dynamic direct:${FINAL_ROUTE_NAME} choice branch this flow was reached through (e.g.
+   *  R9.14_manualauthDetails) — shown as a prefix: branch → flowRoute → backend. null when not applicable. */
+  branchRoute?: string | null;
   /** Total calls observed to this flow across all transactions (0 → not tested). */
   attempts?: number;
   /** Of those, how many succeeded / did not. */

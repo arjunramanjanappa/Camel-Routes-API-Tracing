@@ -51,6 +51,11 @@ public class RouteTraverser {
     private final String operationRouteName;
 
     private final Set<String> expandedRoutes = new HashSet<>();
+    /** Per-(route, dynamic branch) walk guard: a route reached through a dynamic {@code direct:${FINAL_ROUTE_NAME}}
+     *  dispatch is walked once PER branch route it's reached from, so two branches converging on one shared
+     *  route each record their own flow. Outside a dynamic dispatch the normal {@link #expandedRoutes} guard
+     *  applies (walk once), so nothing else is affected. */
+    private final Set<String> branchWalked = new HashSet<>();
     private final List<String> backendsSeen = new ArrayList<>();
     // Host/terminal instance ids are keyed by the CALLING route, not a running counter. Calls from the
     // same caller route to the same host share one instance — so a shared intermediate route reached by
@@ -106,6 +111,10 @@ public class RouteTraverser {
      * missing route for review) rather than a generic "unresolved dynamic target".
      */
     private String currentDestMissing;
+    /** The route a dynamic {@code direct:${FINAL_ROUTE_NAME}} choice branch resolved to, held for that
+     *  branch's whole descent — labels the flows reached through it (branch → owning route → backend) and
+     *  scopes the per-branch walk. Null outside a dynamic dispatch. */
+    private String dynamicBranchRoute;
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
@@ -154,8 +163,13 @@ public class RouteTraverser {
             graph.addEdge(parentNodeId, nodeId, branch);
         }
 
-        boolean firstVisit = expandedRoutes.add(identity);   // expand body once (loop guard)
-        if (firstVisit) {
+        boolean firstVisit = expandedRoutes.add(identity);   // route SEEN once (flow list / warnings / loop guard)
+        // A route reached through a dynamic direct:${FINAL_ROUTE_NAME} dispatch is walked once PER branch route
+        // (dynamicBranchRoute), so two branches converging on one shared route each record their own flow.
+        // Outside a dynamic dispatch walkBody == firstVisit — walk once, so nothing else changes.
+        boolean walkBody = firstVisit
+                || (dynamicBranchRoute != null && branchWalked.add(identity + ' ' + dynamicBranchRoute));
+        if (walkBody) {
             // currentServiceVersion is intentionally NOT reset here: a template set in a caller route
             // (before it dispatches) is the request body for the backend the callee route calls, so it
             // must survive the hop. It is cleared when an api CONSUMES it instead (below), which stops
@@ -177,15 +191,19 @@ public class RouteTraverser {
             // URI_PROTOCOL / camelHttpUri is not shown). Collect only the api it
             // sets itself, if any.
             List<PendingApi> collected = new ArrayList<>(inherited);
-            if (firstVisit) {
-                response.getFlow().add(identity);
+            if (walkBody) {
+                if (firstVisit) {
+                    response.getFlow().add(identity);
+                }
                 collected.addAll(collectApis(route.elements(), null, routeVersion(nodeId), identity));
             }
             attach(collected, nodeId, true);                 // backends fan INTO the host barrel
             return nodeId;
         }
-        if (firstVisit) {
-            response.getFlow().add(identity);
+        if (walkBody) {
+            if (firstVisit) {
+                response.getFlow().add(identity);
+            }
             // Arm the load-balanced-arm collapse for THIS route body — the caller that owns the <loadBalance>
             // (or the choice whose branches each load-balance). Only when we're NOT inside a followed arm's
             // own subtree (armFollowDepth == 0): the followed arm and its downstream routes must trace
@@ -207,7 +225,7 @@ public class RouteTraverser {
     /** @param into true to draw backend → node (into a host barrel); false for node → backend. */
     private void attach(List<PendingApi> apis, String nodeId, boolean into) {
         for (PendingApi p : apis) {
-            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute());
+            addBackend(p.value(), nodeId, p.branch(), into, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute(), p.branchRoute());
         }
     }
 
@@ -234,7 +252,7 @@ public class RouteTraverser {
         List<PendingApi> all = new ArrayList<>(inherited);
         all.addAll(collectApis(route.elements(), null, routeVersion(instanceId), identity));   // the host's own api, if it sets one
         for (PendingApi p : all) {
-            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute());   // host instance → backend
+            addBackend(p.value(), instanceId, p.branch(), false, p.serviceVersion(), p.hosturl(), p.svcRouteVersion(), p.flowRoute(), p.branchRoute());   // host instance → backend
         }
     }
 
@@ -292,7 +310,7 @@ public class RouteTraverser {
                         currentHeaderServiceVersion = hv;
                     }
                 } else if (isApi(sp)) {
-                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeId));
+                    out.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeId, dynamicBranchRoute));
                     currentServiceVersion = null;   // consumed
                 }
             } else if (el instanceof ChoiceElement choice) {
@@ -342,7 +360,7 @@ public class RouteTraverser {
                         currentHeaderServiceVersion = hv;   // route sets the header a template reads
                     }
                 } else if (isApi(sp)) {
-                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId)));
+                    active.add(new PendingApi(sp.value().trim(), branch, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId), dynamicBranchRoute));
                     currentServiceVersion = null;   // consumed — a later api needs its own template to get a version
                 } else {
                     // A DEST_ROUTE-style base name (e.g. acceptcoreinfo): remember the route it resolves
@@ -405,6 +423,7 @@ public class RouteTraverser {
 
         if (scheme.equals("direct") || scheme.equals("direct-vm") || async) {
             String target = resolveDynamicName(remainder);
+            boolean dynamicDispatch = target == null;   // a ${...} we can't read statically → resolved via DEST_ROUTE
             if (target == null) {
                 // A dynamic direct: whose expression we can't read directly (e.g.
                 // ${exchangeProperty[FINAL_ROUTE_NAME]}). If a DEST_ROUTE-style base was set, follow the
@@ -445,6 +464,13 @@ public class RouteTraverser {
             if (loadBalancedArm) {
                 armFollowDepth++;
             }
+            // A dynamic direct:${FINAL_ROUTE_NAME} dispatch resolved to a branch route: hold it for the whole
+            // descent so flows reached through it are labelled (branch → route → backend) and the shared route
+            // is walked per branch. Only the FIRST (outermost) dynamic hop on a path sets it.
+            String savedDynamicBranch = dynamicBranchRoute;
+            if (dynamicDispatch && dynamicBranchRoute == null && target != null) {
+                dynamicBranchRoute = target;
+            }
             try {
                 if (forward && !active.isEmpty() && terminalConsumer) {
                     // This call hands a backend to a host / terminal route. Give it its OWN
@@ -462,9 +488,10 @@ public class RouteTraverser {
                 if (loadBalancedArm) {
                     armFollowDepth--;
                 }
+                dynamicBranchRoute = savedDynamicBranch;
             }
         } else if (EXTERNAL_SCHEMES.contains(scheme)) {
-            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId)); // external call is itself a backend
+            addBackend(uri, currentNodeId, branch, false, currentServiceVersion, currentHosturl, svcVersionRouteVersion, routeIdOf(currentNodeId), dynamicBranchRoute); // external call is itself a backend
         }
         // bean:/log:/mock: etc. are not flow edges — ignore.
     }
@@ -584,7 +611,7 @@ public class RouteTraverser {
         for (int i = 0; i < pending.size(); i++) {
             PendingApi p = pending.get(i);
             if (p.serviceVersion() == null) {
-                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl(), routeVer, p.flowRoute()));
+                pending.set(i, new PendingApi(p.value(), p.branch(), sv, p.hosturl(), routeVer, p.flowRoute(), p.branchRoute()));
             }
         }
     }
@@ -620,7 +647,8 @@ public class RouteTraverser {
     }
 
     private void addBackend(String value, String routeNodeId, String branch, boolean into,
-                            String serviceVersion, String hosturl, String svcRouteVersion, String flowRoute) {
+                            String serviceVersion, String hosturl, String svcRouteVersion, String flowRoute,
+                            String branchRoute) {
         String nodeId = "backend:" + value;
         graph.addNode(new GraphNode(nodeId, value, GraphNode.TYPE_BACKEND));
         if (into) {
@@ -663,11 +691,17 @@ public class RouteTraverser {
         }
         // Record the release-version FLOW keyed by its setting route, so two routes on the same backend
         // (+version) stay two flows that each must be tested. Deduped per (route, backend, version).
+        String sv = serviceVersion == null || serviceVersion.isBlank() ? null : serviceVersion.trim();
+        ChangeFlow flow = new ChangeFlow(flowRoute, value, sv, branchRoute);
         if (!bauReuse) {
-            String sv = serviceVersion == null || serviceVersion.isBlank() ? null : serviceVersion.trim();
-            ChangeFlow flow = new ChangeFlow(flowRoute, value, sv);
             if (!response.getChangeFlows().contains(flow)) {
                 response.getChangeFlows().add(flow);
+            }
+        } else if (branchRoute != null) {
+            // A BAU leg reached through a dynamic dispatch: keep its branch/route labels (display only) so the
+            // BAU row can show the full path (branch → route → backend). Never part of the change verdict.
+            if (!response.getBauFlows().contains(flow)) {
+                response.getBauFlows().add(flow);
             }
         }
     }
@@ -767,7 +801,7 @@ public class RouteTraverser {
      *  route whose template supplied its service version (for change-vs-BAU attribution), and the
      *  identity of the route that SET the api (the flow's route, so twins on one backend stay distinct). */
     private record PendingApi(String value, String branch, String serviceVersion, String hosturl,
-                              String svcRouteVersion, String flowRoute) {
+                              String svcRouteVersion, String flowRoute, String branchRoute) {
     }
 
     /** A node id ("route:R9.14_x#caller") reduced to the bare route id ("R9.14_x"). */

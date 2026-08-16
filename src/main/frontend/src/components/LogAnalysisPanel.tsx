@@ -179,6 +179,7 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
                 the FE verdict. */}
             <td />
             <td colSpan={2}>
+              {b.branchRoute && <span className="flow-route" title="the dynamic-dispatch choice branch this flow is reached through">{b.branchRoute} → </span>}
               {b.flowRoute && <span className="flow-route" title="the release route that owns this flow">{b.flowRoute} → </span>}
               <code>{backendPath(b.backend)}</code>
               <span className="muted">{b.observedPath ? ' seen: ' + b.observedPath : (b.bau ? ' unchanged route' : ' not observed')}</span>

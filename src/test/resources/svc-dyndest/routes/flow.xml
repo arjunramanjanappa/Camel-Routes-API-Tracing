@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Entry: two <when>s, each sets a DEST_ROUTE constant and dispatches dynamically (toD). -->
+    <route id="R9.14_prospectCreateV1">
+        <from uri="direct:R9.14_prospectCreateV1"/>
+        <choice>
+            <when>
+                <simple>${header.op} == 'A'</simple>
+                <setProperty name="DEST_ROUTE"><constant>manualauthDetails</constant></setProperty>
+                <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
+            </when>
+            <when>
+                <simple>${header.op} == 'B'</simple>
+                <setProperty name="DEST_ROUTE"><constant>basicdetails</constant></setProperty>
+                <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
+            </when>
+        </choice>
+    </route>
+
+    <!-- Branch routes forward to a SHARED inner route that actually sets the api (a hop deeper). -->
+    <route id="R9.14_manualauthDetails">
+        <from uri="direct:R9.14_manualauthDetails"/>
+        <to uri="direct:R9.14_doUpdate"/>
+    </route>
+
+    <route id="R9.14_basicdetails">
+        <from uri="direct:R9.14_basicdetails"/>
+        <to uri="direct:R9.14_doUpdate"/>
+    </route>
+
+    <!-- The shared route where the api + service version are actually set. -->
+    <route id="R9.14_doUpdate">
+        <from uri="direct:R9.14_doUpdate"/>
+        <to uri="framework:META-INF/templates/update/precapture.ftl"/>
+        <setProperty name="api"><simple>/api/application/v3/update</simple></setProperty>
+        <to uri="direct:callBackend"/>
+    </route>
+
+    <route id="callBackend">
+        <from uri="direct:callBackend"/>
+        <to uri="https://host/dispatch"/>
+    </route>
+
+</routes>

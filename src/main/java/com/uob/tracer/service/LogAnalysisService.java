@@ -1483,9 +1483,20 @@ public class LogAnalysisService {
     }
 
     private static String flowLabel(BackendCallResult b) {
+        String branch = b.branchRoute() != null && !b.branchRoute().isBlank() ? b.branchRoute() + " → " : "";
         String route = b.flowRoute() != null && !b.flowRoute().isBlank() ? b.flowRoute() + " → " : "";
-        return route + backendPathPart(b.backend())
+        return branch + route + backendPathPart(b.backend())
                 + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : "");
+    }
+
+    /** The BAU flow (branch/owning-route labels) recorded for a backend reached via a dynamic dispatch, if any. */
+    private static com.uob.tracer.api.ChangeFlow bauFlowFor(ApiImpact api, String backend, String version) {
+        for (com.uob.tracer.api.ChangeFlow f : api.bauFlows()) {
+            if (backend.equals(f.backend()) && (version == null || version.equals(f.serviceVersion()))) {
+                return f;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1502,15 +1513,15 @@ public class LogAnalysisService {
         List<BackendCallResult> out = new ArrayList<>();
         Collection<String> universe = api.backends();
         // Change flows grouped by backend → service version ("" = no version) → the routes that own that flow.
-        Map<String, Map<String, List<String>>> flowsByBackend = new LinkedHashMap<>();
+        Map<String, Map<String, List<com.uob.tracer.api.ChangeFlow>>> flowsByBackend = new LinkedHashMap<>();
         for (com.uob.tracer.api.ChangeFlow f : api.changeFlows()) {
             flowsByBackend
                     .computeIfAbsent(f.backend(), k -> new LinkedHashMap<>())
                     .computeIfAbsent(f.serviceVersion() == null ? "" : f.serviceVersion(), k -> new ArrayList<>())
-                    .add(f.routeId());
+                    .add(f);
         }
         for (String tb : api.backends()) {
-            Map<String, List<String>> byVer = flowsByBackend.getOrDefault(tb, Map.of());
+            Map<String, List<com.uob.tracer.api.ChangeFlow>> byVer = flowsByBackend.getOrDefault(tb, Map.of());
             List<String> bau = bauVersions(api.backendVersions().get(tb), api.changeBackendVersions().get(tb));
             // Host response-code rule for this backend (matched on its hosturl): custom code field / success, or skip.
             LogRulesService.Rule rule = rules == null ? null : rules.ruleFor(matchPath(tb, hosturls));
@@ -1530,10 +1541,14 @@ public class LogAnalysisService {
                 // this backend is reached ONLY via a resolved-down (BAU) route that set no service version of
                 // its own. Show it as a labelled BAU row (never in the verdict), not a change flow — a BAU
                 // failure/timeout must not fail the new-app verdict.
-                out.add(bauRow(tb, null, forVersion, universe, hosturls, secure, false, rule));
+                com.uob.tracer.api.ChangeFlow bf = bauFlowFor(api, tb, null);
+                out.add(bauRow(tb, null, forVersion, universe, hosturls, secure, false, rule,
+                        bf != null ? bf.routeId() : null, bf != null ? bf.branchRoute() : null));
             }
             for (String bv : bau) {
-                out.add(bauRow(tb, bv, forVersion, universe, hosturls, secure, strict, rule));
+                com.uob.tracer.api.ChangeFlow bf = bauFlowFor(api, tb, bv);
+                out.add(bauRow(tb, bv, forVersion, universe, hosturls, secure, strict, rule,
+                        bf != null ? bf.routeId() : null, bf != null ? bf.branchRoute() : null));
             }
         }
         return out;
@@ -1558,7 +1573,7 @@ public class LogAnalysisService {
      * failure distribution rides the first row — for a solo flow that's just its own bar; for twins it's the one
      * shared bar (we can't attribute an indistinguishable call to route A vs B).
      */
-    private List<BackendCallResult> flowRows(String tb, String ver, List<String> routeIds, List<Txn> forVersion,
+    private List<BackendCallResult> flowRows(String tb, String ver, List<com.uob.tracer.api.ChangeFlow> flows, List<Txn> forVersion,
                                              Collection<String> universe, Map<String, String> hosturls,
                                              boolean secure, boolean strict, LogRulesService.Rule rule) {
         // The expected service version for this flow. A rule's explicit svcVersion (user-asserted) overrides the
@@ -1589,9 +1604,10 @@ public class LogAnalysisService {
         String flowVer = hits.stream().map(h -> h.call().serviceVersion())
                 .filter(v -> v != null && !v.isBlank()).findFirst().orElse(null);
         List<BackendCallResult> rows = new ArrayList<>();
-        int k = routeIds.size();
+        int k = flows.size();
         for (int i = 0; i < k; i++) {
-            String route = routeIds.get(i);
+            String route = flows.get(i).routeId();
+            String branch = flows.get(i).branchRoute();
             int a = i == 0 ? n : 0;
             int p = i == 0 ? passed : 0;
             int f = i == 0 ? failedTotal : 0;
@@ -1609,11 +1625,11 @@ public class LogAnalysisService {
                         ? c.serviceVersion() : flowVer;
                 rows.add(new BackendCallResult(tb, c.path(), st,
                         timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
-                        expVer, loggedVer, versionOk(expVer, loggedVer), false, route, a, p, f, fbc));
+                        expVer, loggedVer, versionOk(expVer, loggedVer), false, route, branch, a, p, f, fbc));
             } else {
                 // A skipped backend is never "not tested" (it must not turn the API Partial) — mark it Skipped.
                 rows.add(new BackendCallResult(tb, null, skip ? LogStatus.SKIPPED : LogStatus.NOT_TESTED, null, null, null,
-                        expVer, null, null, false, route, a, p, f, fbc));
+                        expVer, null, null, false, route, branch, a, p, f, fbc));
             }
         }
         return rows;
@@ -1621,12 +1637,13 @@ public class LogAnalysisService {
 
     /** A single BAU-reuse row (latest call + its distribution), labelled BAU and never in the verdict. */
     private BackendCallResult bauRow(String tb, String ver, List<Txn> forVersion, Collection<String> universe,
-                                     Map<String, String> hosturls, boolean secure, boolean strict, LogRulesService.Rule rule) {
+                                     Map<String, String> hosturls, boolean secure, boolean strict, LogRulesService.Rule rule,
+                                     String flowRoute, String branchRoute) {
         List<CallHit> hits = applyRuleCode(flowHits(tb, ver, forVersion, universe, hosturls, strict), rule);
         int n = hits.size();
         if (n == 0) {
             return new BackendCallResult(tb, null, LogStatus.NOT_TESTED, null, null, null,
-                    ver, null, null, true, null, 0, 0, 0, Map.of());
+                    ver, null, null, true, flowRoute, branchRoute, 0, 0, 0, Map.of());
         }
         int passed = 0;
         Map<String, Integer> failures = new LinkedHashMap<>();
@@ -1646,7 +1663,7 @@ public class LogAnalysisService {
             desc = UNRECOGNISED_RESPONSE;
         }
         return new BackendCallResult(tb, c.path(), st, timedOut ? null : c.tookMs(), timedOut ? null : c.code(), desc,
-                ver, c.serviceVersion(), null, true, null, n, passed, n - passed, sortByCountDesc(failures));
+                ver, c.serviceVersion(), null, true, flowRoute, branchRoute, n, passed, n - passed, sortByCountDesc(failures));
     }
 
     /** Every call in a transaction matching (backend, version) — all of them (a trace may hit a backend twice). */

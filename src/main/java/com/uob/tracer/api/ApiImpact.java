@@ -33,5 +33,5 @@ public record ApiImpact(String api, String operation, String command,
                         List<String> routes, List<String> backends, List<String> hosts,
                         Map<String, String> backendVersions, Map<String, String> backendHosturls,
                         Map<String, String> changeBackendVersions, List<String> unconditionalBackends,
-                        List<ChangeFlow> changeFlows) {
+                        List<ChangeFlow> changeFlows, List<ChangeFlow> bauFlows) {
 }

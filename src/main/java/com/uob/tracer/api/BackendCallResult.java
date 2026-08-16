@@ -22,6 +22,9 @@ import java.util.Map;
  *                               and never counted toward the API's pass/fail (nothing changed there to verify)
  * @param flowRoute    the release route that owns this flow (e.g. R9.14_routeB) — labels the row so two
  *                     routes on the same backend+version are distinct; null for a BAU / single-URL row
+ * @param branchRoute  the dynamic {@code direct:${FINAL_ROUTE_NAME}} choice branch this flow was reached
+ *                     through (e.g. R9.14_manualauthDetails) — shown as a prefix so the row reads
+ *                     {@code branch → flowRoute → backend}; null when not reached via a dynamic dispatch
  * @param attempts     total calls observed to this flow across all transactions (0 → not tested)
  * @param passed       of those, how many succeeded
  * @param failed       of those, how many did not
@@ -39,6 +42,7 @@ public record BackendCallResult(
         Boolean serviceVersionOk,
         boolean bau,
         String flowRoute,
+        String branchRoute,
         int attempts,
         int passed,
         int failed,

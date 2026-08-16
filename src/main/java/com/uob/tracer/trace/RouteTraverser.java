@@ -115,6 +115,10 @@ public class RouteTraverser {
      *  branch's whole descent — labels the flows reached through it (branch → owning route → backend) and
      *  scopes the per-branch walk. Null outside a dynamic dispatch. */
     private String dynamicBranchRoute;
+    /** The distinct quoted constant(s) of the {@code <when>} currently being walked (e.g. MANUALAUTH,
+     *  SECMANUALAUTH) — captured for a dynamic-dispatch branch so log analysis can attribute a transaction to
+     *  the branch it took by finding that constant in the log line. Null/empty outside a when. */
+    private java.util.Set<String> currentWhenConditions;
 
     public RouteTraverser(RouteRegistry registry, RouteGraph graph, TraceResponse response,
                           String transferType, String operationRouteName,
@@ -470,6 +474,13 @@ public class RouteTraverser {
             String savedDynamicBranch = dynamicBranchRoute;
             if (dynamicDispatch && dynamicBranchRoute == null && target != null) {
                 dynamicBranchRoute = target;
+                // Remember which <when> constant(s) select this branch, so log analysis can attribute a
+                // transaction to it by finding that value in the log line (else it falls back to count-based).
+                if (currentWhenConditions != null && !currentWhenConditions.isEmpty()) {
+                    response.getBranchConditions()
+                            .computeIfAbsent(target, k -> new java.util.LinkedHashSet<>())
+                            .addAll(currentWhenConditions);
+                }
             }
             try {
                 if (forward && !active.isEmpty() && terminalConsumer) {
@@ -544,10 +555,10 @@ public class RouteTraverser {
         List<WhenElement> whens = choice.whens();
         if (transferType == null) {
             for (WhenElement when : whens) {
-                active.addAll(walkBranch(when.children(), currentNodeId, branchLabel(when.predicate()), forward));
+                active.addAll(walkBranch(when.children(), currentNodeId, branchLabel(when.predicate()), forward, quotedValues(when.predicate())));
             }
             if (!choice.otherwise().isEmpty()) {
-                active.addAll(walkBranch(choice.otherwise(), currentNodeId, "OTHERWISE", forward));
+                active.addAll(walkBranch(choice.otherwise(), currentNodeId, "OTHERWISE", forward, null));
             }
             return;
         }
@@ -556,12 +567,12 @@ public class RouteTraverser {
         for (WhenElement when : whens) {
             if (predicateMatches(when.predicate(), transferType)) {
                 matched = true;
-                active.addAll(walkBranch(when.children(), currentNodeId, branchLabel(when.predicate()), forward));
+                active.addAll(walkBranch(when.children(), currentNodeId, branchLabel(when.predicate()), forward, quotedValues(when.predicate())));
             }
         }
         if (!matched) {
             if (!choice.otherwise().isEmpty()) {
-                active.addAll(walkBranch(choice.otherwise(), currentNodeId, "OTHERWISE", forward));
+                active.addAll(walkBranch(choice.otherwise(), currentNodeId, "OTHERWISE", forward, null));
             } else {
                 response.getWarnings().add(
                         "transferType '" + transferType + "' matched no branch and there is no otherwise");
@@ -571,13 +582,15 @@ public class RouteTraverser {
 
     /** Walk one choice branch with its own fresh api scope; return what it leaves un-consumed. */
     private List<PendingApi> walkBranch(List<RouteElement> elements, String currentNodeId,
-                                        String branch, boolean forward) {
+                                        String branch, boolean forward, java.util.Set<String> whenConditions) {
         // Each branch inherits the service version in scope before the choice, but a
         // template inside one branch must not leak to sibling branches or after the choice.
         String savedServiceVersion = currentServiceVersion;
         String savedHosturl = currentHosturl;
         String savedDestRoute = currentDestRoute;   // each branch sets its own DEST_ROUTE → its own toD target
         String savedDestMissing = currentDestMissing;
+        java.util.Set<String> savedWhen = currentWhenConditions;
+        currentWhenConditions = whenConditions;     // this branch's <when> constant(s), for dynamic-dispatch attribution
         branchDepth++;   // everything reached inside a choice branch (incl. sub-routes) is conditional
         try {
             return walk(elements, currentNodeId, branch, new ArrayList<>(), forward);
@@ -587,6 +600,7 @@ public class RouteTraverser {
             currentHosturl = savedHosturl;
             currentDestRoute = savedDestRoute;
             currentDestMissing = savedDestMissing;
+            currentWhenConditions = savedWhen;
         }
     }
 
@@ -795,6 +809,19 @@ public class RouteTraverser {
             last = m.group(1); // the compared constant, e.g. INTER
         }
         return last;
+    }
+
+    /** ALL distinct quoted constants of a predicate, e.g. {@code == "MANUALAUTH" || == "SECMANUALAUTH"} →
+     *  {MANUALAUTH, SECMANUALAUTH}. Used to attribute a log transaction to the branch it took. */
+    private static java.util.Set<String> quotedValues(String predicate) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        if (predicate != null) {
+            Matcher m = QUOTED.matcher(predicate);
+            while (m.find()) {
+                out.add(m.group(1));
+            }
+        }
+        return out;
     }
 
     /** A deferred backend api value, tagged with the branch condition that set it, the version of the

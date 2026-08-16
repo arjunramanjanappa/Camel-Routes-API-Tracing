@@ -50,6 +50,33 @@ class DynamicDestFlowRouteTest {
         }
     }
 
+    // Two transactions that BOTH took the manualauth branch — each carries the <when> constant MANUALAUTH as a
+    // bracket field. Count-based alone would call this SUCCESS (2 calls = both flows); branch-aware must see
+    // that only manualauth was actually exercised and keep basicdetails Not-tested.
+    private static final String LOG_BOTH_MANUALAUTH =
+        "2026-06-11 18.43.45.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][MANUALAUTH][]-/v1/prospect/create -Request - {\"serviceRequest\":{}}\n"
+      + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][MANUALAUTH][230ms]-/api/application/v3/update -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"6.0\"}}\n"
+      + "2026-06-11 18.43.45.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][MANUALAUTH][500ms]-/v1/prospect/create -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+      + "2026-06-11 18.43.46.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C2][IOS][MANUALAUTH][]-/v1/prospect/create -Request - {\"serviceRequest\":{}}\n"
+      + "2026-06-11 18.43.46.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C2][IOS][MANUALAUTH][240ms]-/api/application/v3/update -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"6.0\"}}\n"
+      + "2026-06-11 18.43.46.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C2][IOS][MANUALAUTH][500ms]-/v1/prospect/create -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+
+    @Test
+    void branchAwareCoverageAttributesByTheWhenConstantInTheLog() throws IOException {
+        ApiLogResult apiA = analyze(LOG_BOTH_MANUALAUTH);
+        // manualauth was actually taken (both txns tagged MANUALAUTH) → covered.
+        assertThat(apiA.backends()).anySatisfy(b -> {
+            assertThat(b.branchRoute()).isEqualTo("R9.14_manualauthDetails");
+            assertThat(b.status()).isEqualTo(LogStatus.SUCCESS);
+        });
+        // basicdetails was NEVER taken (no BASICAUTH transaction) → Not tested, even though 2 backend calls exist.
+        assertThat(apiA.backends()).anySatisfy(b -> {
+            assertThat(b.branchRoute()).isEqualTo("R9.14_basicdetails");
+            assertThat(b.status()).isEqualTo(LogStatus.NOT_TESTED);
+        });
+        assertThat(apiA.status()).isEqualTo(LogStatus.PARTIAL);
+    }
+
     @Test
     void twoCallsToTheSharedBackendCoverBothBranchFlows() throws IOException {
         ApiLogResult apiA = analyze(LOG_TWO_CALLS);

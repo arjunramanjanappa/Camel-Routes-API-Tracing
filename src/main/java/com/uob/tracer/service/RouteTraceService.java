@@ -293,7 +293,8 @@ public class RouteTraceService {
                     businessRoutes, List.copyOf(r.getBackendApis()), apiHosts,
                     Map.copyOf(r.getBackendVersions()), Map.copyOf(r.getBackendHosturls()),
                     Map.copyOf(r.getChangeBackendVersions()), List.copyOf(r.getUnconditionalBackends()),
-                    List.copyOf(r.getChangeFlows()), List.copyOf(r.getBauFlows())));
+                    List.copyOf(r.getChangeFlows()), List.copyOf(r.getBauFlows()),
+                    Map.copyOf(r.getBranchConditions())));
 
             routes.addAll(businessRoutes);
             backends.addAll(r.getBackendApis());

@@ -6,12 +6,12 @@
         <from uri="direct:R9.14_prospectCreateV1"/>
         <choice>
             <when>
-                <simple>${header.op} == 'A'</simple>
+                <simple>${body[0]?.data?.incomingStep} == 'MANUALAUTH' || ${body[0]?.data?.incomingStep} == 'SECMANUALAUTH'</simple>
                 <setProperty name="DEST_ROUTE"><constant>manualauthDetails</constant></setProperty>
                 <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
             </when>
             <when>
-                <simple>${header.op} == 'B'</simple>
+                <simple>${body[0]?.data?.incomingStep} == 'BASICAUTH'</simple>
                 <setProperty name="DEST_ROUTE"><constant>basicdetails</constant></setProperty>
                 <toD uri="direct:${exchangeProperty[FINAL_ROUTE_NAME]}"/>
             </when>

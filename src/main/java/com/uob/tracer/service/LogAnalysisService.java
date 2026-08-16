@@ -1029,7 +1029,8 @@ public class LogAnalysisService {
         // (beCodeFields carries more than responseCode) — so a matching rule's field can win over a stray
         // responseCode later, without paying the memory for every line when no such rules are configured.
         String respJson = (!fe && !request && markers.beCodeFields().size() > 1) ? json : null;
-        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc, respJson);
+        return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc, respJson,
+                new java.util.LinkedHashSet<>(fields));   // all bracket-field tokens — for dynamic-branch tag matching
     }
 
     /**
@@ -1085,7 +1086,7 @@ public class LogAnalysisService {
                 svc = firstGroup(SVC_VERSION, body);
             }
         }
-        return new LogLine(ts, true, request, null, corr, null, null, path, code, desc, svc, null);
+        return new LogLine(ts, true, request, null, corr, null, null, path, code, desc, svc, null, java.util.Set.of());
     }
 
     /**
@@ -1324,7 +1325,15 @@ public class LogAnalysisService {
         }
         String platform = anchor != null ? anchor.platform() : null;
         String fePath = feReq != null ? feReq.path() : (feResp != null ? feResp.path() : null);
-        return new Txn(corr, ts, version, platform, fePath, feReq, feResp, calls);
+        // Every bracket-field token across the transaction's lines — the dynamic-dispatch branch constant
+        // (e.g. MANUALAUTH) is searched for here by value, wherever it sits (Mighty and SPL differ).
+        java.util.Set<String> tags = new java.util.LinkedHashSet<>();
+        for (LogLine l : group) {
+            if (l.tags() != null) {
+                tags.addAll(l.tags());
+            }
+        }
+        return new Txn(corr, ts, version, platform, fePath, feReq, feResp, calls, tags);
     }
 
     // --- per-API correlation ---
@@ -1489,6 +1498,25 @@ public class LogAnalysisService {
                 + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : "");
     }
 
+    /** The distinct {@code <when>} constant(s) that select a flow's dynamic-dispatch branch (empty when none). */
+    private static java.util.Set<String> condsOf(ApiImpact api, com.uob.tracer.api.ChangeFlow f) {
+        java.util.Set<String> c = f.branchRoute() == null ? null : api.branchConditions().get(f.branchRoute());
+        return c == null ? java.util.Set.of() : c;
+    }
+
+    /** True when any element of {@code b} is present in {@code a}. */
+    private static boolean intersects(java.util.Set<String> a, java.util.Set<String> b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+            return false;
+        }
+        for (String x : b) {
+            if (a.contains(x)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The BAU flow (branch/owning-route labels) recorded for a backend reached via a dynamic dispatch, if any. */
     private static com.uob.tracer.api.ChangeFlow bauFlowFor(ApiImpact api, String backend, String version) {
         for (com.uob.tracer.api.ChangeFlow f : api.bauFlows()) {
@@ -1533,7 +1561,23 @@ public class LogAnalysisService {
             boolean strict = distinct.size() > 1;
             for (var e : byVer.entrySet()) {
                 String ver = e.getKey().isEmpty() ? null : e.getKey();
-                out.addAll(flowRows(tb, ver, e.getValue(), forVersion, universe, hosturls, secure, strict, rule));
+                List<com.uob.tracer.api.ChangeFlow> groupFlows = e.getValue();
+                // Branch-aware coverage: when these flows come from dynamic-dispatch branches whose <when>
+                // constant(s) are known AND the log actually carries the step tag, attribute each transaction to
+                // the branch it took (its tag) instead of counting. Otherwise (no constant, or the tag is
+                // absent) fall back to the count-based rule.
+                boolean allHaveConditions = groupFlows.stream().allMatch(f -> !condsOf(api, f).isEmpty());
+                boolean stepPresent = allHaveConditions && forVersion.stream()
+                        .anyMatch(t -> groupFlows.stream().anyMatch(f -> intersects(t.tags(), condsOf(api, f))));
+                if (allHaveConditions && stepPresent) {
+                    for (com.uob.tracer.api.ChangeFlow f : groupFlows) {
+                        java.util.Set<String> c = condsOf(api, f);
+                        List<Txn> mine = forVersion.stream().filter(t -> intersects(t.tags(), c)).toList();
+                        out.addAll(flowRows(tb, ver, List.of(f), mine, universe, hosturls, secure, strict, rule));
+                    }
+                } else {
+                    out.addAll(flowRows(tb, ver, groupFlows, forVersion, universe, hosturls, secure, strict, rule));
+                }
             }
             if (byVer.isEmpty() && bau.isEmpty()) {
                 // No change flow and no BAU service-version split for this backend. A release-version (change)
@@ -2069,7 +2113,8 @@ public class LogAnalysisService {
 
     private record LogLine(String ts, boolean fe, boolean request, String version,
                            String correlationId, String platform, Integer tookMs,
-                           String path, String code, String desc, String serviceVersion, String respJson) {
+                           String path, String code, String desc, String serviceVersion, String respJson,
+                           java.util.Set<String> tags) {
     }
 
     /** {@code respJson} = the raw backend response payload, retained (only when custom code-field rules exist)
@@ -2102,7 +2147,8 @@ public class LogAnalysisService {
     }
 
     private record Txn(String correlationId, String ts, String version, String platform,
-                       String fePath, LogLine feReq, LogLine feResp, List<BackendCall> calls) {
+                       String fePath, LogLine feReq, LogLine feResp, List<BackendCall> calls,
+                       java.util.Set<String> tags) {
     }
 
 }

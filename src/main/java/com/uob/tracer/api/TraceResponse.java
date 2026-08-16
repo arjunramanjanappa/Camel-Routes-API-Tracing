@@ -57,6 +57,11 @@ public class TraceResponse {
      *  dispatch — kept only to carry their branch/owning-route labels so the BAU rows can show the full
      *  path (branch → route → backend). Never part of the change verdict. */
     private final java.util.List<ChangeFlow> bauFlows = new java.util.ArrayList<>();
+    /** Dynamic-dispatch branch route → the distinct {@code <when>} constant(s) that select it (e.g.
+     *  R9.14_manualauthDetails → [MANUALAUTH, SECMANUALAUTH]). Lets log analysis attribute a transaction to the
+     *  branch it actually took (the constant appears as a bracket field in the log line) instead of guessing by
+     *  count — falling back to count when the step tag is absent. */
+    private final java.util.Map<String, java.util.Set<String>> branchConditions = new java.util.LinkedHashMap<>();
     /** Backend api value → its "hosturl" property (the path the host logs in MightyHostMessage). */
     private final java.util.Map<String, String> backendHosturls = new java.util.LinkedHashMap<>();
     /** Distinct request-body template uris referenced in this flow (for the payload-change diff). */
@@ -114,6 +119,7 @@ public class TraceResponse {
     public java.util.Set<String> getUnconditionalBackends() { return unconditionalBackends; }
     public java.util.List<ChangeFlow> getChangeFlows() { return changeFlows; }
     public java.util.List<ChangeFlow> getBauFlows() { return bauFlows; }
+    public java.util.Map<String, java.util.Set<String>> getBranchConditions() { return branchConditions; }
     public java.util.Map<String, String> getBackendHosturls() { return backendHosturls; }
     public java.util.Set<String> getTemplateUris() { return templateUris; }
     public List<String> getWarnings() { return warnings; }

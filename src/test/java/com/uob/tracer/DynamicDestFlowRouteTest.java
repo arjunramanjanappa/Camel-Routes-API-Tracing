@@ -29,13 +29,36 @@ class DynamicDestFlowRouteTest {
       + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][230ms]-/api/application/v3/update -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"6.0\"}}\n"
       + "2026-06-11 18.43.45.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][500ms]-/v1/prospect/create -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
 
-    private ApiLogResult analyze() throws IOException {
-        try (ByteArrayInputStream in = new ByteArrayInputStream(LOG.getBytes(StandardCharsets.UTF_8))) {
+    // Two transactions, two calls to the shared backend at 6.0 — enough to cover BOTH branch flows (the shared
+    // backend line carries no branch, so coverage is by matching-call COUNT: K flows need K calls).
+    private static final String LOG_TWO_CALLS =
+        "2026-06-11 18.43.45.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][]-/v1/prospect/create -Request - {\"serviceRequest\":{}}\n"
+      + "2026-06-11 18.43.45.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C1][IOS][230ms]-/api/application/v3/update -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"6.0\"}}\n"
+      + "2026-06-11 18.43.45.402 [t] INFO [MightyMessage][MTY][s][u][9.14][C1][IOS][500ms]-/v1/prospect/create -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n"
+      + "2026-06-11 18.43.46.102 [t] INFO [MightyMessage][MTY][s][u][9.14][C2][IOS][]-/v1/prospect/create -Request - {\"serviceRequest\":{}}\n"
+      + "2026-06-11 18.43.46.318 [t] INFO [MightyHostMessage][MTY][s][u][9.14][C2][IOS][240ms]-/api/application/v3/update -[Response] - {\"serviceResponse\":{\"responseCode\":\"0000000\",\"serviceVersionNumber\":\"6.0\"}}\n"
+      + "2026-06-11 18.43.46.502 [t] INFO [MightyMessage][MTY][s][u][9.14][C2][IOS][500ms]-/v1/prospect/create -Response - {\"serviceResponse\":{\"responseCode\":\"0000000\"}}\n";
+
+    private ApiLogResult analyze() throws IOException { return analyze(LOG); }
+
+    private ApiLogResult analyze(String log) throws IOException {
+        try (ByteArrayInputStream in = new ByteArrayInputStream(log.getBytes(StandardCharsets.UTF_8))) {
             LogAnalysisReport rep = new LogAnalysisService(svc).analyze(in, "log.log", "9.14", null,
                     "src/test/resources/svc-dyndest", null, null, true, "Mighty");
             return rep.apis().stream().filter(a -> "prospectCreateV1".equals(a.operation()))
                     .findFirst().orElseThrow(() -> new AssertionError("prospectCreateV1 not in the report"));
         }
+    }
+
+    @Test
+    void twoCallsToTheSharedBackendCoverBothBranchFlows() throws IOException {
+        ApiLogResult apiA = analyze(LOG_TWO_CALLS);
+        // Both branch flows are on the same backend+version, so two matching calls cover both → clean SUCCESS.
+        assertThat(apiA.backends())
+                .filteredOn(b -> b.backend() != null && b.backend().contains("/api/application/v3/update"))
+                .hasSize(2)
+                .allSatisfy(b -> assertThat(b.status()).isEqualTo(LogStatus.SUCCESS));
+        assertThat(apiA.status()).isEqualTo(LogStatus.SUCCESS);
     }
 
     @Test

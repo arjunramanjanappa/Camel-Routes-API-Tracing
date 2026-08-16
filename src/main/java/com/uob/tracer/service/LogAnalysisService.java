@@ -202,7 +202,9 @@ public class LogAnalysisService {
                 new TraceRequest(null, version, null, sourceDir, country, repo, branch, dependencies));
         boolean secure = idx.isCommandDispatch();
         String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
-        Parsed parsed = parseLog(raw, filename, markersFor(application, secure), application);
+        // Give the line parser the known branch step values so it retains only those as line tags (memory-safe
+        // on multi-GB logs); cleared in finally so nothing leaks across pooled threads.
+        Parsed parsed = parseLog(raw, filename, markersFor(application, secure, stepValuesOf(idx)), application);
         return buildReport(idx, parsed, version, secure, all, selectedApis, selectedBackends,
                 logRules.rulesFor(application, secure));
     }
@@ -212,11 +214,12 @@ public class LogAnalysisService {
      * MightyMessage/MightyHostMessage, SPL → SPLMessage/SPLHostMessage). For an auto-detected
      * SPL-Secure source it ADDITIONALLY recognises the SPLAppLog / SPLWSAppLog front-end loggers.
      */
-    private Markers markersFor(String app, boolean secure) {
+    private Markers markersFor(String app, boolean secure, java.util.Set<String> stepValues) {
         String application = (app == null || app.isBlank()) ? "Mighty" : app.trim();
         // Host response-code fields to try for this app/marker (config-driven; always includes responseCode).
         List<String> beCodeFields = logRules.rulesFor(application, secure).effectiveCodeFields();
-        return new Markers(application + "Message", application + "HostMessage", secure, beCodeFields);
+        return new Markers(application + "Message", application + "HostMessage", secure, beCodeFields,
+                stepValues == null ? java.util.Set.of() : stepValues);
     }
 
     /** A log parsed into correlation-id transactions — independent of any module's scope, so it is
@@ -641,7 +644,8 @@ public class LogAnalysisService {
             if (r.idx() == null) {
                 continue;
             }
-            flavourMarkers.putIfAbsent(r.app() + "|" + r.secure(), markersFor(r.app(), r.secure()));
+            flavourMarkers.putIfAbsent(r.app() + "|" + r.secure(),
+                    markersFor(r.app(), r.secure(), r.idx() != null ? stepValuesOf(r.idx()) : java.util.Set.of()));
         }
         Map<String, Parsed> byFlavour = new LinkedHashMap<>();
         Map<String, String> flavourError = new LinkedHashMap<>();
@@ -1029,8 +1033,24 @@ public class LogAnalysisService {
         // (beCodeFields carries more than responseCode) — so a matching rule's field can win over a stray
         // responseCode later, without paying the memory for every line when no such rules are configured.
         String respJson = (!fe && !request && markers.beCodeFields().size() > 1) ? json : null;
+        // Retain a bracket token ONLY when it's an actual dynamic-branch step value (a small, known set derived
+        // from the trace) — never the correlation id / session / user / version / latency. So a multi-GB log
+        // with millions of matched lines stores at most a handful of short tokens per line (usually none, which
+        // shares the empty-set singleton).
+        java.util.Set<String> stepValues = markers.stepValues();
+        java.util.Set<String> tags = null;
+        if (!stepValues.isEmpty()) {
+            for (String f : fields) {
+                if (stepValues.contains(f)) {
+                    if (tags == null) {
+                        tags = new java.util.LinkedHashSet<>();
+                    }
+                    tags.add(f);
+                }
+            }
+        }
         return new LogLine(ts, fe, request, version, corr, platform, took, path, code, desc, svc, respJson,
-                new java.util.LinkedHashSet<>(fields));   // all bracket-field tokens — for dynamic-branch tag matching
+                tags == null ? java.util.Set.of() : tags);
     }
 
     /**
@@ -1496,6 +1516,20 @@ public class LogAnalysisService {
         String route = b.flowRoute() != null && !b.flowRoute().isBlank() ? b.flowRoute() + " → " : "";
         return branch + route + backendPathPart(b.backend())
                 + (b.expectedServiceVersion() != null ? " (svc " + b.expectedServiceVersion() + ")" : "");
+    }
+
+    /** The union of every API's dynamic-branch {@code <when>} constant(s) — the only bracket tokens the line
+     *  parser keeps as tags, so retention stays bounded to a handful of short values on a multi-GB log. */
+    private static java.util.Set<String> stepValuesOf(com.uob.tracer.api.ImpactIndex idx) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (ApiImpact a : idx.getApis()) {
+            if (a.branchConditions() != null) {
+                for (java.util.Set<String> vs : a.branchConditions().values()) {
+                    out.addAll(vs);
+                }
+            }
+        }
+        return out;
     }
 
     /** The distinct {@code <when>} constant(s) that select a flow's dynamic-dispatch branch (empty when none). */
@@ -2135,7 +2169,8 @@ public class LogAnalysisService {
      * SPL-Secure flavour ({@code secure=true}) the front-end uses a different logger
      * (SPLAppLog request / SPLWSAppLog response) while the backend stays SPLHostMessage.
      */
-    private record Markers(String fe, String be, boolean secure, List<String> beCodeFields) {
+    private record Markers(String fe, String be, boolean secure, List<String> beCodeFields,
+                           java.util.Set<String> stepValues) {
         /** Cheap pre-filter: does this candidate line carry any marker we care about? */
         boolean present(String s) {
             if (s.indexOf(fe) >= 0 || s.indexOf(be) >= 0) {

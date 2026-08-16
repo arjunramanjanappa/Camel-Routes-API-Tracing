@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { RotateCw, Plus, X, Check } from 'lucide-react';
 import { fetchLogRules, saveLogRules, type AppLogRules, type LogRule, type LogRulesMap } from '../api';
 
 const APPS = ['Mighty', 'SPL', 'SPL-Secure'];
@@ -66,7 +67,7 @@ export default function LogRulesEditor() {
         passes. <b>Any value</b> — the code is dynamic, so <i>any</i> non-blank value of the field passes (leave
         success codes empty). <b>Svc version</b> — expected service version (exact match); set it only when the version is set
         in Java so the route scan can't derive it. <b>Skip</b> — exclude from the verdict. Save, then
-        <b>↻ Re-run with current rules</b> on Release Test.
+        <b><RotateCw size={12} aria-hidden="true" /> Re-run with current rules</b> on Release Test.
       </div>
 
       <div className="seg" style={{ marginTop: 6 }}>
@@ -101,16 +102,16 @@ export default function LogRulesEditor() {
                          title="Expected service version — exact match. Leave blank unless the version is set in Java."
                          onChange={(e) => setRule(i, { svcVersion: e.target.value })} /></td>
               <td style={{ textAlign: 'center' }}><input type="checkbox" checked={r.skip} onChange={(e) => setRule(i, { skip: e.target.checked })} /></td>
-              <td><button className="linkbtn" onClick={() => removeRule(i)} title="Remove this rule">✕</button></td>
+              <td><button className="linkbtn" onClick={() => removeRule(i)} title="Remove this rule"><X size={13} aria-hidden="true" /></button></td>
             </tr>
           ))}
         </tbody>
       </table>
-      <button className="linkbtn" onClick={addRule}>＋ Add rule</button>
+      <button className="linkbtn" onClick={addRule}><Plus size={13} aria-hidden="true" /> Add rule</button>
 
       <div className="cfg-actions" style={{ marginTop: 8 }}>
         <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save rules'}</button>
-        {saved && !error && <span className="cfg-ok" style={{ marginLeft: 8 }}>Saved ✓</span>}
+        {saved && !error && <span className="cfg-ok" style={{ marginLeft: 8 }}>Saved <Check size={13} aria-hidden="true" /></span>}
         {error && <span className="cfg-error" style={{ marginLeft: 8 }}>{error}</span>}
       </div>
     </div>

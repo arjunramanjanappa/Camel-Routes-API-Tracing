@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, FileStack } from 'lucide-react';
+import { Plus, FileStack, ChevronRight, CornerDownRight } from 'lucide-react';
 import { fetchImpactIndex } from '../api';
 import type { ApiImpact, DepSource, ImpactIndex, Meta } from '../types';
 import { sourceParams } from '../components/SourceFields';
@@ -301,7 +301,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
                     <div className="sel-api" key={p}>
                       <div className="sel-api-path row between">
                         <code>{a.api}</code>
-                        <button className="linkbtn" onClick={() => setFlowApi(a.api)}>View flow ▸</button>
+                        <button className="linkbtn" onClick={() => setFlowApi(a.api)}>View flow <ChevronRight size={13} aria-hidden="true" /></button>
                       </div>
                       <div className="sel-row">
                         <span className="sel-label">routes</span>
@@ -357,7 +357,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
                     {sortedImpacted.map((i, ix) => (
                       <Fragment key={i.api.api + i.api.operation}>
                         {ix === selectedImpactedCount && selectedImpactedCount > 0 && selectedImpactedCount < sortedImpacted.length && (
-                          <tr className="impacted-divider"><td colSpan={5}>↳ Blast radius — {sortedImpacted.length - selectedImpactedCount} API(s) that share a backend or route with your selection</td></tr>
+                          <tr className="impacted-divider"><td colSpan={5}><CornerDownRight size={13} aria-hidden="true" /> Blast radius — {sortedImpacted.length - selectedImpactedCount} API(s) that share a backend or route with your selection</td></tr>
                         )}
                         <tr className={selectedApis.has(i.api.api) ? 'impacted-selected' : 'impacted-indirect'}>
                         <td><code>{i.api.api}</code>{selectedApis.has(i.api.api) && <span className="sel-badge">selected</span>}</td>
@@ -371,7 +371,7 @@ export default function ImpactView({ app = 'Mighty', colorMode = 'light', viewMo
                             </span>
                           ))}
                         </td>
-                        <td><button className="linkbtn" onClick={() => setFlowApi(i.api.api)} title="Show this API's route graph">flow ▸</button></td>
+                        <td><button className="linkbtn" onClick={() => setFlowApi(i.api.api)} title="Show this API's route graph">flow <ChevronRight size={13} aria-hidden="true" /></button></td>
                       </tr>
                       </Fragment>
                     ))}

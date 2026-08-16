@@ -1,3 +1,4 @@
+import { ChevronRight, ChevronDown, RotateCcw, Save, Plus } from 'lucide-react';
 import type { ModuleSource } from '../modules';
 import { newModule, moduleLabel, moduleValid } from '../modules';
 
@@ -42,7 +43,7 @@ export default function ModulesEditor({ modules, onChange, names = {}, open, onT
       <div className="modules-head">
         <button type="button" className="mod-toggle" onClick={onToggleOpen}
                 aria-expanded={open} title={open ? 'Collapse modules' : 'Edit modules'}>
-          <span className="caret">{open ? '▾' : '▸'}</span> Modules <span className="muted">({modules.length})</span>
+          <span className="caret">{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span> Modules <span className="muted">({modules.length})</span>
         </button>
         {configAware && (
           <span className={'cfg-chip' + (fromConfig ? ' on' : '')}
@@ -56,14 +57,14 @@ export default function ModulesEditor({ modules, onChange, names = {}, open, onT
             {configAware && (
               <>
                 <button type="button" className="mod-cfgbtn" onClick={onReset} disabled={!hasConfig || saving}
-                        title="Discard your edits and reload the module list from the config">↺ Reset to config</button>
+                        title="Discard your edits and reload the module list from the config"><RotateCcw size={13} aria-hidden="true" /> Reset to config</button>
                 <button type="button" className="mod-cfgbtn" onClick={saveDefault} disabled={saving || !modules.some(moduleValid)}
                         title="Save this module list back to the config as the default for everyone">
-                  {saving ? 'Saving…' : '💾 Save as default'}
+                  {saving ? 'Saving…' : <><Save size={13} aria-hidden="true" /> Save as default</>}
                 </button>
               </>
             )}
-            <button type="button" className="addmod" onClick={add}>＋ Add module</button>
+            <button type="button" className="addmod" onClick={add}><Plus size={13} aria-hidden="true" /> Add module</button>
           </>
         ) : (
           <div className="mod-chiprow">

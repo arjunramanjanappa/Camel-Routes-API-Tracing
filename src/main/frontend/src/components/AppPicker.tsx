@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { Sparkles, ArrowRight } from 'lucide-react';
 
 interface AppDef {
   id: string;
@@ -43,7 +44,7 @@ export default function AppPicker({ onPick }: { onPick: (app: string) => void })
         <Logo />
         <div className="app-picker-head">TraceGuard</div>
         <div className="app-picker-tagline">Trace the flow. Guard the release.</div>
-        <div className="app-picker-ai">✨ Powered by AI</div>
+        <div className="app-picker-ai"><Sparkles size={13} aria-hidden="true" /> Powered by AI</div>
         <div className="app-picker-sub">
           Choose an application to work with. Release Scope, Release Test and Release Impact work the same across all.
         </div>
@@ -53,7 +54,7 @@ export default function AppPicker({ onPick }: { onPick: (app: string) => void })
               <span className="app-card-badge" style={{ background: a.accent }}>{a.name.charAt(0)}</span>
               <span className="app-card-name">{a.name}</span>
               <span className="app-card-desc">{a.desc}</span>
-              <span className="app-card-cta">Open →</span>
+              <span className="app-card-cta">Open <ArrowRight size={13} aria-hidden="true" /></span>
             </button>
           ))}
         </div>

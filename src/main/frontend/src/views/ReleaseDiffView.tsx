@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Table2, FileText, FileStack, Paperclip } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Table2, FileText, FileStack, Paperclip, AlertTriangle, Code2, Target, ArrowLeft,
+         ChevronRight, ChevronDown, ChevronUp, StickyNote, Pencil, Plus, Check, Flag,
+         CircleDot, Triangle, Diamond, CircleHelp } from 'lucide-react';
 import { fetchVersionDiff, analyzeLogMulti, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
 import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
@@ -173,7 +175,7 @@ function FlowCoverage({ log }: { log?: ApiLogResult }) {
         const nt = b.status === 'NOT_TESTED';
         return (
           <div key={i} className={'flowcov-row ' + (nt ? 'nt' : 'fail')}>
-            <span className="flowcov-stat">{nt ? '⚠ not tested' : b.status.toLowerCase()}</span>
+            <span className="flowcov-stat">{nt ? <><AlertTriangle size={11} aria-hidden="true" /> not tested</> : b.status.toLowerCase()}</span>
             {b.flowRoute && <span className="flowcov-route" title="the release route that owns this flow">{b.flowRoute}</span>}
             <code>{backendPath(b.backend)}</code>
             {b.expectedServiceVersion && <span className="muted">svc {b.expectedServiceVersion}</span>}
@@ -277,11 +279,11 @@ function apiDiffText(a: ApiDiff): string {
 
 type ImpactGroup = 'Current' | 'BAU' | 'Future' | 'Unknown';
 const IMPACT_ORDER: ImpactGroup[] = ['Current', 'BAU', 'Future', 'Unknown'];
-const IMPACT_META: Record<ImpactGroup, { icon: string; label: string; desc: string }> = {
-  Current: { icon: '●', label: 'Current release', desc: 'this release — verify the change here' },
-  BAU: { icon: '▲', label: 'BAU (in production)', desc: 'live now — regression-test' },
-  Future: { icon: '◆', label: 'Future release', desc: "pre-test now; won't resurface under its own version" },
-  Unknown: { icon: '?', label: 'Unknown (untraced)', desc: 'not wired to a controller — trace & verify manually' },
+const IMPACT_META: Record<ImpactGroup, { icon: ReactNode; label: string; desc: string }> = {
+  Current: { icon: <CircleDot size={13} aria-hidden="true" />, label: 'Current release', desc: 'this release — verify the change here' },
+  BAU: { icon: <Triangle size={13} aria-hidden="true" />, label: 'BAU (in production)', desc: 'live now — regression-test' },
+  Future: { icon: <Diamond size={13} aria-hidden="true" />, label: 'Future release', desc: "pre-test now; won't resurface under its own version" },
+  Unknown: { icon: <CircleHelp size={13} aria-hidden="true" />, label: 'Unknown (untraced)', desc: 'not wired to a controller — trace & verify manually' },
 };
 /** The display group: a route with no resolved API is bucketed as Unknown (needs manual back-trace). */
 function impactGroup(r: ImpactedRoute): ImpactGroup {
@@ -299,7 +301,7 @@ function CodeChangeBlock({ d, onOpenApi, routeLog }: { d: ApiDiff; onOpenApi?: (
     .filter((g) => g.rows.length > 0);
   return (
     <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
-      <span className="diff-code-label">⚙ Code changed</span>
+      <span className="diff-code-label"><Code2 size={13} aria-hidden="true" /> Code changed</span>
       {classes.map((c) => {
         // Label: "bean (File.java) · <versions> — <authors>"  (· versions and — authors both optional).
         const dash = c.lastIndexOf(' — ');
@@ -318,7 +320,7 @@ function CodeChangeBlock({ d, onOpenApi, routeLog }: { d: ApiDiff; onOpenApi?: (
       })}
       {byCat.length > 0 && (
         <div className="diff-code-cross">
-          <div className="diff-code-cross-head">⚠ Shared code — also re-test:</div>
+          <div className="diff-code-cross-head"><AlertTriangle size={13} aria-hidden="true" /> Shared code — also re-test:</div>
           <div className="impact-cats">
             {byCat.map((g) => (
               <div key={g.cat} className={'impact-cat ' + g.cat.toLowerCase()}>
@@ -386,7 +388,7 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
       </div>
       {log && f.untested > 0 && (
         <div className="closeloop" role="note">
-          <span className="closeloop-icon" aria-hidden="true">◎</span>
+          <span className="closeloop-icon" aria-hidden="true"><Target size={15} /></span>
           <span><b>Close the loop:</b> {f.untested} impacted flow{f.untested === 1 ? '' : 's'} across {f.apisWithGaps} API{f.apisWithGaps === 1 ? '' : 's'} {f.untested === 1 ? 'is' : 'are'} not yet tested — expand each to see which route to run.</span>
         </div>
       )}
@@ -402,7 +404,7 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
   return (
     <div className="codebanner">
       <div className="codebanner-head">
-        <span className="codebanner-icon">⚙</span>
+        <span className="codebanner-icon"><Code2 size={15} aria-hidden="true" /></span>
         <b>App version {report.appVersion}</b>
         {report.codeChangeUnavailable ? (
           <span className="muted"> · source is not a git work tree — code-change detection skipped</span>
@@ -429,7 +431,7 @@ function TemplateIssuesPanel({ report }: { report: VersionDiffReport }) {
   const hasStructure = issues.some((i) => i.kind === 'STRUCTURE');
   return (
     <div className="tpl-issues">
-      <div className="tpl-issues-head">⚠ Template issues <span className="muted">— impacted .ftl request-body templates ({issues.length})</span></div>
+      <div className="tpl-issues-head"><AlertTriangle size={13} aria-hidden="true" /> Template issues <span className="muted">— impacted .ftl request-body templates ({issues.length})</span></div>
       <ul className="tpl-issues-list">
         {issues.map((i, k) => (
           <li key={k} className={'tpl-issue ' + i.kind.toLowerCase()}>
@@ -529,7 +531,7 @@ function BauEditRow({ e }: { e: BauRouteEdit }) {
         <>
           <div className="rdiff-toggle-row">
             <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-              <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+              <span className="collapse-caret">{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
               <span className="rdiff-toggle-title">Git diff</span>
               <span className="muted">{diffCount} line{diffCount === 1 ? '' : 's'}</span>
             </button>
@@ -571,7 +573,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
       <div className="diff-card-head row between">
         <div className="diff-card-id">
           <button type="button" className="card-caret" aria-expanded={expanded}
-                  title={expanded ? 'Collapse' : 'Expand details'} onClick={() => setExpanded(!expanded)}>{expanded ? '▾' : '▸'}</button>
+                  title={expanded ? 'Collapse' : 'Expand details'} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</button>
           <code>{d.api}</code>
           <span className="muted op">{d.operation}</span>
         </div>
@@ -583,7 +585,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
             <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
           )}
           {bauRouteModified(d) && (
-            <span className={'chg-tag ' + bauKind(d).cls} title={'A BAU (in-production) route was modified in place — ' + bcReason(d)}>⚑ {bauKind(d).label}</span>
+            <span className={'chg-tag ' + bauKind(d).cls} title={'A BAU (in-production) route was modified in place — ' + bcReason(d)}><Flag size={12} aria-hidden="true" /> {bauKind(d).label}</span>
           )}
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
           {needsBC(d) && <span className="bc-badge" title={'Backward compatibility required — ' + bcReason(d)}>BC</span>}
@@ -596,7 +598,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           a clear affordance so that, once expanded, there is an obvious way back. */}
       <button type="button" className="card-summary" onClick={() => setExpanded(!expanded)}>
         <span className="card-summary-text">{verdictLine(d)}</span>
-        <span className="card-summary-hint">{expanded ? 'collapse ▴' : 'details ▸'}</span>
+        <span className="card-summary-hint">{expanded ? <>collapse <ChevronUp size={12} aria-hidden="true" /></> : <>details <ChevronRight size={12} aria-hidden="true" /></>}</span>
       </button>
 
       {expanded && (
@@ -612,7 +614,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         ) : (
           <>
             <span className="tag route">{d.targetRoute}</span>
-            <span className="diff-arrow">⟵</span>
+            <span className="diff-arrow"><ArrowLeft size={14} aria-hidden="true" /></span>
             <span className="tag route lower">{d.lowerRoute}</span>
             {d.status === 'UNCHANGED' && <span className="muted"> · version bumped, identical flow</span>}
           </>
@@ -641,7 +643,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         return (
           <>
             <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
-              <span className="collapse-caret">{open ? '▾' : '▸'}</span>
+              <span className="collapse-caret">{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
               <span className="rdiff-toggle-title">Release changes</span>
               <span className="muted">{summary} — new-version-scoped</span>
             </button>
@@ -690,7 +692,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
 
       {editingRemark ? (
         <div className="remark-edit">
-          <span className="remark-lbl">📝 Remark</span>
+          <span className="remark-lbl"><StickyNote size={13} aria-hidden="true" /> Remark</span>
           <input className="remark-input" value={remarkDraft} autoFocus
                  placeholder="e.g. Not tested — data issue · log-line changed, no retest needed · waived"
                  onChange={(e) => setRemarkDraft(e.target.value)}
@@ -703,16 +705,16 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         </div>
       ) : remark ? (
         <div className="remark-note" onClick={() => { setRemarkDraft(remark); setEditingRemark(true); }} title="Click to edit this remark">
-          <span className="remark-lbl">📝 Remark</span> {remark} <span className="remark-edit-hint">✎</span>
+          <span className="remark-lbl"><StickyNote size={13} aria-hidden="true" /> Remark</span> {remark} <span className="remark-edit-hint"><Pencil size={12} aria-hidden="true" /></span>
         </div>
       ) : null}
 
       <div className="diff-actions">
         {onRemark && !editingRemark && !remark && (
-          <button className="linkbtn" onClick={() => { setRemarkDraft(''); setEditingRemark(true); }}>＋ Remark</button>
+          <button className="linkbtn" onClick={() => { setRemarkDraft(''); setEditingRemark(true); }}><Plus size={13} aria-hidden="true" /> Remark</button>
         )}
-        <button className="linkbtn" onClick={onViewFlow}>View flow ▸</button>
-        <button className="linkbtn" onClick={onCopy}>{copied ? 'Copied ✓' : 'Copy'}</button>
+        <button className="linkbtn" onClick={onViewFlow}>View flow <ChevronRight size={13} aria-hidden="true" /></button>
+        <button className="linkbtn" onClick={onCopy}>{copied ? <>Copied <Check size={13} aria-hidden="true" /></> : 'Copy'}</button>
       </div>
       </>
       )}
@@ -1132,7 +1134,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               const review = new Set(report.needsReview ?? []);
               const other = report.warnings.filter((w) => !review.has(w));
               return other.length > 0 ? (
-                <div className="warnbox">{other.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
+                <div className="warnbox">{other.map((w, i) => <div key={i}><AlertTriangle size={13} aria-hidden="true" /> {w}</div>)}</div>
               ) : null;
             })()}
             <InfoBanner>Showing each API at its latest version{report.country ? ` for ${report.country}` : ''} (or its default when it has no versions). This is a current snapshot for review — there is no earlier release to compare it against.</InfoBanner>
@@ -1167,7 +1169,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                     </div>
                     <CodeChangeBlock d={a} />
                     <div className="diff-actions">
-                      <button className="linkbtn" onClick={() => setFlowApi({ api: a.api, version: report.version || undefined })}>View flow ▸</button>
+                      <button className="linkbtn" onClick={() => setFlowApi({ api: a.api, version: report.version || undefined })}>View flow <ChevronRight size={13} aria-hidden="true" /></button>
                     </div>
                   </div>
                 ))}
@@ -1198,7 +1200,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               const review = new Set(report.needsReview ?? []);
               const other = report.warnings.filter((w) => !review.has(w));
               return other.length > 0 ? (
-                <div className="warnbox">{other.map((w, i) => <div key={i}>⚠ {w}</div>)}</div>
+                <div className="warnbox">{other.map((w, i) => <div key={i}><AlertTriangle size={13} aria-hidden="true" /> {w}</div>)}</div>
               ) : null;
             })()}
 
@@ -1231,7 +1233,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               </span>
             </div>
             <div className="filter-chips">
-              <button className={'fchip' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="Show only APIs that modified a BAU (in-production) route">⚑ BAU route</button>
+              <button className={'fchip' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="Show only APIs that modified a BAU (in-production) route"><Flag size={12} aria-hidden="true" /> BAU route</button>
               <button className={'fchip' + (filters.has('high') ? ' on' : '')} onClick={() => toggleFilter('high')}>High risk</button>
               {report.appVersion && <button className={'fchip' + (filters.has('code') ? ' on' : '')} onClick={() => toggleFilter('code')}>Code-changed</button>}
               <button className={'fchip' + (filters.has('bc') ? ' on' : '')} onClick={() => toggleFilter('bc')}>Backward-compat</button>
@@ -1303,7 +1305,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                         const owners = [...new Set(bau.flatMap((a) => (a.bauRouteEdits || []).flatMap((e) => e.changedBy || [])))];
                         return (
                           <Fragment key="__bau">
-                            <div className="diff-ver-head bau"><span>⚑ BAU route modified</span><span className="diff-ver-cnt">{bau.length}</span></div>
+                            <div className="diff-ver-head bau"><span><Flag size={13} aria-hidden="true" /> BAU route modified</span><span className="diff-ver-cnt">{bau.length}</span></div>
                             {owners.length > 0 && <div className="bau-owners" title="Commit author(s) of the BAU route changes — who to ask">Who to ask: {owners.join(', ')}</div>}
                             {bau.map(card)}
                           </Fragment>

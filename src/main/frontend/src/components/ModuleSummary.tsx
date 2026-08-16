@@ -1,3 +1,4 @@
+import { FileStack } from 'lucide-react';
 import type { ModuleResult } from '../modules';
 
 export interface ModuleStat { label: string; value: number | string; tone?: 'good' | 'warn' | 'bad' | 'muted' | 'info'; }
@@ -44,7 +45,7 @@ export default function ModuleSummary<T>({ results, activeId, onSelect, statsOf,
         {onExport && (
           <button className="minibtn" onClick={onExport} disabled={exportDisabled}
                   title={exportTitle || 'Download one PDF report covering every module'}>
-            {exportLabel || '⤓ Export PDF'}
+            {exportLabel || <><FileStack aria-hidden="true" /> Export PDF</>}
           </button>
         )}
       </div>

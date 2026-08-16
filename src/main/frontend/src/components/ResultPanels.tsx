@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, ArrowLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import type { AnalyzeResponse, TraceResponse } from '../types';
 import { baseCount, inScopeCount, isNaVersion } from '../catalog';
 
@@ -52,7 +52,7 @@ export default function ResultPanels({ data, onBackToCatalog, onOpenApi }: Props
       <>
         <div className="row between" style={{ marginTop: 12 }}>
           <span className="sub">Single trace</span>
-          <button className="linkbtn" onClick={onBackToCatalog}>← Catalog</button>
+          <button className="linkbtn" onClick={onBackToCatalog}><ArrowLeft size={13} aria-hidden="true" /> Catalog</button>
         </div>
         <Single d={data} />
         <Warnings items={data.warnings} />
@@ -129,7 +129,7 @@ function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'ca
         return (
           <div className={'panel catalog-group ' + cls} key={g.version}>
             <button type="button" className="catalog-group-head" aria-expanded={isOpen} onClick={() => toggle(g.version)}>
-              <span className="collapse-caret">{isOpen ? '▾' : '▸'}</span>
+              <span className="collapse-caret">{isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
               <span className="catalog-group-title">{label}</span>
               <span className={'pill ' + cls}>{g.traces.length} API{g.traces.length === 1 ? '' : 's'}</span>
             </button>

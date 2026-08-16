@@ -1,3 +1,4 @@
+import { Plus, X } from 'lucide-react';
 import type { DepSource } from '../types';
 import { blankDep } from '../deps';
 
@@ -36,10 +37,10 @@ export default function DependencyEditor({ deps, onChange }: { deps: DepSource[]
             <input className="dep-input" value={d.sourceDir} placeholder="path to the shared-routes source"
                    onChange={(e) => update(i, { sourceDir: e.target.value })} />
           )}
-          <button type="button" className="dep-remove" title="Remove this dependency" onClick={() => remove(i)}>×</button>
+          <button type="button" className="dep-remove" title="Remove this dependency" onClick={() => remove(i)}><X size={13} aria-hidden="true" /></button>
         </div>
       ))}
-      <button type="button" className="dep-add" onClick={add}>＋ Add dependency</button>
+      <button type="button" className="dep-add" onClick={add}><Plus size={13} aria-hidden="true" /> Add dependency</button>
     </div>
   );
 }

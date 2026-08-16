@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Webhook, Hexagon, Star, Laptop, Cloud } from 'lucide-react';
 import type { DerivedNode } from '../graphModel';
 
 export type FlowNodeData = DerivedNode & {
@@ -29,7 +30,7 @@ export function ApiNode(props: NodeProps) {
   const d = props.data as unknown as FlowNodeData;
   return (
     <div className={cls(d, 'api')} style={{ minWidth: d.w }}>
-      <div className="rf-kind">◍ API</div>
+      <div className="rf-kind"><Webhook size={12} aria-hidden="true" /> API</div>
       <div className="rf-title">{d.label}</div>
       <Handles dir={d.dir} />
     </div>
@@ -43,9 +44,9 @@ export function RouteNode(props: NodeProps) {
       <div className="rf-title">{d.label}</div>
       <div className="rf-chips">
         {d.version && <span className="rf-chip ver">R{d.version}</span>}
-        {d.host && <span className="rf-chip host">⬡ host</span>}
-        {d.isEntry && <span className="rf-chip entry">★ entry</span>}
-        {d.clientMatch && <span className="rf-chip client">● client</span>}
+        {d.host && <span className="rf-chip host"><Hexagon size={11} aria-hidden="true" /> host</span>}
+        {d.isEntry && <span className="rf-chip entry"><Star size={11} aria-hidden="true" /> entry</span>}
+        {d.clientMatch && <span className="rf-chip client"><Laptop size={11} aria-hidden="true" /> client</span>}
       </div>
       <Handles dir={d.dir} />
     </div>
@@ -56,7 +57,7 @@ export function BackendNode(props: NodeProps) {
   const d = props.data as unknown as FlowNodeData;
   return (
     <div className={cls(d, 'backend')} style={{ minWidth: d.w }}>
-      <div className="rf-kind">☁ backend</div>
+      <div className="rf-kind"><Cloud size={12} aria-hidden="true" /> backend</div>
       <div className="rf-title">{d.label}</div>
       {d.serviceVersion && (
         <div className="rf-chips"><span className="rf-chip svc" title="backend service version">svc v{d.serviceVersion}</span></div>

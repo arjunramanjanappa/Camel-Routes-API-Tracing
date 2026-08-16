@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { fetchCapabilityConfig, saveCapabilityConfig, type CapabilityConfigStatus } from '../api';
 
 /**
@@ -36,7 +37,7 @@ export default function CapabilityConfig() {
     <div className="cfg-field">
       <label>{label} <span className="muted">{hint}</span></label>
       <div className="cfg-status">
-        {set ? <span className="cfg-ok" style={{ padding: 0 }}>Attached ✓</span> : <span className="muted">Not attached</span>}
+        {set ? <span className="cfg-ok" style={{ padding: 0 }}>Attached <Check size={13} aria-hidden="true" /></span> : <span className="muted">Not attached</span>}
         {' '}
         <button className="linkbtn" disabled={busy !== null} onClick={() => ref.current?.click()}>{set ? 'Replace…' : 'Attach…'}</button>
         {busy === which && <span className="muted"> uploading…</span>}

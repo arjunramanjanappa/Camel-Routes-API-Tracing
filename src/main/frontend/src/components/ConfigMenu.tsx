@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Settings, Check } from 'lucide-react';
 import { fetchSettings, saveSettings, type AppSettings } from '../api';
 import CapabilityConfig from './CapabilityConfig';
 
@@ -63,12 +63,12 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
     <div className="flow-modal-backdrop" onClick={onClose}>
       <div className="flow-modal config-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Config">
         <div className="flow-modal-head">
-          <span className="flow-modal-title">⚙ Config <span className="muted">— saved on this machine</span></span>
+          <span className="flow-modal-title"><Settings size={16} aria-hidden="true" /> Config <span className="muted">— saved on this machine</span></span>
           <button className="minibtn" onClick={onClose}><X aria-hidden="true" /> Close</button>
         </div>
         <div className="flow-modal-body config-body">
           {error && <div className="cfg-error">{error}</div>}
-          {saved && !error && <div className="cfg-ok">Saved ✓</div>}
+          {saved && !error && <div className="cfg-ok">Saved <Check size={13} aria-hidden="true" /></div>}
           {!state ? (
             <div className="sub">Loading…</div>
           ) : (

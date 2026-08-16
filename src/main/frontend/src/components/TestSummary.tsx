@@ -1,4 +1,5 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
+import { CircleCheck, CircleX, Minus } from 'lucide-react';
 import type { ApiLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { groupItemsByFeature } from '../feature';
 
@@ -11,14 +12,16 @@ import { groupItemsByFeature } from '../feature';
 
 const SEVERITY: Record<LogStatus, number> = { FAILED: 0, TIMEOUT: 1, PARTIAL: 2, INDETERMINATE: 3, NOT_TESTED: 4, SUCCESS: 5, SKIPPED: 6 };
 
-function resultOf(a: ApiLogResult): { cls: string; label: string } {
+function resultOf(a: ApiLogResult): { cls: string; label: ReactNode } {
+  const pass = <CircleCheck size={13} aria-hidden="true" />;
+  const fail = <CircleX size={13} aria-hidden="true" />;
   switch (a.status) {
-    case 'SUCCESS': return { cls: 'pass', label: '✓ Passed' };
-    case 'PARTIAL': return { cls: 'fail', label: '✗ Partial' };
-    case 'FAILED': return { cls: 'fail', label: '✗ Failed' };
-    case 'TIMEOUT': return { cls: 'fail', label: '✗ Timeout' };
+    case 'SUCCESS': return { cls: 'pass', label: <>{pass} Passed</> };
+    case 'PARTIAL': return { cls: 'fail', label: <>{fail} Partial</> };
+    case 'FAILED': return { cls: 'fail', label: <>{fail} Failed</> };
+    case 'TIMEOUT': return { cls: 'fail', label: <>{fail} Timeout</> };
     case 'INDETERMINATE': return { cls: 'none', label: 'Check' };
-    default: return { cls: 'none', label: '— Not tested' };
+    default: return { cls: 'none', label: <><Minus size={13} aria-hidden="true" /> Not tested</> };
   }
 }
 

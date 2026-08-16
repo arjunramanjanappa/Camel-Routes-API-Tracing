@@ -1,4 +1,5 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
+import { CircleCheck, CircleX, Minus } from 'lucide-react';
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from '../types';
 import { groupItemsByFeature } from '../feature';
 
@@ -56,11 +57,12 @@ function whatChanged(a: ApiDiff): { label: string; kind: string } {
 }
 
 /** Pass / Fail / Not-tested from an uploaded log's per-API result. Null when no log covers the API. */
-function testedOf(l: ApiLogResult | undefined): { cls: string; label: string } {
-  if (!l || !l.tested) return { cls: 'none', label: '— Not tested' };
-  if (l.status === 'SUCCESS') return { cls: 'pass', label: '✓ Passed' };
-  if (l.status === 'PARTIAL') return { cls: 'fail', label: '✗ Partial' };
-  if (l.status === 'FAILED' || l.status === 'TIMEOUT') return { cls: 'fail', label: '✗ Failed' };
+function testedOf(l: ApiLogResult | undefined): { cls: string; label: ReactNode } {
+  const fail = <CircleX size={13} aria-hidden="true" />;
+  if (!l || !l.tested) return { cls: 'none', label: <><Minus size={13} aria-hidden="true" /> Not tested</> };
+  if (l.status === 'SUCCESS') return { cls: 'pass', label: <><CircleCheck size={13} aria-hidden="true" /> Passed</> };
+  if (l.status === 'PARTIAL') return { cls: 'fail', label: <>{fail} Partial</> };
+  if (l.status === 'FAILED' || l.status === 'TIMEOUT') return { cls: 'fail', label: <>{fail} Failed</> };
   return { cls: 'none', label: 'Ran' };
 }
 

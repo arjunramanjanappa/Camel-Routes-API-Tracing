@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import type { DerivedNode } from '../graphModel';
 import { COLORS, ROLE_LABEL } from '../graphModel';
 
@@ -11,7 +12,7 @@ function sourceLabel(s: string): string {
 export default function DetailPanel({ node, onClose }: { node: DerivedNode; onClose: () => void }) {
   return (
     <div className="panel">
-      <button className="detail-close" title="close" onClick={onClose}>✕</button>
+      <button className="detail-close" title="close" onClick={onClose}><X size={14} aria-hidden="true" /></button>
       <h2>Selected node</h2>
       <span className="role" style={{ background: COLORS[node.role] }}>{ROLE_LABEL[node.role]}</span>
       <div className="kv" style={{ marginTop: 8 }}>

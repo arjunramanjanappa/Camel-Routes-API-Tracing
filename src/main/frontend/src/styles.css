@@ -36,6 +36,9 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .minibtn:hover { background: #eef2f7; border-color: #94a3b8; }
 .minibtn:disabled { opacity: .55; cursor: default; }
 .minibtn svg { width: 15px; height: 15px; flex: none; }
+/* Lucide icons placed inline in text/labels (outside .minibtn) — nudge onto the text baseline. */
+svg.lucide { vertical-align: -0.15em; flex: none; }
+.linkbtn svg { vertical-align: -0.14em; }
 /* Accent-outline variant — the contextual "action" button (e.g. Re-run) next to a neutral cluster. */
 .minibtn.accent { color: var(--accent); border-color: var(--accent-border); }
 .minibtn.accent:hover { background: var(--accent-soft); border-color: var(--accent); }

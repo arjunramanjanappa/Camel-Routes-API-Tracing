@@ -4,12 +4,14 @@
  * so the reader can see, at a glance, that some XMLs are still pending review. When it shows, the
  * Dependency-sources editor is revealed next to the Source input so the missing pieces can be added.
  */
+import { Flag } from 'lucide-react';
+
 export default function NeedsReviewBox({ items }: { items: string[] }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="reviewbox">
       <div className="reviewbox-head">
-        <span className="reviewbox-title">⚑ Needs review — {items.length} unresolved reference{items.length > 1 ? 's' : ''}</span>
+        <span className="reviewbox-title"><Flag size={14} aria-hidden="true" /> Needs review — {items.length} unresolved reference{items.length > 1 ? 's' : ''}</span>
       </div>
       <div className="reviewbox-sub">
         These XMLs/routes are imported/called but weren&rsquo;t found in the source provided — so the analysis

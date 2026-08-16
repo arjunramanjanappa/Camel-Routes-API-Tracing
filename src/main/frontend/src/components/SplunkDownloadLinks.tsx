@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Download, Check } from 'lucide-react';
 import { fetchSettings } from '../api';
 import CopyBtn from './CopyBtn';
 
@@ -85,7 +86,7 @@ export default function SplunkDownloadLinks() {
           <span className="spl-dl-actions">
             <button className="minibtn primary" onClick={downloadAll}
                     title={single ? 'Download the CSV' : `Trigger all ${links.length} downloads, one every 2s so Splunk doesn't rate-limit (~${Math.ceil((links.length * STAGGER_MS) / 1000)}s). Each row ticks as it fires; your browser asks once to allow multiple downloads.`}>
-              ⬇ {single ? 'Download CSV' : `Download all (${links.length})`}
+              <Download size={14} aria-hidden="true" /> {single ? 'Download CSV' : `Download all (${links.length})`}
             </button>
             <CopyBtn text={allUrls} label={single ? 'Copy URL' : `Copy URLs (${links.length})`} />
           </span>
@@ -131,7 +132,7 @@ export default function SplunkDownloadLinks() {
               <ol className="spl-links">
                 {links.map((l) => (
                   <li key={l.i} className={clicked[l.i] ? 'done' : ''}>
-                    <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? '✓' : ''}</span>
+                    <span className="spl-link-check" aria-hidden="true">{clicked[l.i] ? <Check size={13} /> : ''}</span>
                     <span className="spl-link-no">{l.i + 1}.</span>
                     <a href={l.url} target="_blank" rel="noopener noreferrer" title={'Download / re-download — ' + l.url}
                        onClick={() => markClicked(l.i)}>

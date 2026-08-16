@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCw, Table2, FileText, FileStack } from 'lucide-react';
+import { RotateCw, Table2, FileText, FileStack, CircleX, AlertTriangle, CircleCheck, Minus, Check, X } from 'lucide-react';
 import { analyzeLog, analyzeLogMulti, resolveCapabilities, exportCapabilitiesXlsx, type UploadProgress, type CapabilityScope, type CapabilityResult } from '../api';
 import type { ApiLogResult, BackendLogResult, LogAnalysisReport, LogStatus } from '../types';
 import { backendPath } from '../spl';
@@ -57,7 +57,7 @@ function SvcChip({ expected, logged, ok, pass, seen }: { expected?: string | nul
     <span className={'svcchip' + (pass ? ' ok' : '')}
           title={pass ? 'service version ' + logged + ' used — call passed (no separate expected version to check against)'
                       : (expected ? 'expected ' + expected : 'no expected version to check against')}>
-      svc {logged}{pass ? ' ✓' : ''}
+      svc {logged}{pass ? <> <Check size={12} aria-hidden="true" /></> : ''}
     </span>
   );
   // Expected version known, but the call logged no service version. If the backend WAS exercised, nothing in
@@ -65,7 +65,7 @@ function SvcChip({ expected, logged, ok, pass, seen }: { expected?: string | nul
   // consistent with the calls being counted toward the flow. If it was never observed, show it greyed instead.
   if (seen && expected) return (
     <span className="svcchip ok" title={'expected ' + expected + ' — backend exercised; it logs no service version, so ' + expected + ' is assumed'}>
-      svc {expected} ✓
+      svc {expected} <Check size={12} aria-hidden="true" />
     </span>
   );
   return <span className="svcchip" title="not seen in the log">exp svc {expected}</span>;
@@ -117,7 +117,7 @@ function BackendRow({ b }: { b: BackendLogResult }) {
       </td>
       <td>{b.latencyMs != null ? b.latencyMs + ' ms' : '—'}</td>
       <td title={fbTitle(b.failuresByCode)}>{b.attempts > 0 ? (
-        <>{b.attempts} (<span className="att-ok">{b.successCount}✓</span>/<span className="att-bad">{b.failureCount}✗</span>)</>
+        <>{b.attempts} (<span className="att-ok">{b.successCount}<Check size={11} aria-hidden="true" /></span>/<span className="att-bad">{b.failureCount}<X size={11} aria-hidden="true" /></span>)</>
       ) : '—'}</td>
       <td />
     </tr>
@@ -149,7 +149,7 @@ function Row({ a, isOpen, onToggle }: { a: ApiLogResult; isOpen: boolean; onTogg
         </td>
         <td>{a.feLatencyMs != null ? a.feLatencyMs + ' ms' : '—'}</td>
         <td title={fbTitle(a.failuresByCode)}>{a.attempts > 0 ? (
-          <>{a.attempts} (<span className="att-ok">{a.successCount}✓</span>/<span className="att-bad">{a.failureCount}✗</span>)</>
+          <>{a.attempts} (<span className="att-ok">{a.successCount}<Check size={11} aria-hidden="true" /></span>/<span className="att-bad">{a.failureCount}<X size={11} aria-hidden="true" /></span>)</>
         ) : '—'}</td>
         <td>{(a.backends.length > 0 || hasFailures(a.failuresByCode)) &&
           <button className="linkbtn" onClick={onToggle}>{isOpen ? 'hide' : 'details'}</button>}</td>
@@ -844,10 +844,10 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
             const rate = testedFe > 0 ? Math.round((100 * t.passed) / testedFe) : 0;
             const rd = readiness(t);
             const label = rd === 'risk' ? 'At risk' : rd === 'review' ? 'Needs review' : rd === 'ready' ? 'Ready' : 'No data';
-            const icon = rd === 'risk' ? '✗' : rd === 'review' ? '⚠' : rd === 'ready' ? '✓' : '—';
+            const VIcon = rd === 'risk' ? CircleX : rd === 'review' ? AlertTriangle : rd === 'ready' ? CircleCheck : Minus;
             return (
               <div className={'test-verdict ' + rd} role="status">
-                <span className="tv-badge">{icon} {label}</span>
+                <span className="tv-badge"><VIcon size={14} aria-hidden="true" /> {label}</span>
                 <span className="tv-detail">
                   {t.passed} passed · {t.issues} issue{t.issues === 1 ? '' : 's'} · {t.notTested} not tested
                   {testedFe > 0 && <> · <b>{rate}%</b> pass rate <span className="muted">({t.passed}/{testedFe} tested)</span></>}

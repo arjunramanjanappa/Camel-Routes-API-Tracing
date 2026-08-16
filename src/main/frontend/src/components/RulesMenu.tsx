@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { X } from 'lucide-react';
 import LogRulesEditor from './LogRulesEditor';
 
 /**
@@ -17,7 +18,7 @@ export default function RulesMenu({ onClose }: { onClose: () => void }) {
       <div className="flow-modal config-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Host response-code rules">
         <div className="flow-modal-head">
           <span className="flow-modal-title">🚦 Host response-code rules <span className="muted">— log analysis (skip / custom response code)</span></span>
-          <button className="minibtn" onClick={onClose}>✕ Close</button>
+          <button className="minibtn" onClick={onClose}><X aria-hidden="true" /> Close</button>
         </div>
         <div className="flow-modal-body config-body">
           <LogRulesEditor />

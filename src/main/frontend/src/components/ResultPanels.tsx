@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ExternalLink } from 'lucide-react';
 import type { AnalyzeResponse, TraceResponse } from '../types';
 import { baseCount, inScopeCount, isNaVersion } from '../catalog';
 
@@ -150,7 +151,7 @@ function Catalog({ cat, onOpenApi }: { cat: Extract<AnalyzeResponse, { mode: 'ca
                       {t.backendApis && t.backendApis.length > 0 && ` · ${t.backendApis.length} backend${t.backendApis.length > 1 ? 's' : ''}`}
                     </div>
                   </div>
-                  <button className="minibtn" onClick={open2} title="Open this API as its own trace">Open ▶</button>
+                  <button className="minibtn" onClick={open2} title="Open this API as its own trace"><ExternalLink aria-hidden="true" /> Open</button>
                 </div>
               );
             })}

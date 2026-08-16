@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { X } from 'lucide-react';
 import { analyze } from '../api';
 import type { AnalyzeResponse } from '../types';
 import { derive, opNamesOf } from '../graphModel';
@@ -61,7 +62,7 @@ export default function ApiFlowModal({ api, version, sourceDir, repo, branch, co
           <span className="row" style={{ gap: 6 }}>
             <input className="search-mini" style={{ width: 170 }} placeholder="Search nodes…"
                    value={search} onChange={(e) => setSearch(e.target.value)} />
-            <button className="minibtn" onClick={onClose}>✕ Close</button>
+            <button className="minibtn" onClick={onClose}><X aria-hidden="true" /> Close</button>
           </span>
         </div>
         <div className="flow-modal-body">

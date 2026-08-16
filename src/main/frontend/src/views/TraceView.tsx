@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Table2, FileText, FileStack } from 'lucide-react';
+import { Table2, FileText, FileStack, Maximize2, ImageDown } from 'lucide-react';
 import { analyze, fetchMeta, resolveCapabilities, exportCapabilitiesXlsx, type CapabilityScope, type CapabilityResult } from '../api';
 import type { AnalyzeResponse, CatalogResponse, DepSource, Meta } from '../types';
 import { backendPath } from '../spl';
@@ -288,8 +288,8 @@ export default function TraceView({ app = 'Mighty', colorMode, viewMode = 'detai
         {derived && <RouteGraph ref={graphRef} derived={derived} selectedId={selectedId} search={search} colorMode={colorMode} onSelect={setSelectedId} />}
         <div className="toolbar">
           <input placeholder="Search nodes…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph">Fit</button>
-          <button className="minibtn" onClick={() => graphRef.current?.exportPng()}>PNG</button>
+          <button className="minibtn" onClick={() => graphRef.current?.fit()} title="Zoom out to the whole graph"><Maximize2 aria-hidden="true" /> Fit</button>
+          <button className="minibtn" onClick={() => graphRef.current?.exportPng()} title="Download the graph as a PNG image"><ImageDown aria-hidden="true" /> PNG</button>
           {/* PDF export lives in the shared toolbar above (Summary / Detailed) — one place per tab. */}
         </div>
         <div className="toolhint">drag to pan · scroll to zoom · click an API for its own flow</div>

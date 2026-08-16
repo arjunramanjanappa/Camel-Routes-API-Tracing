@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileDown } from 'lucide-react';
 import { backendPath, buildEventsSpl, buildMergedAllLinesSpl, downloadText, TIME_PRESETS, DEFAULT_HEADER_KEYS } from '../spl';
 import CopyBtn from './CopyBtn';
 import SplunkDownloadLinks from './SplunkDownloadLinks';
@@ -187,7 +188,7 @@ export default function SplunkPanel({ title = 'Splunk query', frontendApis, back
           <b>Splunk search → export → upload</b>
           <span className="row" style={{ gap: 6 }}>
             <CopyBtn text={query} />
-            <button className="minibtn" disabled={!query} onClick={() => downloadText('analysis.spl', query)}>.spl</button>
+            <button className="minibtn" disabled={!query} onClick={() => downloadText('analysis.spl', query)} title="Download this query as a .spl file"><FileDown aria-hidden="true" /> .spl</button>
           </span>
         </div>
         <pre>{query || '— select one or more APIs to build the query —'}</pre>

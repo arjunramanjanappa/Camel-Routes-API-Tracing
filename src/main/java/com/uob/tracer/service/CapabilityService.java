@@ -331,6 +331,11 @@ public class CapabilityService {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Map<String, CellStyle> statusStyles = new LinkedHashMap<>();   // one fill style per status label, per workbook
             Set<String> used = new LinkedHashSet<>();
+            // First tab "ALL": every module's rows consolidated, with a leading Module column so each row stays
+            // attributable when the per-module tab context is gone.
+            if (!modules.isEmpty()) {
+                appendAllSheet(wb, statusStyles, uniqueSheetName("ALL", used), modules);
+            }
             for (ModuleCapabilities mod : modules) {
                 List<LeadColumn> lead = new ArrayList<>();
                 if (mod.statusByApi() != null && !mod.statusByApi().isEmpty()) {
@@ -370,6 +375,49 @@ public class CapabilityService {
             return out.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("Could not build the capability export: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The consolidated "ALL" tab: every module's matched capabilities in one sheet, prefixed with a Module
+     * column (and the same coloured Test Status) so the whole release reads top-to-bottom without switching
+     * tabs. Unmatched APIs across all modules follow in one combined "Unmapped Interface spec" section.
+     */
+    private void appendAllSheet(XSSFWorkbook wb, Map<String, CellStyle> statusStyles, String sheetName,
+                                List<ModuleCapabilities> modules) {
+        Sheet sheet = wb.createSheet(sheetName);
+        String[] allLead = {"Module", "Test Status"};
+        writeRow(sheet, 0, concat(allLead, OUT_HEADERS));
+        int r = 1;
+        for (ModuleCapabilities mod : modules) {
+            Map<String, String> statusByApi = mod.statusByApi() == null ? Map.of() : mod.statusByApi();
+            for (CapabilityMatch m : mod.result().matched()) {
+                for (CapabilityRow c : m.capabilities()) {
+                    String[] base = {
+                            c.id(), c.l1(), c.l2(), c.l3(), c.l4(), c.l5(), c.l6Features(), c.dependentCapability(),
+                            c.linkedInterface(), c.linkedReport(), c.linkedTestCase(), c.entity(),
+                            c.splDetailedInterfaceTable(), c.description(),
+                            m.fe() ? "FE" : "BE", m.matchedInterface()};
+                    String status = statusByApi.getOrDefault(m.api(), "");
+                    Row row = writeRow(sheet, r++, concat(new String[]{mod.name(), status}, base));
+                    colourStatus(wb, statusStyles, row.getCell(1), status);
+                }
+            }
+        }
+        // Unmapped APIs (no capability match) across every module, in one combined section.
+        if (modules.stream().anyMatch(mod -> !mod.result().unmatched().isEmpty())) {
+            r++;   // spacer row
+            writeRow(sheet, r++, new String[]{"Unmapped Interface spec (no capability match)"});
+            writeRow(sheet, r++, new String[]{"Module", "Test Status", "API", "FE/BE", "Reason"});
+            for (ModuleCapabilities mod : modules) {
+                Map<String, String> statusByApi = mod.statusByApi() == null ? Map.of() : mod.statusByApi();
+                for (Unmatched m : mod.result().unmatched()) {
+                    String status = statusByApi.getOrDefault(m.api(), "");
+                    Row row = writeRow(sheet, r++,
+                            new String[]{mod.name(), status, m.api(), m.fe() ? "FE" : "BE", m.reason()});
+                    colourStatus(wb, statusStyles, row.getCell(1), status);
+                }
+            }
         }
     }
 

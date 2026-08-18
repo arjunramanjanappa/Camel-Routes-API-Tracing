@@ -3,6 +3,7 @@ package com.uob.tracer;
 import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.CapabilityService.CapabilityResult;
 import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -180,28 +181,55 @@ class CapabilityServiceTest {
                 new CapabilityService.ModuleCapabilities("spl-onboarding", spl, Map.of())));
 
         try (Workbook wb = WorkbookFactory.create(new ByteArrayInputStream(out))) {
-            // One tab per module, named by the module.
-            assertThat(wb.getSheetName(0)).isEqualTo("mighty-banking");
-            assertThat(wb.getSheetName(1)).isEqualTo("spl-onboarding");
+            // A consolidated "ALL" tab first, then one tab per module named by the module.
+            assertThat(wb.getSheetName(0)).isEqualTo("ALL");
+            assertThat(wb.getSheetName(1)).isEqualTo("mighty-banking");
+            assertThat(wb.getSheetName(2)).isEqualTo("spl-onboarding");
             Sheet m = wb.getSheet("mighty-banking");
             assertThat(m.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Test Status");      // its verdicts lead
             assertThat(m.getRow(1).getCell(0).getStringCellValue()).isEqualTo("Passed");
             assertThat(m.getRow(1).getCell(1).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");
             // The other module's tab carries its unmapped API under the labelled section.
             Sheet s = wb.getSheet("spl-onboarding");
-            boolean hasUnmappedHeader = false, hasUnknownApi = false;
-            for (int r = 0; r <= s.getLastRowNum(); r++) {
-                Row row = s.getRow(r);
-                if (row == null) continue;
-                for (int c = 0; row.getCell(c) != null && c < row.getLastCellNum(); c++) {
-                    String v = row.getCell(c).getStringCellValue();
-                    if (v.startsWith("Unmapped Interface spec")) hasUnmappedHeader = true;
-                    if (v.contains("/does/not/exist")) hasUnknownApi = true;
+            assertThat(sheetHas(s, v -> v.startsWith("Unmapped Interface spec"))).isTrue();
+            assertThat(sheetHas(s, v -> v.contains("/does/not/exist"))).isTrue();
+
+            // ALL tab: a leading Module column, every module's rows, and the combined unmapped section.
+            Sheet all = wb.getSheet("ALL");
+            assertThat(all.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Module");
+            assertThat(all.getRow(0).getCell(1).getStringCellValue()).isEqualTo("Test Status");
+            assertThat(all.getRow(1).getCell(0).getStringCellValue()).isEqualTo("mighty-banking");  // module attributed
+            assertThat(all.getRow(1).getCell(1).getStringCellValue()).isEqualTo("Passed");          // its verdict
+            assertThat(all.getRow(1).getCell(2).getStringCellValue()).isIn("SPL-CPB-488", "SPL-CPB-489");
+            assertThat(sheetHas(all, v -> v.startsWith("Unmapped Interface spec"))).isTrue();
+            // The unmapped row keeps its owning module + the unknown API.
+            boolean unmappedAttributed = false;
+            for (int r = 0; r <= all.getLastRowNum(); r++) {
+                Row row = all.getRow(r);
+                if (row == null || row.getCell(0) == null || row.getCell(2) == null) continue;
+                if ("spl-onboarding".equals(row.getCell(0).getStringCellValue())
+                        && row.getCell(2).getStringCellValue().contains("/does/not/exist")) {
+                    unmappedAttributed = true;
                 }
             }
-            assertThat(hasUnmappedHeader).isTrue();
-            assertThat(hasUnknownApi).isTrue();
+            assertThat(unmappedAttributed).isTrue();
         }
+    }
+
+    /** True if any cell on the sheet satisfies the predicate. */
+    private static boolean sheetHas(Sheet s, java.util.function.Predicate<String> test) {
+        for (int r = 0; r <= s.getLastRowNum(); r++) {
+            Row row = s.getRow(r);
+            if (row == null) continue;
+            for (int c = 0; c < row.getLastCellNum(); c++) {
+                Cell cell = row.getCell(c);
+                if (cell != null && cell.getCellType() == org.apache.poi.ss.usermodel.CellType.STRING
+                        && test.test(cell.getStringCellValue())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Test

@@ -13,6 +13,10 @@ package com.uob.tracer.api;
  *                       when this flow is reached through one — so the results can show the full path
  *                       (branch → owning route → backend) and two branches converging on one shared route
  *                       stay two distinct flows. Null for a normal (non-dynamic-dispatch) flow.
+ * @param hosturl        the "hostUrl" property this flow's route set — the path the host actually logs for
+ *                       this backend at this version. Kept per-flow so one api reached via two routes with
+ *                       DIFFERENT hostUrls (and versions) matches each version's own logged path. Null when
+ *                       the route set no hostUrl (then the api value itself is the match path).
  */
-public record ChangeFlow(String routeId, String backend, String serviceVersion, String branchRoute) {
+public record ChangeFlow(String routeId, String backend, String serviceVersion, String branchRoute, String hosturl) {
 }

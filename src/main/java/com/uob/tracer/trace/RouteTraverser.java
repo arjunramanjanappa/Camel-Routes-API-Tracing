@@ -706,7 +706,8 @@ public class RouteTraverser {
         // Record the release-version FLOW keyed by its setting route, so two routes on the same backend
         // (+version) stay two flows that each must be tested. Deduped per (route, backend, version).
         String sv = serviceVersion == null || serviceVersion.isBlank() ? null : serviceVersion.trim();
-        ChangeFlow flow = new ChangeFlow(flowRoute, value, sv, branchRoute);
+        ChangeFlow flow = new ChangeFlow(flowRoute, value, sv, branchRoute,
+                hosturl != null && !hosturl.isBlank() ? hosturl.trim() : null);
         if (!bauReuse) {
             if (!response.getChangeFlows().contains(flow)) {
                 response.getChangeFlows().add(flow);

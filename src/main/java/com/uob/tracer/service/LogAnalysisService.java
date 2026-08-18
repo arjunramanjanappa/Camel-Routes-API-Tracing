@@ -565,6 +565,14 @@ public class LogAnalysisService {
             api.backendVersions().forEach((url, ver) ->
                     fullBackendVersions.merge(url, ver, LogAnalysisService::joinVersions));
             api.backendHosturls().forEach(hosturls::putIfAbsent);
+            // Per-(backend, version) hostUrl: one api reached via two routes with DIFFERENT hostUrls (and
+            // versions) keeps each version's own logged path (keyed via hostUrlVerKey), so each flow matches
+            // its own hostUrl in the log instead of both collapsing to the first-seen one.
+            java.util.stream.Stream.concat(api.changeFlows().stream(), api.bauFlows().stream()).forEach(f -> {
+                if (f.hosturl() != null && !f.hosturl().isBlank() && f.serviceVersion() != null && !f.serviceVersion().isBlank()) {
+                    hosturls.putIfAbsent(hostUrlVerKey(f.backend(), f.serviceVersion()), f.hosturl());
+                }
+            });
         }
 
         // Front-end section: the whole release when all=true, the selected APIs when chosen.
@@ -1751,7 +1759,7 @@ public class LogAnalysisService {
     /** Every call in a transaction matching (backend, version) — all of them (a trace may hit a backend twice). */
     private List<BackendCall> matchesInTxn(List<BackendCall> calls, String tracedBackend, String expectedVersion,
                                            Collection<String> candidates, Map<String, String> hosturls, boolean strict) {
-        String matchKey = matchPath(tracedBackend, hosturls);
+        String matchKey = matchPath(tracedBackend, expectedVersion, hosturls);
         List<BackendCall> out = new ArrayList<>();
         for (BackendCall c : calls) {
             if (!backendMatches(matchKey, c.path())) {
@@ -2056,13 +2064,32 @@ public class LogAnalysisService {
 
     /** The path to match a backend against the log: its "hosturl" (what the host logs) if known, else the api value. */
     private static String matchPath(String tracedBackend, Map<String, String> hosturls) {
+        return matchPath(tracedBackend, null, hosturls);
+    }
+
+    /** The path a backend's log line carries — its hostUrl. When a version is given, the version-specific
+     *  hostUrl wins (an api reached via two routes at different versions matches each version's own logged
+     *  path); else the api's first hostUrl, else the api value itself. */
+    private static String matchPath(String tracedBackend, String version, Map<String, String> hosturls) {
         if (hosturls != null) {
+            if (version != null && !version.isBlank()) {
+                String hv = hosturls.get(hostUrlVerKey(tracedBackend, version));
+                if (hv != null && !hv.isBlank()) {
+                    return hv;
+                }
+            }
             String h = hosturls.get(tracedBackend);
             if (h != null && !h.isBlank()) {
                 return h;
             }
         }
         return tracedBackend;
+    }
+
+    /** Map key for a version-specific hostUrl: the backend api plus its service version. Uses an
+     *  unambiguous separator so the build-side and lookup-side keys are always byte-identical. */
+    private static String hostUrlVerKey(String backend, String version) {
+        return backend + " " + version;
     }
 
     /** The path tail of a backend: strip a leading {{...}} placeholder, scheme+host and query. */

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <route id="R9.14_getPayeeList">
+        <from uri="direct:R9.14_getPayeeList"/>
+        <choice>
+            <otherwise>
+                <to uri="direct:bpGetPayeelist"/>
+                <to uri="direct:R9.14_fetGetPayeeList"/>
+            </otherwise>
+        </choice>
+    </route>
+
+    <!-- Same api (/bfs/payee/list) but hostUrl /bfs/bp/payee/list, svc 2.1. -->
+    <route id="bpGetPayeelist">
+        <from uri="direct:bpGetPayeelist"/>
+        <to uri="framework:META-INF/templates/bp/precapture.ftl"/>
+        <setProperty name="hostUrl"><constant>/bfs/bp/payee/list</constant></setProperty>
+        <setProperty name="api"><constant>/bfs/payee/list</constant></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <!-- Same api (/bfs/payee/list) but hostUrl /bfs/ft/payee/list, svc 3.2. -->
+    <route id="R9.14_fetGetPayeeList">
+        <from uri="direct:R9.14_fetGetPayeeList"/>
+        <to uri="framework:META-INF/templates/ft/precapture.ftl"/>
+        <setProperty name="hostUrl"><constant>/bfs/ft/payee/list</constant></setProperty>
+        <setProperty name="api"><constant>/bfs/payee/list</constant></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <route id="callHost">
+        <from uri="direct:callHost"/>
+        <to uri="https://host/dispatch"/>
+    </route>
+
+</routes>

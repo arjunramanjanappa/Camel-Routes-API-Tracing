@@ -1,0 +1,161 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>TraceGuard — Quick Reference</title>
+<style>
+  :root{ --navy:#132a4a; --navy2:#1d3c68; --teal:#0e7c86; --teal2:#12a3ad; --ink:#20293a;
+    --muted:#5b6675; --line:#dde3ea; --tint:#f2f7f8; --tintline:#cfe5e7; --amber:#b9770e; --ambertint:#fdf6e9;
+    --scope:#1d6fb8; --test:#1f7a4d; --impact:#8a4bbf; }
+  *{ box-sizing:border-box; } html,body{ margin:0; padding:0; }
+  @page{ size:A4 portrait; margin:0; }
+  body{ font-family:"Segoe UI",Calibri,Arial,sans-serif; color:var(--ink); font-size:9.1pt; line-height:1.34;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .sheet{ width:210mm; height:297mm; padding:12mm 12mm 10mm; display:flex; flex-direction:column; justify-content:space-between; }
+  h1,h2,h3,h4{ font-family:"Segoe UI Semibold","Segoe UI",Arial,sans-serif; color:var(--navy); margin:0; }
+  strong{ color:var(--navy); }
+  .ui{ font-family:Consolas,monospace; background:#eef2f6; border:1px solid #dde3ea; border-radius:3px; padding:0 4px; font-size:8.2pt; color:var(--navy2); white-space:nowrap; }
+
+  /* Header band */
+  .head{ background:linear-gradient(120deg,var(--navy) 0%,var(--navy2) 60%,var(--teal) 140%); color:#fff;
+    border-radius:8px; padding:5mm 7mm; display:flex; align-items:center; justify-content:space-between; }
+  .head .brand{ font-size:20pt; font-family:"Segoe UI Semibold","Segoe UI",sans-serif; letter-spacing:.3px; }
+  .head .brand small{ display:block; font-size:9pt; letter-spacing:3px; color:#a9d6da; text-transform:uppercase; font-weight:600; margin-top:1mm; }
+  .head .tag{ text-align:right; font-size:9.2pt; color:#dbe7ee; }
+  .head .tag b{ color:#fff; }
+
+  .kick{ text-transform:uppercase; letter-spacing:1.6px; font-size:7.8pt; color:var(--teal); font-weight:700; margin:0 0 2.4mm; }
+
+  /* Setup row */
+  .setup{ display:grid; grid-template-columns:repeat(4,1fr); gap:3mm; }
+  .setup .s{ border:1px solid var(--line); border-radius:6px; padding:2.6mm 3mm; display:flex; gap:2.5mm; align-items:flex-start; background:#fff; }
+  .setup .n{ flex:0 0 auto; width:6.2mm; height:6.2mm; border-radius:50%; background:var(--teal); color:#fff; font-weight:700; font-size:9pt; display:flex; align-items:center; justify-content:center; }
+  .setup .s b{ display:block; font-size:9pt; } .setup .s p{ margin:.4mm 0 0; color:var(--muted); font-size:8.2pt; line-height:1.28; }
+
+  /* Tabs */
+  .tabs{ display:grid; grid-template-columns:repeat(3,1fr); gap:4mm; }
+  .tab{ border:1px solid var(--line); border-top:3px solid var(--teal); border-radius:7px; padding:3.4mm 4mm; display:flex; flex-direction:column; }
+  .tab.scope{ border-top-color:var(--scope); } .tab.test{ border-top-color:var(--test); } .tab.impact{ border-top-color:var(--impact); }
+  .tab h3{ font-size:12pt; } .tab.scope h3{ color:var(--scope); } .tab.test h3{ color:var(--test); } .tab.impact h3{ color:var(--impact); }
+  .tab .q{ font-size:9pt; color:var(--muted); font-style:italic; margin:.8mm 0 2.6mm; min-height:6mm; }
+  .tab .bestfor{ font-size:8.4pt; margin:0 0 2.6mm; padding:1.8mm 2.4mm; background:var(--tint); border-radius:5px; color:var(--ink); }
+  .tab .bestfor b{ color:var(--navy); }
+  .tab h4{ font-size:8pt; text-transform:uppercase; letter-spacing:.6px; color:var(--navy2); margin:2mm 0 1mm; }
+  .tab ol{ margin:0; padding-left:4.4mm; } .tab ol li{ margin:0 0 1mm; }
+  .tab ul{ margin:0; padding-left:0; list-style:none; }
+  .tab ul li{ margin:0 0 1mm; padding-left:4.6mm; position:relative; }
+  .tab ul li::before{ content:""; position:absolute; left:0; top:1.6mm; width:2mm; height:2mm; border-radius:50%; background:var(--teal); }
+  .tab.scope ul li::before{ background:var(--scope); } .tab.test ul li::before{ background:var(--test); } .tab.impact ul li::before{ background:var(--impact); }
+  .out{ margin-top:auto; padding-top:2.4mm; border-top:1px dashed var(--line); }
+  .out .lab{ font-size:7.4pt; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:1.2mm; }
+  .pill{ display:inline-block; font-size:7.8pt; font-weight:700; padding:.6mm 2mm; border-radius:9px; margin:0 1.4mm 1.4mm 0; }
+  .pill.pdf{ background:#e7eef7; color:var(--navy2); } .pill.xls{ background:#e5f4ec; color:var(--test); } .pill.png{ background:#f3ecf7; color:var(--impact); }
+
+  /* Verdict legend */
+  .verdict{ margin-top:4mm; border:1px solid var(--line); border-radius:7px; padding:2.8mm 4mm; display:flex; align-items:center; gap:5mm; flex-wrap:wrap; }
+  .verdict .lab{ font-size:8pt; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); font-weight:700; }
+  .verdict .v{ font-size:8.6pt; display:flex; align-items:center; gap:2mm; }
+  .verdict .dot{ width:3mm; height:3mm; border-radius:50%; display:inline-block; }
+  .verdict b{ color:var(--navy); }
+
+  /* Bottom strip */
+  .bottom{ display:grid; grid-template-columns:1.35fr 1fr; gap:4mm; margin-top:4mm; }
+  .box{ border:1px solid var(--tintline); background:var(--tint); border-radius:7px; padding:3mm 4mm; }
+  .box.amber{ background:var(--ambertint); border-color:#eddcb6; }
+  .box h4{ font-size:9.4pt; margin-bottom:1.6mm; }
+  .box.amber h4{ color:var(--amber); }
+  .cfg{ display:grid; grid-template-columns:1fr 1fr; gap:.6mm 4mm; }
+  .cfg div{ font-size:8.4pt; padding:.3mm 0; } .cfg b{ color:var(--navy); }
+  .kv{ font-size:8.5pt; margin:.6mm 0; }
+  .foot{ margin-top:4mm; display:flex; justify-content:space-between; font-size:7.6pt; color:var(--muted); }
+</style></head><body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="brand">TraceGuard <small>Release Intelligence</small></div>
+    <div class="tag"><b>Quick Reference</b><br>Scope · Test · Impact — for Mighty &amp; TMRW</div>
+  </div>
+
+  <div class="sec">
+  <div class="kick">Set up in 4 steps</div>
+  <div class="setup">
+    <div class="s"><span class="n">1</span><div><b>Open</b><p>Launch it → opens at <span class="ui">localhost:8080</span></p></div></div>
+    <div class="s"><span class="n">2</span><div><b>Choose app</b><p>Click <b>Open</b> on Mighty or TMRW</p></div></div>
+    <div class="s"><span class="n">3</span><div><b>Point at source</b><p>Local folder / Bitbucket · Country · version</p></div></div>
+    <div class="s"><span class="n">4</span><div><b>Analyse</b><p>Press <b>Analyse modules</b> — you're set</p></div></div>
+  </div>
+  </div>
+
+  <div class="sec">
+  <div class="kick">The three tabs — each answers one question</div>
+  <div class="tabs">
+
+    <div class="tab scope">
+      <h3>Release Scope</h3>
+      <div class="q">"What does this API touch?"</div>
+      <div class="bestfor"><b>Best for:</b> planning a release's footprint.</div>
+      <h4>How</h4>
+      <ol><li>Blank = full catalog, or type a <b>version</b></li><li>Read the <b>flow graph</b> — routes &amp; backends</li></ol>
+      <h4>You get</h4>
+      <ul><li>Interactive flow diagram (svc versions)</li><li>Impacted-API catalog</li></ul>
+      <div class="out"><div class="lab">Share</div>
+        <span class="pill pdf">PDF catalog</span><span class="pill png">PNG graph</span></div>
+    </div>
+
+    <div class="tab test">
+      <h3>Release Test</h3>
+      <div class="q">"Did the release actually work?"</div>
+      <div class="bestfor"><b>Best for:</b> sign-off that the release ran.</div>
+      <h4>How</h4>
+      <ol><li>Select APIs</li><li>Run the <b>Splunk query</b> or upload a log</li><li><b>Verify with logs</b></li></ol>
+      <h4>You get</h4>
+      <ul><li>Pass/fail per API + status donut</li><li>Backend breakdown &amp; version check</li></ul>
+      <div class="out"><div class="lab">Share</div>
+        <span class="pill pdf">PDF verification</span><span class="pill xls">Capability Matrix (Excel)</span></div>
+    </div>
+
+    <div class="tab impact">
+      <h3>Release Impact</h3>
+      <div class="q">"What changed since last release?"</div>
+      <div class="bestfor"><b>Best for:</b> go / no-go on what changed.</div>
+      <h4>How</h4>
+      <ol><li>Enter <b>target version</b> → <b>Compare</b></li><li>Add commit version for code/BAU changes</li></ol>
+      <h4>You get</h4>
+      <ul><li>Added / removed / changed routes</li><li>Risk + backward-compatibility flags</li></ul>
+      <div class="out"><div class="lab">Share</div>
+        <span class="pill pdf">Summary PDF</span><span class="pill pdf">Detailed PDF</span></div>
+    </div>
+
+  </div>
+  </div>
+
+  <div class="verdict">
+    <span class="lab">Reading a verdict</span>
+    <span class="v"><span class="dot" style="background:#1f7a4d"></span><b>Success</b> — every flow passed</span>
+    <span class="v"><span class="dot" style="background:#b9770e"></span><b>Partial</b> — some flows untested</span>
+    <span class="v"><span class="dot" style="background:#b23b3b"></span><b>Failed</b> — a call failed</span>
+    <span class="v"><span class="dot" style="background:#8894a5"></span><b>Not tested</b> — no logs seen</span>
+  </div>
+
+  <div class="bottom">
+    <div class="box amber">
+      <h4>⚙ Config — set once (saved on your machine)</h4>
+      <div class="cfg">
+        <div><b>Splunk base URL</b> — log download links</div>
+        <div><b>Bitbucket / npm tokens</b> — clone &amp; build</div>
+        <div><b>VAL reports</b> — Interface Spec + Capability Matrix</div>
+        <div><b>🚦 Rules</b> — custom backend success codes</div>
+      </div>
+    </div>
+    <div class="box">
+      <h4>Good to know</h4>
+      <div class="kv">• Two apps — <b>Mighty</b> &amp; <b>TMRW</b> — traced separately.</div>
+      <div class="kv">• Only <span class="ui">git</span> is required, and only for Release Impact.</div>
+      <div class="kv">• Multi-module runs consolidate into one pack (incl. an <b>ALL</b> Excel tab).</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>Full walkthroughs: <b>TraceGuard Product User Guide</b> &amp; <b>Setup Guide</b> (docs/).</span>
+    <span>Internal use</span>
+  </div>
+
+</div>
+</body></html>

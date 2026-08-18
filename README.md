@@ -285,6 +285,16 @@ changed) — and a light/dark theme toggle.
   carries a **service-version chip**: `svc 2.2 ✓` when the logged version matches the
   traced one, `svc 9.9 ✗ (exp 2.2)` on a mismatch (which flags the row even if the
   backend itself succeeded).
+* **Release Test — Capability Matrix** (`⊞ Release Test - Capability Matrix`) — exports the
+  impacted APIs joined to the **VAL Capability Matrix** (how to test each capability) as an
+  **Excel workbook**, handing the testing team the test steps next to each API's verdict.
+  Needs both VAL reports attached in **⚙ Config** (Interface Spec + Capability Matrix). A
+  **multi-module** run produces **one sheet per module** — the tab name *is* the module, so
+  no Module column is needed — plus a leading **ALL** tab that consolidates every module's
+  rows into one sheet, prefixed with a **Module** column and the same coloured **Test
+  Status**, so the whole release reads top-to-bottom without switching tabs. APIs with no
+  capability match are listed under an **Unmapped Interface spec** section (per module, and
+  combined on the ALL tab, each row attributed to its module).
 * **Host response-code rules (the 🚦 Rules editor)** — some host/backend APIs report
   their outcome under a different JSON key (e.g. `"resultCode":"000000"`), with a
   non-standard success value, or shouldn't count toward the verdict at all. A **per-app**

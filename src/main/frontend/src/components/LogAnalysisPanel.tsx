@@ -622,7 +622,8 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
   };
   const capabilityScope = (): CapabilityScope => (report ? scopeForReport(report) : { feApis: [], beApis: [], country });
   /** Per-module scope for a multi-module run — ONE workbook with a sheet PER MODULE (the tab name is the module,
-   *  so no Module column is needed). Each module carries its own FE APIs + log verdicts. */
+   *  so no Module column is needed) plus a leading consolidated "ALL" tab (every module's rows, with a Module
+   *  column). Each module carries its own FE APIs + log verdicts. */
   const capabilityScopeByModule = (): CapabilityScope => {
     const groups = perModule
       .filter((p) => p.report && p.report.apis.length > 0)   // skip dependency repos (no APIs of their own)
@@ -636,7 +637,7 @@ export default function LogAnalysisPanel({ version, country, sourceDir, repo, br
     return { feApis: [], beApis: [], country, modules: groups, fileName: 'Release Test - Capability Matrix' };
   };
   /** VAL Capability Matrix export (.xlsx) for the impacted APIs — how to test each, for the testing team.
-   *  Multi-module: ONE workbook with a tab per module (like the consolidated PDFs). */
+   *  Multi-module: ONE workbook with a tab per module plus a consolidated "ALL" tab (like the consolidated PDFs). */
   const exportCapabilities = () => {
     if (multi) {
       const scope = capabilityScopeByModule();

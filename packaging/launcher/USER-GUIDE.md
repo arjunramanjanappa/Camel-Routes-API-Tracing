@@ -67,6 +67,12 @@ Verify that a release actually ran correctly, against logs.
 3. **Verify with logs** — a readiness verdict, a status donut, filter chips (All / Issues /
    per-status), per-API pass/fail with attempts, and a backend breakdown. Export a **PDF
    verification report**.
+4. **Release Test - Capability Matrix** *(needs the VAL reports attached in **⚙ Config**)* —
+   exports the impacted APIs joined to their **capabilities** (how to test each) as an
+   **Excel** workbook for the testing team. When you run several **modules**, you get **one
+   sheet per module** (the tab is named after the module) plus a leading **ALL** tab that
+   lists every module's rows together, with a **Module** column and the test verdict, so you
+   can read the whole release without switching tabs.
 
 **🚦 Rules** — if a backend reports its result under a non-standard key (e.g.
 `"resultCode":"000000"`) or a code that shouldn't count, open **🚦 Rules**, add a rule for

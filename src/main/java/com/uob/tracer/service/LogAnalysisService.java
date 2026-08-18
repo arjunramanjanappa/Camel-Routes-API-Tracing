@@ -118,7 +118,11 @@ public class LogAnalysisService {
                     + "\\[[^\\]]*\\]\\s+\\S+\\s+"
                     + "\\[([A-Za-z0-9_]+Message)\\]"             // app marker, e.g. MightyMessage / SPLHostMessage
                     + "((?:\\[[^\\]]*\\])+?)\\s*-\\s*"           // bracket meta fields, then a separator dash
-                    + "(?:\\[jwt\\][^/]*)?"                      // optional "[jwt]: true, ..." prefix — up to the URL's '/'
+                    // Optional "[jwt]: true/false, ..." prefix before the backend URL. Two shapes: a comma-
+                    // terminated value ("[jwt]: false,  " then whitespace + optional dash) — consumed up to the
+                    // comma so a URL with NO leading slash (ft/bfs/...) keeps its first segment; else the older
+                    // form consumed up to the URL's first '/'.
+                    + "(?:\\[jwt\\](?:[^,/]*,\\s*-?\\s*|[^/]*))?"
                     + "(\\S+)\\s*-\\s*\\[?(Request|Response)\\]?\\s*[-:]\\s*(.*)$");
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
     private static final Pattern TOOK = Pattern.compile("(\\d+)\\s*ms");

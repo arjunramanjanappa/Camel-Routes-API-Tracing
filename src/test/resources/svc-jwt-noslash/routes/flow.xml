@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+
+    <!-- Backend api has NO leading slash (ft/bfs/txn/confirm) — matches the user's new log grouping. -->
+    <route id="R9.14_confirm">
+        <from uri="direct:R9.14_confirm"/>
+        <setProperty name="api"><simple>ft/bfs/txn/confirm</simple></setProperty>
+        <to uri="direct:callHost"/>
+    </route>
+
+    <route id="callHost">
+        <from uri="direct:callHost"/>
+        <to uri="https://host/dispatch"/>
+    </route>
+
+</routes>

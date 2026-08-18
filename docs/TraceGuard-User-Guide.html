@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TraceGuard — Product User Guide</title>
+<style>
+  :root{
+    --navy:#132a4a; --navy-2:#1d3c68; --teal:#0e7c86; --teal-2:#12a3ad;
+    --ink:#1f2733; --muted:#5b6675; --line:#dfe4ea; --paper:#ffffff;
+    --tint:#f2f7f8; --tint-line:#cfe5e7; --amber:#b9770e; --amber-tint:#fdf6e9;
+    --green:#1f7a4d; --red:#b23b3b;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:"Segoe UI",Calibri,Arial,sans-serif;
+    color:var(--ink); font-size:10.6pt; line-height:1.5;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3{ font-family:"Segoe UI Semibold","Segoe UI",Calibri,Arial,sans-serif; color:var(--navy); }
+  p{ margin:0 0 8px; }
+  strong{ color:var(--navy); }
+  a{ color:var(--teal); text-decoration:none; }
+
+  /* ---- Cover ---- */
+  .cover{
+    height:100vh; background:linear-gradient(150deg,var(--navy) 0%,var(--navy-2) 55%,var(--teal) 130%);
+    color:#fff; padding:26mm 22mm; display:flex; flex-direction:column;
+    break-after:page; position:relative;
+  }
+  .cover .brand{ font-size:13pt; letter-spacing:3px; text-transform:uppercase; color:#a9d6da; font-weight:600; }
+  .cover .title{ font-size:52pt; line-height:1.02; margin:8mm 0 3mm; color:#fff; font-family:"Segoe UI Semibold","Segoe UI",sans-serif; }
+  .cover .pills{ font-size:15pt; letter-spacing:2px; color:#cfe9ec; margin-bottom:auto; }
+  .cover .subtitle{ font-size:16pt; color:#e8f1f2; margin:0 0 2mm; font-weight:600; }
+  .cover .lede{ font-size:11.5pt; color:#c7d5e4; max-width:150mm; line-height:1.6; }
+  .cover .meta{ margin-top:10mm; font-size:10pt; color:#a9bdd6; border-top:1px solid rgba(255,255,255,.2); padding-top:5mm; }
+  .cover .meta b{ color:#fff; }
+
+  /* ---- Layout ---- */
+  .page{ padding:0 0 4mm; }
+  section.block{ break-before:page; padding-top:2mm; }
+  .eyebrow{ text-transform:uppercase; letter-spacing:2px; font-size:8.5pt; color:var(--teal); font-weight:700; margin:0 0 2mm; }
+  h2{ font-size:20pt; margin:0 0 3mm; padding-bottom:2.5mm; border-bottom:2px solid var(--teal); }
+  h3{ font-size:12.5pt; margin:6mm 0 2mm; color:var(--navy-2); }
+  .lead{ font-size:11.4pt; color:var(--muted); margin:0 0 5mm; max-width:170mm; }
+
+  ul,ol{ margin:0 0 9px; padding-left:5.4mm; }
+  li{ margin:0 0 4px; }
+
+  /* ---- Callouts & boxes ---- */
+  .callout{ background:var(--tint); border:1px solid var(--tint-line); border-left:4px solid var(--teal);
+    border-radius:5px; padding:4mm 5mm; margin:4mm 0; }
+  .callout.amber{ background:var(--amber-tint); border-color:#eddcb6; border-left-color:var(--amber); }
+  .callout .k{ font-weight:700; color:var(--navy); }
+  .callout.amber .k{ color:var(--amber); }
+
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:4mm; margin:4mm 0; }
+  .card{ border:1px solid var(--line); border-radius:6px; padding:4mm 4.5mm; background:#fff; }
+  .card h4{ margin:0 0 2mm; font-size:11pt; color:var(--navy); font-family:"Segoe UI Semibold","Segoe UI",sans-serif; }
+  .card p{ font-size:9.8pt; color:var(--muted); margin:0; }
+
+  /* ---- Steps ---- */
+  .steps{ counter-reset:step; margin:4mm 0; padding:0; list-style:none; }
+  .steps > li{ position:relative; padding:0 0 4mm 11mm; margin:0; }
+  .steps > li::before{
+    counter-increment:step; content:counter(step);
+    position:absolute; left:0; top:-1px; width:7.5mm; height:7.5mm; border-radius:50%;
+    background:var(--teal); color:#fff; font-weight:700; font-size:10.5pt;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .steps > li strong{ display:block; margin-bottom:1px; }
+
+  /* ---- Tables ---- */
+  table{ border-collapse:collapse; width:100%; margin:4mm 0; font-size:9.7pt; }
+  th{ background:var(--navy); color:#fff; text-align:left; padding:2.6mm 3mm; font-weight:600; }
+  td{ border:1px solid var(--line); padding:2.6mm 3mm; vertical-align:top; }
+  tr:nth-child(even) td{ background:#f7f9fb; }
+  .tag{ display:inline-block; font-size:8.4pt; font-weight:700; padding:1px 6px; border-radius:10px; }
+  .tag.pdf{ background:#e7eef7; color:var(--navy-2); }
+  .tag.xls{ background:#e5f4ec; color:var(--green); }
+  .tag.png{ background:#f3ecf7; color:#6a3d8f; }
+
+  .ui{ font-family:Consolas,"Segoe UI",monospace; background:#eef2f6; border:1px solid #dde3ea;
+    border-radius:3px; padding:0 4px; font-size:9.3pt; color:var(--navy-2); white-space:nowrap; }
+
+  .toc{ margin:6mm 0 0; }
+  .toc div{ display:flex; align-items:baseline; padding:2.4mm 0; border-bottom:1px solid var(--line); }
+  .toc .n{ color:var(--teal); font-weight:700; width:9mm; }
+  .toc .t{ font-weight:600; color:var(--navy); }
+  .toc .d{ color:var(--muted); margin-left:auto; font-size:9.4pt; max-width:95mm; text-align:right; }
+
+  .value-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:4mm; margin:5mm 0; }
+  .value-row .v{ border-top:3px solid var(--teal); padding-top:3mm; }
+  .value-row .v h4{ margin:0 0 1.5mm; color:var(--navy); font-size:11.5pt; }
+  .value-row .v p{ margin:0; font-size:9.7pt; color:var(--muted); }
+
+  .footnote{ font-size:9pt; color:var(--muted); font-style:italic; }
+  .nobreak{ break-inside:avoid; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="brand">TraceGuard</div>
+  <div class="title">Product<br>User Guide</div>
+  <div class="pills">Scope&nbsp; ·&nbsp; Test&nbsp; ·&nbsp; Impact</div>
+  <div class="subtitle">Release readiness, in one place — for Mighty &amp; SPL</div>
+  <p class="lede">TraceGuard reads your application's source and tells you, for every API, what a
+  release touches, whether it actually worked in your logs, and what changed since the last
+  release — each as a report you can share and sign off from.</p>
+  <div class="meta">
+    <b>Audience:</b> Release, Development &amp; Test leads &nbsp;•&nbsp;
+    <b>Applies to:</b> TraceGuard desktop &amp; server &nbsp;•&nbsp;
+    <b>Classification:</b> Internal use
+  </div>
+</div>
+
+<!-- ============ CONTENTS ============ -->
+<section class="block">
+  <div class="eyebrow">In this guide</div>
+  <h2>Contents</h2>
+  <div class="toc">
+    <div><span class="n">1</span><span class="t">What TraceGuard does for you</span><span class="d">The three questions it answers</span></div>
+    <div><span class="n">2</span><span class="t">Before you begin</span><span class="d">Opening the tool and choosing your source</span></div>
+    <div><span class="n">3</span><span class="t">Key terms</span><span class="d">A short, plain-language glossary</span></div>
+    <div><span class="n">4</span><span class="t">Release Scope</span><span class="d">See what an API touches</span></div>
+    <div><span class="n">5</span><span class="t">Release Test</span><span class="d">Prove the release actually worked</span></div>
+    <div><span class="n">6</span><span class="t">Release Impact</span><span class="d">Know what changed between releases</span></div>
+    <div><span class="n">7</span><span class="t">Reports you can share</span><span class="d">Every deliverable, at a glance</span></div>
+    <div><span class="n">8</span><span class="t">Configuration essentials</span><span class="d">One-time setup in ⚙ Config</span></div>
+    <div><span class="n">9</span><span class="t">Tips &amp; troubleshooting</span><span class="d">Quick answers to common questions</span></div>
+  </div>
+</section>
+
+<!-- ============ 1. OVERVIEW ============ -->
+<section class="block">
+  <div class="eyebrow">Section 1</div>
+  <h2>What TraceGuard does for you</h2>
+  <p class="lead">TraceGuard is a release-readiness tool. It points at your application's source
+  — it never needs the application running — and turns hours of manual code-reading and log-hunting
+  into three clear, shareable answers.</p>
+
+  <div class="value-row">
+    <div class="v">
+      <h4>Scope</h4>
+      <p>For any API, see the exact path it follows — its route, every backend it calls, and the
+      service version of each — as an interactive diagram and a catalog.</p>
+    </div>
+    <div class="v">
+      <h4>Test</h4>
+      <p>From your logs (or a Splunk export), confirm which APIs a release actually exercised,
+      whether each passed end-to-end, and whether it hit the right backend version.</p>
+    </div>
+    <div class="v">
+      <h4>Impact</h4>
+      <p>Compare two releases: added, removed and modified routes, backend version bumps and
+      request-payload changes — with the author of each change.</p>
+    </div>
+  </div>
+
+  <p>Each answer lives on its own tab and <strong>exports as a shareable, sectioned PDF</strong>
+  (and the test coverage as an Excel workbook), so your release, development and test teams can
+  review and sign off from one document.</p>
+
+  <div class="callout">
+    <span class="k">Two applications, one tool.</span> TraceGuard serves <strong>Mighty</strong> and
+    <strong>SPL</strong> from a single entry point. They share the tool but are traced and analysed
+    separately, so results never mix between applications.
+  </div>
+</section>
+
+<!-- ============ 2. BEFORE YOU BEGIN ============ -->
+<section class="block">
+  <div class="eyebrow">Section 2</div>
+  <h2>Before you begin</h2>
+  <p class="lead">Getting to your first result takes three choices. Nothing needs to be installed
+  by you beyond the tool itself.</p>
+
+  <ol class="steps">
+    <li><strong>Open TraceGuard</strong>
+      Launch the app. It opens automatically in your browser at <span class="ui">http://localhost:8080</span>.
+      If the browser doesn't open, type that address in yourself.</li>
+    <li><strong>Choose the application</strong>
+      Pick <strong>Mighty</strong> or <strong>SPL</strong>. Your choice — and the source below — is
+      remembered per application.</li>
+    <li><strong>Point it at a source</strong>
+      Choose a <strong>Local path</strong> (a folder on your machine) or a <strong>Bitbucket
+      branch</strong>. This is the application source TraceGuard reads; the same setting is shared by
+      all three tabs.</li>
+  </ol>
+
+  <div class="callout amber">
+    <span class="k">One machine requirement.</span> Only the <strong>Release Impact</strong> tab needs
+    <span class="ui">git</span> available on the machine running TraceGuard, for its change-detection.
+    Release <strong>Scope</strong> and <strong>Test</strong> work fully without it.
+  </div>
+
+  <p>A <strong>light / dark theme</strong> toggle sits in the top corner. Settings such as your Splunk
+  address and uploaded reference reports are entered once in <span class="ui">⚙ Config</span>
+  (see Section 8) and are kept safely across tool updates.</p>
+</section>
+
+<!-- ============ 3. KEY TERMS ============ -->
+<section class="block">
+  <div class="eyebrow">Section 3</div>
+  <h2>Key terms</h2>
+  <p class="lead">A few words appear throughout the tool. Here's what each means, in plain language.</p>
+
+  <table>
+    <tr><th style="width:34mm">Term</th><th>What it means</th></tr>
+    <tr><td><strong>API</strong></td><td>A single service endpoint a client app calls — identified by its operation name, e.g. <em>getPayeeList</em>.</td></tr>
+    <tr><td><strong>Route</strong></td><td>The internal processing path an API runs through inside the application.</td></tr>
+    <tr><td><strong>Backend</strong></td><td>A downstream host service the route calls to do the real work.</td></tr>
+    <tr><td><strong>Service version</strong></td><td>The version of a backend contract the route is calling — TraceGuard checks the release used the one you expect.</td></tr>
+    <tr><td><strong>Client / release version</strong></td><td>The app release under review, e.g. <span class="ui">9.14</span>. TraceGuard scopes everything to it.</td></tr>
+    <tr><td><strong>Module</strong></td><td>A distinct part of the release, traced on its own. A release may span several modules; TraceGuard can analyse them together.</td></tr>
+    <tr><td><strong>BAU route</strong></td><td>A "business-as-usual" production route that already existed — changing one carries more risk, so TraceGuard flags it.</td></tr>
+  </table>
+</section>
+
+<!-- ============ 4. RELEASE SCOPE ============ -->
+<section class="block">
+  <div class="eyebrow">Section 4 — The first tab</div>
+  <h2>Release Scope · See what an API touches</h2>
+  <p class="lead">Understand, at a glance, the full footprint of an API or an entire release —
+  before a line of testing begins.</p>
+
+  <h3>How to use it</h3>
+  <ol class="steps">
+    <li><strong>Leave the inputs empty for the full catalog</strong>
+      Every discovered API appears, grouped by the release its route resolves to.</li>
+    <li><strong>Enter a client version to scope it</strong>
+      Type a release (e.g. <span class="ui">9.4</span>) to see only the APIs that release impacts.
+      Enter <span class="ui">N/A</span> or <span class="ui">latest</span> to resolve each API to its
+      newest available route.</li>
+    <li><strong>Explore the flow graph</strong>
+      Read the API's path visually — colour-coded roles, the entry route, and each backend shown with
+      its <span class="ui">svc vX.Y</span> version chip. Zoom, search and fit as needed.</li>
+  </ol>
+
+  <h3>What you can share</h3>
+  <div class="grid2">
+    <div class="card"><h4>PDF catalog report</h4><p>The whole release's impacted-API catalog — each API with its resolved route, flow and backends. Always the full catalog, so it can't under-report a release.</p></div>
+    <div class="card"><h4>Graph image (PNG)</h4><p>Export the flow diagram itself to drop into a slide or a review pack.</p></div>
+  </div>
+</section>
+
+<!-- ============ 5. RELEASE TEST ============ -->
+<section class="block">
+  <div class="eyebrow">Section 5 — The second tab</div>
+  <h2>Release Test · Prove the release worked</h2>
+  <p class="lead">Move from "the code looks right" to "the release ran correctly" — verified against
+  your real logs, end to end.</p>
+
+  <h3>How to use it</h3>
+  <ol class="steps">
+    <li><strong>Select the APIs to analyse</strong>
+      Choose one, several, or all. You can also tick the changed routes or backends to pull in the
+      APIs a change impacts.</li>
+    <li><strong>Get the logs</strong>
+      Copy the generated <strong>Splunk query</strong> and run it, then paste the job's
+      <strong>Job SID</strong> to build ready-made download links — <em>no export permission needed</em>.
+      Or simply <strong>upload an output log</strong>. The file type is detected automatically.</li>
+    <li><strong>Verify with logs</strong>
+      TraceGuard correlates the logs against the trace and shows a readiness verdict.</li>
+  </ol>
+
+  <h3>What you'll see</h3>
+  <ul>
+    <li>A <strong>status donut</strong> and clickable <strong>filter chips</strong> (All / Issues / per status), worst-first.</li>
+    <li>A <strong>per-API verdict</strong> — pass/fail end-to-end, response latency and attempt counts.</li>
+    <li>An expandable <strong>backend breakdown</strong>, each backend carrying a <strong>service-version chip</strong>: a green tick when the logged version matches the expected one, and a clear flag when it doesn't — even if the call otherwise succeeded.</li>
+  </ul>
+
+  <div class="callout">
+    <span class="k">Non-standard success codes?</span> Some backends report their outcome under a
+    different field. The <span class="ui">🚦 Rules</span> editor lets you tell TraceGuard, per backend,
+    which field to read and what counts as success — or to neutrally <em>skip</em> a backend so it never
+    fails an API.
+  </div>
+
+  <h3>What you can share</h3>
+  <div class="grid2">
+    <div class="card"><h4>PDF verification report</h4><p>The full readiness picture — verdicts, coverage and backend detail — for sign-off.</p></div>
+    <div class="card"><h4>Release Test — Capability Matrix <span class="tag xls">Excel</span></h4><p>Hands the testing team the <strong>steps to test</strong> each impacted API next to that API's verdict.</p></div>
+  </div>
+
+  <div class="callout amber nobreak">
+    <span class="k">The Capability Matrix export.</span> When you run several <strong>modules</strong>,
+    the workbook gives you <strong>one sheet per module</strong> (the tab is named after the module) plus
+    a leading <strong>ALL</strong> tab that lists every module's rows together — with a <strong>Module</strong>
+    column and the test verdict — so the whole release reads top to bottom without switching tabs. APIs
+    with no matching capability are listed in an <em>Unmapped</em> section. This export needs the two VAL
+    reference reports attached once in <span class="ui">⚙ Config</span> (see Section 8).
+  </div>
+</section>
+
+<!-- ============ 6. RELEASE IMPACT ============ -->
+<section class="block">
+  <div class="eyebrow">Section 6 — The third tab</div>
+  <h2>Release Impact · Know what changed</h2>
+  <p class="lead">See exactly what a release changed versus the version before it — and how much risk
+  each change carries.</p>
+
+  <h3>How to use it</h3>
+  <ol class="steps">
+    <li><strong>Enter the target client version</strong>
+      For example <span class="ui">9.18</span>, then choose <strong>Compare</strong>. TraceGuard diffs
+      each API against its immediate-lower version.</li>
+    <li><strong>Optionally add the commit / app version</strong>
+      Enter it (e.g. <span class="ui">19.18.0</span>) to also detect, from source history,
+      <strong>shared code changes</strong> and <strong>in-place edits to production (BAU) routes</strong> —
+      the actual change, attributed to its author.</li>
+  </ol>
+
+  <h3>What you'll see</h3>
+  <ul>
+    <li>APIs grouped, with <strong>BAU-route changes leading</strong> (marked ⚑) because they carry the most risk.</li>
+    <li>Each card shows a <strong>risk level</strong> and a <strong>backward-compatibility (BC)</strong> marker.</li>
+    <li>A <strong>Summary</strong> view — one line per API for leadership — and a <strong>Detailed</strong> view with the full diffs.</li>
+  </ul>
+
+  <h3>What you can share</h3>
+  <div class="grid2">
+    <div class="card"><h4>Summary PDF</h4><p>The one-line-per-API overview — ideal for a go / no-go conversation.</p></div>
+    <div class="card"><h4>Detailed PDF</h4><p>Every change in full, for the development and test teams.</p></div>
+  </div>
+</section>
+
+<!-- ============ 7. REPORTS ============ -->
+<section class="block">
+  <div class="eyebrow">Section 7</div>
+  <h2>Reports you can share</h2>
+  <p class="lead">Every tab produces a deliverable you can circulate. Here they are in one place.</p>
+
+  <table>
+    <tr><th style="width:32mm">From</th><th>Deliverable</th><th style="width:22mm">Format</th><th>Best for</th></tr>
+    <tr><td>Release Scope</td><td>Impacted-API catalog report</td><td><span class="tag pdf">PDF</span></td><td>Understanding a release's footprint</td></tr>
+    <tr><td>Release Scope</td><td>Flow diagram</td><td><span class="tag png">PNG</span></td><td>Slides and review packs</td></tr>
+    <tr><td>Release Test</td><td>Verification report</td><td><span class="tag pdf">PDF</span></td><td>Release readiness sign-off</td></tr>
+    <tr><td>Release Test</td><td>Capability Matrix (per-module + ALL tab)</td><td><span class="tag xls">Excel</span></td><td>Handing test steps + verdicts to the test team</td></tr>
+    <tr><td>Release Impact</td><td>Summary report</td><td><span class="tag pdf">PDF</span></td><td>Go / no-go leadership decisions</td></tr>
+    <tr><td>Release Impact</td><td>Detailed report</td><td><span class="tag pdf">PDF</span></td><td>Full change review by dev &amp; test</td></tr>
+  </table>
+
+  <div class="callout">
+    <span class="k">Consolidated across modules.</span> When a release spans several modules, the PDFs and
+    the Capability Matrix consolidate every module into a single document — one pack per release, not one
+    per module.
+  </div>
+</section>
+
+<!-- ============ 8. CONFIG ============ -->
+<section class="block">
+  <div class="eyebrow">Section 8</div>
+  <h2>Configuration essentials</h2>
+  <p class="lead">A handful of one-time settings, all under <span class="ui">⚙ Config</span>. Your
+  configuration is kept safely across tool updates.</p>
+
+  <table>
+    <tr><th style="width:46mm">Setting</th><th>Why you set it</th></tr>
+    <tr><td><strong>Splunk base URL</strong></td><td>Enables the Release Test download links that open Splunk results in your own browser. Set once.</td></tr>
+    <tr><td><strong>VAL reports</strong><br>(Interface Spec + Capability Matrix)</td><td>Attach both Excel reference files once to unlock the <strong>Release Test — Capability Matrix</strong> export, which maps each impacted API to how it should be tested.</td></tr>
+    <tr><td><strong>Host response-code rules</strong> (<span class="ui">🚦</span>)</td><td>Teach TraceGuard how specific backends report success, so verdicts stay accurate.</td></tr>
+  </table>
+
+  <div class="callout">
+    <span class="k">Usually pre-loaded.</span> Your module lists and host rules typically ship with the
+    tool, so many teams never need to touch this screen beyond the Splunk address and VAL reports.
+  </div>
+</section>
+
+<!-- ============ 9. TIPS ============ -->
+<section class="block">
+  <div class="eyebrow">Section 9</div>
+  <h2>Tips &amp; troubleshooting</h2>
+
+  <table>
+    <tr><th style="width:60mm">If…</th><th>Then</th></tr>
+    <tr><td>The screen doesn't seem to update</td><td>TraceGuard refreshes only when the source changed — press the Load / Compare button again.</td></tr>
+    <tr><td>The browser didn't open on launch</td><td>Go to <span class="ui">http://localhost:8080</span> manually. If another program uses that address, close it.</td></tr>
+    <tr><td>Release Impact shows no code changes</td><td>Confirm <span class="ui">git</span> is available on the machine running TraceGuard, and that the commit / app version was entered.</td></tr>
+    <tr><td>The Capability Matrix export is greyed out or empty</td><td>Attach both VAL reports in <span class="ui">⚙ Config</span> — the export needs the Interface Spec and the Capability Matrix.</td></tr>
+    <tr><td>A backend shows as failed but you expected success</td><td>It may report success under a non-standard code — add a rule in the <span class="ui">🚦 Rules</span> editor.</td></tr>
+    <tr><td>You can run a Splunk search but not export it</td><td>Paste the <strong>Job SID</strong> and result count in Release Test; TraceGuard builds download links that use your own Splunk session — no export right needed.</td></tr>
+  </table>
+
+  <div class="callout" style="margin-top:8mm">
+    <span class="k">In one line.</span> Point TraceGuard at your source, pick the application, and let each
+    tab answer one question — <strong>what a release touches, whether it worked, and what changed</strong>
+    — then share the report.
+  </div>
+</section>
+
+</body>
+</html>

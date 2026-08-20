@@ -25,11 +25,33 @@ function resultOf(a: ApiLogResult): { cls: string; label: ReactNode } {
   }
 }
 
-function remarkOf(a: ApiLogResult): string {
-  if (a.status === 'SUCCESS') return '—';
-  if (a.status === 'NOT_TESTED') return a.note || 'No matching transaction in the log';
-  return a.responseDescription || a.responseCode || a.note
-    || (a.attempts > 0 ? `${a.failureCount}/${a.attempts} failed` : '—');
+/** The effective front-end pass threshold as a whole percent (default 95%). */
+function thresholdPct(report: LogAnalysisReport): number {
+  let frac = report.passThreshold ?? 0.95;
+  if (!isFinite(frac) || frac <= 0) frac = 0.95;
+  if (frac > 1) frac = frac / 100;
+  return Math.round(frac * 100);
+}
+
+/** A short, precise reason for the verdict — for managers: no API path echoed (the API column shows it),
+ *  and failures quantified against the pass threshold. */
+function remarkOf(a: ApiLogResult, pct: number): string {
+  const failLine = `${a.failureCount} out of ${a.attempts} failed (below ${pct}% pass percentage)`;
+  switch (a.status) {
+    case 'SUCCESS': return '—';
+    case 'NOT_TESTED': return 'No logs matched for this API.';
+    case 'SKIPPED': return 'Skipped — not counted in the verdict.';
+    case 'TIMEOUT':
+      return a.attempts > 0 ? `No response — ${a.failureCount} out of ${a.attempts} calls timed out.`
+                            : 'No response — the request timed out.';
+    case 'FAILED':
+    case 'PARTIAL':
+      if (a.attempts > 0 && a.failureCount > 0) return failLine + '.';
+      if (a.status === 'PARTIAL') return 'Not all flows were exercised by the log.';
+      return 'A tested flow failed — see the Detailed view.';
+    case 'INDETERMINATE': return 'Result unclear — see the Detailed view.';
+    default: return '—';
+  }
 }
 
 export default function TestSummary({ report }: { report: LogAnalysisReport }) {
@@ -42,6 +64,7 @@ export default function TestSummary({ report }: { report: LogAnalysisReport }) {
   }
   const total = apis.length;
   const pct = total ? Math.round((passed / total) * 100) : 0;
+  const threshold = thresholdPct(report);
 
   return (
     <div className="sumv" style={{ marginTop: 12 }}>
@@ -78,7 +101,7 @@ export default function TestSummary({ report }: { report: LogAnalysisReport }) {
       ) : (
         <div className="sumv-tablewrap">
           <table className="sumv-table">
-            <thead><tr><th>API</th><th>Latest Result</th><th>Remark</th></tr></thead>
+            <thead><tr><th>API</th><th>Test Result</th><th>Remark</th></tr></thead>
             <tbody>
               {groupItemsByFeature(apis, (a) => a.api).map((fg) => (
                 <Fragment key={fg.feature}>
@@ -89,7 +112,7 @@ export default function TestSummary({ report }: { report: LogAnalysisReport }) {
                       <tr key={a.api + '|' + a.operation}>
                         <td className="sumv-api"><span className="path">{a.api}</span></td>
                         <td><span className={'sumv-tst ' + r.cls}>{r.label}</span></td>
-                        <td style={{ color: a.status === 'SUCCESS' ? '#8497ad' : undefined, fontSize: 13 }}>{remarkOf(a)}</td>
+                        <td style={{ color: a.status === 'SUCCESS' ? '#8497ad' : undefined, fontSize: 13 }}>{remarkOf(a, threshold)}</td>
                       </tr>
                     );
                   })}

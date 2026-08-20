@@ -617,7 +617,7 @@ public class LogAnalysisService {
         return new LogAnalysisReport(parsed.detected(), version, idx.getCountry(),
                 parsed.recordsScanned(), parsed.matchedLines(), txns.size(), parsed.unparsed(),
                 apiResults, backendResults, new ArrayList<>(parsed.warnings()),
-                parsed.range().start(), parsed.range().end(), parsed.range().seconds());
+                parsed.range().start(), parsed.range().end(), parsed.range().seconds(), threshold);
     }
 
     /** One module for a multi-module scan: its source coordinates + marker app. */

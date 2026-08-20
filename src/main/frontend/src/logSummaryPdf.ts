@@ -40,12 +40,37 @@ function resultRamp(s: LogStatus): { label: string; ramp: Ramp } {
   if (s === 'INDETERMINATE') return { label: 'Check', ramp: PAL.gray };
   return { label: s === 'TIMEOUT' ? 'Timeout' : 'Failed', ramp: PAL.red };
 }
-function remarkOf(a: ApiLogResult): string {
-  if (a.status === 'SUCCESS') return '-';
-  // The note is purpose-built to explain the verdict — a coverage gap ("change flow not tested"), a failed
-  // flow, an FE error, or a timeout. Prefer it: the FE responseDescription can read "Success" on a
-  // PARTIAL/FAILED whose real cause is a backend flow, which would be misleading in a manager summary.
-  return a.note || a.responseDescription || a.responseCode || (a.attempts > 0 ? `${a.failureCount}/${a.attempts} failed` : '-');
+/** The effective front-end pass threshold, as a whole percent (default 95%). Accepts a fraction ("0.95")
+ *  or a percent ("95"); blank/invalid falls back to the default. */
+function thresholdPct(report: LogAnalysisReport): number {
+  let frac = report.passThreshold ?? 0.95;
+  if (!isFinite(frac) || frac <= 0) frac = 0.95;
+  if (frac > 1) frac = frac / 100;   // sent as a percent, normalise to a fraction
+  return Math.round(frac * 100);
+}
+
+/**
+ * A short, precise reason for the verdict — written for managers: no API path echoed (the API column already
+ * shows it), and failures quantified against the pass threshold. Falls back to the analysis note only when a
+ * count-based line doesn't apply.
+ */
+function remarkOf(a: ApiLogResult, pct: number): string {
+  const failLine = `${a.failureCount} out of ${a.attempts} failed (below ${pct}% pass percentage)`;
+  switch (a.status) {
+    case 'SUCCESS': return '-';
+    case 'NOT_TESTED': return 'No logs matched for this API.';
+    case 'SKIPPED': return 'Skipped — not counted in the verdict.';
+    case 'TIMEOUT':
+      return a.attempts > 0 ? `No response — ${a.failureCount} out of ${a.attempts} calls timed out.`
+                            : 'No response — the request timed out.';
+    case 'FAILED':
+    case 'PARTIAL':
+      if (a.attempts > 0 && a.failureCount > 0) return failLine + '.';
+      if (a.status === 'PARTIAL') return 'Not all flows were exercised by the log.';
+      return 'A tested flow failed — see the Detailed report.';
+    case 'INDETERMINATE': return 'Result unclear — see the Detailed report.';
+    default: return '-';
+  }
 }
 function pillCell(label: string, ramp: Ramp) { return { pill: { label, fill: ramp.fill, text: ramp.text, stripe: ramp.bar } }; }
 
@@ -85,14 +110,15 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
     // When the VAL Capability Matrix is configured, add a business-capability column (L1 › L2) so leadership
     // reads capabilities, not raw paths. Otherwise keep the original 3-column layout.
     const cols = hasCaps
-      ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Capability', w: 0.28 }, { header: 'Latest Result', w: 0.18 }, { header: 'Remark', w: 0.28 }]
-      : [{ header: 'API', w: 0.38, mono: true }, { header: 'Latest Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
+      ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Capability', w: 0.28 }, { header: 'Test Result', w: 0.18 }, { header: 'Remark', w: 0.28 }]
+      : [{ header: 'API', w: 0.38, mono: true }, { header: 'Test Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
+    const pct = thresholdPct(report);
     const rowCells = (a: ApiLogResult) => {
       const res = resultRamp(a.status);
       const base = [
         { text: a.api, mono: true, color: PAL.ink },
         pillCell(res.label, res.ramp),
-        { text: remarkOf(a), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
+        { text: remarkOf(a, pct), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
       ];
       if (!hasCaps) return base;
       const labels = capByApi.get(a.api);
@@ -106,10 +132,10 @@ export async function exportLogSummaryPdf(report: LogAnalysisReport, app?: strin
   }
 
   r.legend('What the labels mean', [
-    'Passed - the API executed and returned success in the log.',
-    'Failed / Timeout / Partial - executed with a non-success or incomplete result; investigate.',
-    'Not tested - no matching transaction was found in the uploaded log.',
-    'Remark - the response description / code (or reason) from the log.',
+    'Test Result - the verdict for this API: Passed, Failed, Partial, Timeout, or Not tested.',
+    'Failed / Timeout / Partial - a call failed, timed out, or a flow was not exercised; investigate.',
+    'Not tested - no logs matched this API.',
+    'Remark - a short reason for the verdict (e.g. how many calls failed against the pass threshold).',
     ...(hasCaps ? ['Capability - the business capability (L1 > L2) this API delivers, from the VAL matrix.'] : []),
   ]);
 
@@ -193,14 +219,14 @@ export async function exportLogSummaryPdfMulti(mods: ModuleLogSummary[], app?: s
 
   // Per-API verdicts, one section per module, grouped by business feature (worst first within each).
   const cols = hasCaps
-    ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Capability', w: 0.28 }, { header: 'Latest Result', w: 0.18 }, { header: 'Remark', w: 0.28 }]
-    : [{ header: 'API', w: 0.38, mono: true }, { header: 'Latest Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
-  const rowCells = (a: ApiLogResult, capByApi: Map<string, string[]>) => {
+    ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Capability', w: 0.28 }, { header: 'Test Result', w: 0.18 }, { header: 'Remark', w: 0.28 }]
+    : [{ header: 'API', w: 0.38, mono: true }, { header: 'Test Result', w: 0.22 }, { header: 'Remark', w: 0.40 }];
+  const rowCells = (a: ApiLogResult, capByApi: Map<string, string[]>, pct: number) => {
     const res = resultRamp(a.status);
     const base = [
       { text: a.api, mono: true, color: PAL.ink },
       pillCell(res.label, res.ramp),
-      { text: remarkOf(a), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
+      { text: remarkOf(a, pct), color: a.status === 'SUCCESS' ? PAL.muted : PAL.body },
     ];
     if (!hasCaps) return base;
     const labels = capByApi.get(a.api);
@@ -223,17 +249,18 @@ export async function exportLogSummaryPdfMulti(mods: ModuleLogSummary[], app?: s
     r.section('Module — ' + m.name, c.total, ramp, parts.length ? parts.join(' · ') : `${c.total} API${c.total === 1 ? '' : 's'}`);
     if (!apis.length) { r.emptyNote('No APIs were correlated for this module.'); continue; }
     const capByApi = capByModule.get(m.name) || new Map<string, string[]>();
+    const pct = thresholdPct(rep);
     for (const fg of groupItemsByFeature(apis, (a) => a.api)) {
       r.para(`${fg.feature}  (${fg.items.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
-      r.wrapTable(cols, fg.items.map((a) => rowCells(a, capByApi)));
+      r.wrapTable(cols, fg.items.map((a) => rowCells(a, capByApi, pct)));
     }
   }
 
   r.legend('What the labels mean', [
-    'Passed - the API executed and returned success in the log.',
-    'Failed / Timeout / Partial - executed with a non-success or incomplete result; investigate.',
-    'Not tested - no matching transaction was found in the uploaded log.',
-    'Remark - the response description / code (or reason) from the log.',
+    'Test Result - the verdict for this API: Passed, Failed, Partial, Timeout, or Not tested.',
+    'Failed / Timeout / Partial - a call failed, timed out, or a flow was not exercised; investigate.',
+    'Not tested - no logs matched this API.',
+    'Remark - a short reason for the verdict (e.g. how many calls failed against the pass threshold).',
     ...(hasCaps ? ['Capability - the business capability (L1 > L2) this API delivers, from the VAL matrix.'] : []),
   ]);
 

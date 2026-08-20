@@ -373,4 +373,6 @@ export interface LogAnalysisReport {
   logEnd?: string | null;
   /** Seconds between logStart and logEnd (the analysed window); -1 when unknown. */
   logSpanSeconds?: number;
+  /** Front-end pass-rate threshold this report was judged against, as a fraction (e.g. 0.95). */
+  passThreshold?: number;
 }

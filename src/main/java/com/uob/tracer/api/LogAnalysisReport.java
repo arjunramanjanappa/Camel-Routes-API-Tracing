@@ -18,6 +18,8 @@ import java.util.List;
  * @param logStart      earliest raw timestamp seen in the analysed log (null when none parseable)
  * @param logEnd        latest raw timestamp seen in the analysed log (null when none parseable)
  * @param logSpanSeconds seconds between logStart and logEnd — the window the log actually covers; -1 if unknown
+ * @param passThreshold the front-end pass-rate threshold this report was judged against, as a fraction
+ *                      (e.g. 0.95); lets the UI/report state the exact percentage a Failed verdict fell below
  */
 public record LogAnalysisReport(
         String uploadType,
@@ -32,5 +34,6 @@ public record LogAnalysisReport(
         List<String> warnings,
         String logStart,
         String logEnd,
-        long logSpanSeconds) {
+        long logSpanSeconds,
+        double passThreshold) {
 }

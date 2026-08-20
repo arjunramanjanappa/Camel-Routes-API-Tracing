@@ -45,6 +45,13 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
  *  case-insensitively. Configurable in the Splunk panel. */
 export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHeader', 'responses', 'ResponseHeader'];
 
+// Keep only Request/Response lines (drop host chatter, INFO/error noise) WITHOUT the rigid-literal drops that
+// "- Request -" caused. Splunk term search matches the standalone tokens "Request"/"Response" case-insensitively
+// regardless of surrounding punctuation/whitespace — "…-Request - {", "- Request  - ", "[Request]", "Response :"
+// all match — and it aligns with the analyser, which can only use lines whose direction word it can read. Camel-
+// case JSON keys (serviceRequest, serviceResponseHeader) are single tokens, so they don't trip this filter.
+const DIRECTION_FILTER = '("Request" OR "Response")';
+
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
 function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -133,11 +140,10 @@ export function buildEventsSpl(
   void clientVersion;
 
   // SPL-Secure: the front end logs via two loggers (SPLAppLog = request / SPLWSAppLog = response) and the host
-  // emits [Request]/[Response] on SPLHostMessage. Match by MARKER only — NO direction-phrase AND. The loggers are
-  // already direction-specific, so a "- Request -" / "Response :" AND was both redundant and fragile: the real
-  // lines vary the whitespace ("- Request  -"), so a rigid literal silently dropped whole request/response sets.
-  // The correlation id is deliberately NOT included — the query is purely marker-driven; the analyser scopes to
-  // the selection (and keeps only Request/Response lines) on upload.
+  // emits [Request]/[Response] on SPLHostMessage. Match by MARKER, then a whitespace-tolerant DIRECTION_FILTER
+  // (below) to drop host chatter — NOT a rigid "- Request -" / "Response :" literal, which the real lines' varying
+  // whitespace ("- Request  -") silently dropped. The correlation id is deliberately NOT included — the query is
+  // purely marker-driven; the analyser scopes to the selection on upload.
   if (secure) {
     const grp = (marker: string, paths?: string[]) => {
       const inner = paths && paths.length ? ` (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
@@ -156,7 +162,7 @@ export function buildEventsSpl(
       if (feS.length) groups.push(...feMarkers.map((m) => grp(m, feS)));
       if (beS.length) groups.push(...beMarkers.map((m) => grp(m, beS)));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')}) ${DIRECTION_FILTER}\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -225,12 +231,11 @@ export function buildMergedAllLinesSpl(index: string, earliest: string, sources:
   const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
   const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
   const slim = slimToResponseObject(responseKeys) + '\n';
-  // Marker-only (like the single-flavour "all" query) — NO direction-phrase filter. A literal
-  // "- Request -" / "[Request]" AND-clause silently dropped whole flavours: Mighty/SPL emit
-  // "…path -Request - {" (no space after the leading dash) and secure emits "- Request  - " (extra
-  // whitespace), neither of which the rigid literals match, so those Request lines never came back.
-  // The analyser keeps only Request/Response lines on upload anyway, so this stays "a raw-log dump
-  // that can't miss a marker line" — the whole point of "All log lines".
+  // Markers AND a whitespace-tolerant DIRECTION_FILTER (Request/Response as tokens) — this keeps only the lines
+  // the analyser can use (no host chatter) WITHOUT the rigid-literal drops the old "- Request -" / "[Request]"
+  // AND-clause caused: Mighty/SPL emit "…path -Request - {" (no space after the leading dash) and secure emits
+  // "- Request  - " (extra whitespace), neither of which a rigid literal matched, so those Request lines never
+  // came back — running all three flavours together returned far fewer records than one flavour alone.
   // Scoped: AND in the selected API URLs (front-end paths + backend hosturls), searched as raw phrases, so the
   // export only carries the chosen APIs' lines. In the raw log the path is plain text, so a phrase match works
   // for both FE and BE lines. Nothing selected → no query yet. (Path-less lines — e.g. a corrId-only response —
@@ -241,7 +246,7 @@ export function buildMergedAllLinesSpl(index: string, earliest: string, sources:
     if (!uniq.length) return '';
     scope = ` (${uniq.map((p) => `"${p}"`).join(' OR ')})`;
   }
-  return `index=${index} ${win}${src}(${markers})${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+  return `index=${index} ${win}${src}(${markers}) ${DIRECTION_FILTER}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

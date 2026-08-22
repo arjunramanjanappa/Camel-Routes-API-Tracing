@@ -141,36 +141,23 @@ export function buildEventsSpl(
   // (clientVersion is kept in the signature for callers but no longer filters the search.)
   void clientVersion;
 
-  // SPL-Secure: the front end logs on SPLAppLog / SPLWSAppLog and the host emits [Request]/[Response] on
-  // SPLHostMessage. Both the request AND the response can land on EITHER front-end logger (some environments log
-  // the response on SPLAppLog, not SPLWSAppLog), so each FE direction is matched against BOTH loggers — else a
-  // response on SPLAppLog is silently dropped. Each line is its marker(s) ANDed with its direction phrase —
-  // precise, so verbose secure bodies (headers, status lines) don't leak in. The correlation id is deliberately
-  // NOT included — for the whole scope (all/none selected) the query is marker-driven; the analyser scopes on upload.
+  // SPL-Secure: match the secure markers AND a flat set of PRECISE direction tokens — verified against the real
+  // logs. FE lines (SPLAppLog / SPLWSAppLog) carry "- Request -" and "- Response:"; host lines (SPLHostMessage)
+  // carry "- [Request]:" and "- [Response]:" (brackets escaped for Splunk). The leading "- " and trailing ":"/"-"
+  // keep verbose secure body text (headers, status lines) out, and matching every token against every marker
+  // means a response on SPLAppLog is no longer dropped. The correlation id is NOT included — the query is
+  // marker/direction-driven; the analyser scopes to the selection on upload. Note: in scoped mode the selected
+  // paths are ANDed, but the FE response line often carries NO path — use "All log lines" to keep those.
   if (secure) {
-    const grp = (marker: string, dir: string, paths?: string[]) => {
-      const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
-      return `("${marker}" AND "${dir}"${inner})`;
-    };
-    // FE direction against both loggers (request or response may be on either).
-    const feGrp = (dir: string, paths?: string[]) => {
-      const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
-      return `(("SPLAppLog" OR "SPLWSAppLog") AND "${dir}"${inner})`;
-    };
-    const feGroups = (paths?: string[]) => [feGrp('- Request -', paths), feGrp('Response :', paths)];
-    const beGroups = (paths?: string[]) => [grp('SPLHostMessage', ' - [Request]', paths), grp('SPLHostMessage', ' [Response]', paths)];
-    let groups: string[];
-    if (mode === 'all') {
-      groups = [...feGroups(), ...beGroups()];
-    } else {
-      const feS = [...new Set(feTerms.filter(Boolean))];
-      const beS = [...new Set(beTerms.filter(Boolean))];
-      if (feS.length === 0 && beS.length === 0) return '';
-      groups = [];
-      if (feS.length) groups.push(...feGroups(feS));
-      if (beS.length) groups.push(...beGroups(beS));
+    const markers = '("SPLAppLog" OR "SPLWSAppLog" OR "SPLHostMessage")';
+    const dir = '("- Request -" OR "- Response:" OR "- \\[Request\\]:" OR "- \\[Response\\]:")';
+    let scope = '';
+    if (mode !== 'all') {
+      const sel = [...new Set([...feTerms, ...beTerms].filter(Boolean))];
+      if (sel.length === 0) return '';
+      scope = ` (${sel.map((p) => `"${p}"`).join(' OR ')})`;
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
+    return `index=${index} ${win}${src}${markers} ${dir}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc

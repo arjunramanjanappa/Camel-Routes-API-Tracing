@@ -54,6 +54,13 @@ export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHead
 // case JSON keys (serviceRequest, serviceResponseHeader) are single tokens, so they don't trip this filter.
 const DIRECTION_FILTER = '("Request" OR "Response")';
 
+// SPL-Secure markers + precise direction tokens (verified against real logs). Kept as shared constants so the
+// secure single-flavour query and the consolidated multi-flavour union stay identical. FE lines land on
+// SPLAppLog/SPLWSAppLog ("- Request -" / "- Response:"), host on SPLHostMessage ("- [Request]:" / "- [Response]:");
+// brackets are escaped for Splunk. The precise tokens keep verbose secure body text (headers/status) out.
+const SECURE_MARKERS = '("SPLAppLog" OR "SPLWSAppLog" OR "SPLHostMessage")';
+const SECURE_DIR = '("- Request -" OR "- Response:" OR "- \\[Request\\]:" OR "- \\[Response\\]:")';
+
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
 function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -149,15 +156,13 @@ export function buildEventsSpl(
   // marker/direction-driven; the analyser scopes to the selection on upload. Note: in scoped mode the selected
   // paths are ANDed, but the FE response line often carries NO path — use "All log lines" to keep those.
   if (secure) {
-    const markers = '("SPLAppLog" OR "SPLWSAppLog" OR "SPLHostMessage")';
-    const dir = '("- Request -" OR "- Response:" OR "- \\[Request\\]:" OR "- \\[Response\\]:")';
     let scope = '';
     if (mode !== 'all') {
       const sel = [...new Set([...feTerms, ...beTerms].filter(Boolean))];
       if (sel.length === 0) return '';
       scope = ` (${sel.map((p) => `"${p}"`).join(' OR ')})`;
     }
-    return `index=${index} ${win}${src}${markers} ${dir}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+    return `index=${index} ${win}${src}${SECURE_MARKERS} ${SECURE_DIR}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -211,37 +216,49 @@ export function markersFor(app: string, secure: boolean): string[] {
 }
 
 /**
- * A SINGLE merged Splunk query covering every app flavour (Mighty + SPL + SPL-Secure) in one export — the union
- * of all their markers, in the "all log lines" shape. Run once, get one file; the analyser buckets each line to
- * its flavour on upload (and now parses in parallel). Saves running 3 separate per-app queries.
+ * A SINGLE merged Splunk query covering every selected app flavour (Mighty + SPL + SPL-Secure) in one export —
+ * the UNION of each flavour's OWN clause, OR-joined, in the "all log lines" shape. Run once, get one file; the
+ * analyser buckets each line to its flavour on upload. Each flavour keeps its correct direction handling:
+ *   - non-secure (Mighty/SPL): markers AND the whitespace-tolerant DIRECTION_FILTER ("Request"/"Response" tokens)
+ *     — matches "…-Request - {" etc. without the rigid-literal drops that made the merged run return far fewer
+ *     records than a single flavour;
+ *   - SPL-Secure: SECURE_MARKERS AND SECURE_DIR (precise per-token) — so verbose secure bodies don't leak in.
+ * Splunk de-dupes the union, so the shared SPLHostMessage marker never double-counts a line.
  */
 export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
                                        flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS,
                                        mode: 'scoped' | 'all' = 'all', paths: string[] = []): string {
-  const markerSet = new Set<string>();
-  for (const f of flavours) markersFor(f.app, f.secure).forEach((m) => markerSet.add(m));
-  const markers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
-  if (!markers) return '';
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
   const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
   const slim = slimToResponseObject(responseKeys) + '\n';
-  // Markers AND a whitespace-tolerant DIRECTION_FILTER (Request/Response as tokens) — this keeps only the lines
-  // the analyser can use (no host chatter) WITHOUT the rigid-literal drops the old "- Request -" / "[Request]"
-  // AND-clause caused: Mighty/SPL emit "…path -Request - {" (no space after the leading dash) and secure emits
-  // "- Request  - " (extra whitespace), neither of which a rigid literal matched, so those Request lines never
-  // came back — running all three flavours together returned far fewer records than one flavour alone.
-  // Scoped: AND in the selected API URLs (front-end paths + backend hosturls), searched as raw phrases, so the
-  // export only carries the chosen APIs' lines. In the raw log the path is plain text, so a phrase match works
-  // for both FE and BE lines. Nothing selected → no query yet. (Path-less lines — e.g. a corrId-only response —
-  // are the reason "All log lines" exists; it drops this clause and keeps every marker line.)
+  // One clause per selected flavour (de-duplicated: same app / the single secure clause appears once).
+  const seen = new Set<string>();
+  const clauses: string[] = [];
+  for (const f of flavours || []) {
+    if (f.secure) {
+      if (seen.has('secure')) continue;
+      seen.add('secure');
+      clauses.push(`(${SECURE_MARKERS} ${SECURE_DIR})`);
+    } else {
+      const app = f.app && f.app.trim() ? f.app.trim() : 'Mighty';
+      if (seen.has(app)) continue;
+      seen.add(app);
+      clauses.push(`(("${app}Message" OR "${app}HostMessage") ${DIRECTION_FILTER})`);
+    }
+  }
+  if (!clauses.length) return '';
+  const union = clauses.join(' OR ');
+  // Scoped: AND in the selected API URLs (front-end paths + backend hosturls) as raw phrases. Nothing selected →
+  // no query. (Path-less lines — e.g. a corrId-only secure response — are why "All log lines" exists: it drops
+  // this clause and keeps every marker line the union matched.)
   let scope = '';
   if (mode === 'scoped') {
     const uniq = [...new Set((paths || []).map((p) => p.trim()).filter(Boolean))];
     if (!uniq.length) return '';
     scope = ` (${uniq.map((p) => `"${p}"`).join(' OR ')})`;
   }
-  return `index=${index} ${win}${src}(${markers}) ${DIRECTION_FILTER}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+  return `index=${index} ${win}${src}(${union})${scope}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

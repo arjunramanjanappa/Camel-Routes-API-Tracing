@@ -141,19 +141,20 @@ export function buildEventsSpl(
   // (clientVersion is kept in the signature for callers but no longer filters the search.)
   void clientVersion;
 
-  // SPL-Secure: the front end logs via two loggers (SPLAppLog request / SPLWSAppLog response) and the host emits
-  // [Request]/[Response] on SPLHostMessage. Each marker is ANDed with ITS OWN direction token — precise, per
-  // marker — NOT the flat ("Request" OR "Response") token used by the merged query: secure logs are verbose
-  // (status lines, "X-Request-Id" headers, "response headers={…}"), so a bare word match would pull in body
-  // lines that aren't direction lines. The correlation id is deliberately NOT included — for the whole scope
-  // (all/none selected) the query is purely marker-driven; the analyser scopes to the selection on upload.
+  // SPL-Secure: the front end logs via two DEDICATED single-direction loggers (SPLAppLog = request,
+  // SPLWSAppLog = response) — so the marker alone identifies the line, no direction token needed (and can't
+  // drop on whitespace). The host (SPLHostMessage) is a shared logger, so it's filtered to the BRACKETED
+  // direction tokens "[Request]"/"[Response]" — precise enough to exclude host chatter / body mentions of the
+  // words, and whitespace-immune (no internal spaces), unlike the rigid "- Request -" literal that matched the
+  // real "- Request  -" whitespace so poorly it returned 0 rows. The correlation id is deliberately NOT
+  // included — the query is marker-driven; the analyser scopes to the selection on upload.
   if (secure) {
-    const grp = (marker: string, dir: string, paths?: string[]) => {
-      const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
-      return `("${marker}" AND "${dir}"${inner})`;
+    const grp = (clause: string, paths?: string[]) => {
+      const inner = paths && paths.length ? ` (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
+      return `(${clause}${inner})`;
     };
-    const feGroups = (paths?: string[]) => [grp('SPLAppLog', '- Request -', paths), grp('SPLWSAppLog', 'Response :', paths)];
-    const beGroups = (paths?: string[]) => [grp('SPLHostMessage', ' - [Request]', paths), grp('SPLHostMessage', ' [Response]', paths)];
+    const feGroups = (paths?: string[]) => [grp('"SPLAppLog"', paths), grp('"SPLWSAppLog"', paths)];
+    const beGroups = (paths?: string[]) => [grp('"SPLHostMessage" ("[Request]" OR "[Response]")', paths)];
     let groups: string[];
     if (mode === 'all') {
       groups = [...feGroups(), ...beGroups()];

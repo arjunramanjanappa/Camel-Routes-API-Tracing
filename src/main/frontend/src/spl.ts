@@ -1,3 +1,5 @@
+// Splunk query builder. Query behaviour: merged multi-flavour uses a whitespace-tolerant Request/Response
+// filter; SPL-Secure uses precise per-marker direction tokens (see buildEventsSpl / buildMergedAllLinesSpl).
 /**
  * Strip a leading Camel property placeholder `{{...}}` from a backend value to get the path/uri.
  * Handles a NESTED default like `{{am5.mock.url:{{am5.p.mfa.url}}}}${...}` by matching balanced `{{`/`}}`

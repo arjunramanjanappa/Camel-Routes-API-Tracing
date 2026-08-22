@@ -56,9 +56,10 @@ const DIRECTION_FILTER = '("Request" OR "Response")';
 
 // SPL-Secure markers + precise direction tokens (verified against real logs). Kept as shared constants so the
 // secure single-flavour query and the consolidated multi-flavour union stay identical. FE lines land on
-// SPLAppLog/SPLWSAppLog ("- Request -" / "- Response:"), host on SPLHostMessage ("- [Request]:" / "- [Response]:");
-// brackets are escaped for Splunk. The precise tokens keep verbose secure body text (headers/status) out.
-const SECURE_MARKERS = '("SPLAppLog" OR "SPLWSAppLog" OR "SPLHostMessage")';
+// SPLAppLog ("- Request -" / "- Response:"), host on SPLHostMessage ("- [Request]:" / "- [Response]:"); brackets
+// are escaped for Splunk. The precise tokens keep verbose secure body text (headers/status) out. (SPLWSAppLog is
+// not used in the query — SPLAppLog carries both FE request and response.)
+const SECURE_MARKERS = '("SPLAppLog" OR "SPLHostMessage")';
 const SECURE_DIR = '("- Request -" OR "- Response:" OR "- \\[Request\\]:" OR "- \\[Response\\]:")';
 
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
@@ -149,8 +150,8 @@ export function buildEventsSpl(
   void clientVersion;
 
   // SPL-Secure: match the secure markers AND a flat set of PRECISE direction tokens — verified against the real
-  // logs. FE lines (SPLAppLog / SPLWSAppLog) carry "- Request -" and "- Response:"; host lines (SPLHostMessage)
-  // carry "- [Request]:" and "- [Response]:" (brackets escaped for Splunk). The leading "- " and trailing ":"/"-"
+  // logs. FE lines (SPLAppLog — carries both request & response) use "- Request -" and "- Response:"; host lines
+  // (SPLHostMessage) use "- [Request]:" and "- [Response]:" (brackets escaped for Splunk). The leading "- " and trailing ":"/"-"
   // keep verbose secure body text (headers, status lines) out, and matching every token against every marker
   // means a response on SPLAppLog is no longer dropped. The correlation id is NOT included — the query is
   // marker/direction-driven; the analyser scopes to the selection on upload. Note: in scoped mode the selected
@@ -212,7 +213,7 @@ export function buildEventsSpl(
 /** The log-line markers for one flavour: {@code <app>Message}/{@code <app>HostMessage}, or the SPL-Secure loggers. */
 export function markersFor(app: string, secure: boolean): string[] {
   const a = app && app.trim() ? app.trim() : 'Mighty';
-  return secure ? ['SPLAppLog', 'SPLWSAppLog', 'SPLHostMessage'] : [a + 'Message', a + 'HostMessage'];
+  return secure ? ['SPLAppLog', 'SPLHostMessage'] : [a + 'Message', a + 'HostMessage'];
 }
 
 /**

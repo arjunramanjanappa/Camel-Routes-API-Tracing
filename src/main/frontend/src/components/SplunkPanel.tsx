@@ -56,8 +56,8 @@ function environmentsFor(country: string | undefined): { label: string; source: 
  */
 export default function SplunkPanel({ title = 'Splunk query', frontendApis, backendApis, backendVersions = {}, backendHosturls = {}, hint, app, version, country, secure = false, flavours = [] }: Props) {
   const application = app && app.trim() ? app.trim() : 'Mighty';
-  // SPL-Secure front-end lines use two loggers; the backend stays <app>HostMessage.
-  const feMarker = secure ? 'SPLAppLog / SPLWSAppLog' : application + 'Message';   // front-end log lines
+  // SPL-Secure front-end lines log on SPLAppLog (request + response); the backend stays <app>HostMessage.
+  const feMarker = secure ? 'SPLAppLog' : application + 'Message';   // front-end log lines
   const beMarker = secure ? 'SPLHostMessage' : application + 'HostMessage';        // backend log lines
   const [mode, setMode] = useState<'scoped' | 'all'>(pref('splMode', 'scoped') === 'all' ? 'all' : 'scoped');
   const [index, setIndex] = useState(pref('splIndex', 'your_index'));

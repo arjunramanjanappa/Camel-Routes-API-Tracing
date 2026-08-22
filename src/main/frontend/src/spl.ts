@@ -139,30 +139,31 @@ export function buildEventsSpl(
   // (clientVersion is kept in the signature for callers but no longer filters the search.)
   void clientVersion;
 
-  // SPL-Secure: the front end logs via two loggers (SPLAppLog = request / SPLWSAppLog = response) and the host
-  // emits [Request]/[Response] on SPLHostMessage. Match by MARKER, then a whitespace-tolerant DIRECTION_FILTER
-  // (below) to drop host chatter — NOT a rigid "- Request -" / "Response :" literal, which the real lines' varying
-  // whitespace ("- Request  -") silently dropped. The correlation id is deliberately NOT included — the query is
-  // purely marker-driven; the analyser scopes to the selection on upload.
+  // SPL-Secure: the front end logs via two loggers (SPLAppLog request / SPLWSAppLog response) and the host emits
+  // [Request]/[Response] on SPLHostMessage. Each marker is ANDed with ITS OWN direction token — precise, per
+  // marker — NOT the flat ("Request" OR "Response") token used by the merged query: secure logs are verbose
+  // (status lines, "X-Request-Id" headers, "response headers={…}"), so a bare word match would pull in body
+  // lines that aren't direction lines. The correlation id is deliberately NOT included — for the whole scope
+  // (all/none selected) the query is purely marker-driven; the analyser scopes to the selection on upload.
   if (secure) {
-    const grp = (marker: string, paths?: string[]) => {
-      const inner = paths && paths.length ? ` (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
-      return `("${marker}"${inner})`;
+    const grp = (marker: string, dir: string, paths?: string[]) => {
+      const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
+      return `("${marker}" AND "${dir}"${inner})`;
     };
-    const feMarkers = ['SPLAppLog', 'SPLWSAppLog'];
-    const beMarkers = ['SPLHostMessage'];
+    const feGroups = (paths?: string[]) => [grp('SPLAppLog', '- Request -', paths), grp('SPLWSAppLog', 'Response :', paths)];
+    const beGroups = (paths?: string[]) => [grp('SPLHostMessage', ' - [Request]', paths), grp('SPLHostMessage', ' [Response]', paths)];
     let groups: string[];
     if (mode === 'all') {
-      groups = [...feMarkers, ...beMarkers].map((m) => grp(m));
+      groups = [...feGroups(), ...beGroups()];
     } else {
       const feS = [...new Set(feTerms.filter(Boolean))];
       const beS = [...new Set(beTerms.filter(Boolean))];
       if (feS.length === 0 && beS.length === 0) return '';
       groups = [];
-      if (feS.length) groups.push(...feMarkers.map((m) => grp(m, feS)));
-      if (beS.length) groups.push(...beMarkers.map((m) => grp(m, beS)));
+      if (feS.length) groups.push(...feGroups(feS));
+      if (beS.length) groups.push(...beGroups(beS));
     }
-    return `index=${index} ${win}${src}(${groups.join(' OR ')}) ${DIRECTION_FILTER}\n${slim}| sort 0 -_time\n| table _raw`;
+    return `index=${index} ${win}${src}(${groups.join(' OR ')})\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc

@@ -141,17 +141,23 @@ export function buildEventsSpl(
   // (clientVersion is kept in the signature for callers but no longer filters the search.)
   void clientVersion;
 
-  // SPL-Secure: the front end logs via two loggers (SPLAppLog request / SPLWSAppLog response)
-  // and the host emits [Request]/[Response] on SPLHostMessage. Each line type is its marker
-  // ANDed with the direction phrase, matched in _raw (secure logs carry no extracted fields).
-  // The correlation id is deliberately NOT included — for the whole scope (all/none selected)
-  // the query is purely marker-driven; the analyser scopes to the selection on upload.
+  // SPL-Secure: the front end logs on SPLAppLog / SPLWSAppLog and the host emits [Request]/[Response] on
+  // SPLHostMessage. Both the request AND the response can land on EITHER front-end logger (some environments log
+  // the response on SPLAppLog, not SPLWSAppLog), so each FE direction is matched against BOTH loggers — else a
+  // response on SPLAppLog is silently dropped. Each line is its marker(s) ANDed with its direction phrase —
+  // precise, so verbose secure bodies (headers, status lines) don't leak in. The correlation id is deliberately
+  // NOT included — for the whole scope (all/none selected) the query is marker-driven; the analyser scopes on upload.
   if (secure) {
     const grp = (marker: string, dir: string, paths?: string[]) => {
       const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
       return `("${marker}" AND "${dir}"${inner})`;
     };
-    const feGroups = (paths?: string[]) => [grp('SPLAppLog', '- Request -', paths), grp('SPLWSAppLog', 'Response :', paths)];
+    // FE direction against both loggers (request or response may be on either).
+    const feGrp = (dir: string, paths?: string[]) => {
+      const inner = paths && paths.length ? ` AND (${paths.map((p) => `"${p}"`).join(' OR ')})` : '';
+      return `(("SPLAppLog" OR "SPLWSAppLog") AND "${dir}"${inner})`;
+    };
+    const feGroups = (paths?: string[]) => [feGrp('- Request -', paths), feGrp('Response :', paths)];
     const beGroups = (paths?: string[]) => [grp('SPLHostMessage', ' - [Request]', paths), grp('SPLHostMessage', ' [Response]', paths)];
     let groups: string[];
     if (mode === 'all') {

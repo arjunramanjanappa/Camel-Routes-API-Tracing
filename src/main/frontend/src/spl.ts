@@ -47,13 +47,6 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
  *  case-insensitively. Configurable in the Splunk panel. */
 export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHeader', 'responses', 'ResponseHeader'];
 
-// Keep only Request/Response lines (drop host chatter, INFO/error noise) WITHOUT the rigid-literal drops that
-// "- Request -" caused. Splunk term search matches the standalone tokens "Request"/"Response" case-insensitively
-// regardless of surrounding punctuation/whitespace — "…-Request - {", "- Request  - ", "[Request]", "Response :"
-// all match — and it aligns with the analyser, which can only use lines whose direction word it can read. Camel-
-// case JSON keys (serviceRequest, serviceResponseHeader) are single tokens, so they don't trip this filter.
-const DIRECTION_FILTER = '("Request" OR "Response")';
-
 // SPL-Secure markers. Matched by MARKER ONLY — deliberately NO direction-token filter. A secure request/response
 // is split across several log lines (status, body, headers — and the corrId/TRACE-ID sits on the headers line), so
 // a direction filter like "- Response:" keeps only the first line and drops the continuation lines "in between",
@@ -215,50 +208,35 @@ export function markersFor(app: string, secure: boolean): string[] {
 }
 
 /**
- * A SINGLE merged Splunk query covering every selected app flavour (Mighty + SPL + SPL-Secure) in one export —
- * the UNION of each flavour's OWN clause, OR-joined, in the "all log lines" shape. Run once, get one file; the
- * analyser buckets each line to its flavour on upload. Each flavour keeps its correct direction handling:
- *   - non-secure (Mighty/SPL): markers AND the whitespace-tolerant DIRECTION_FILTER ("Request"/"Response" tokens)
- *     — matches "…-Request - {" etc. without the rigid-literal drops that made the merged run return far fewer
- *     records than a single flavour;
- *   - SPL-Secure: SECURE_MARKERS only (no direction filter) — a secure req/response spans several lines, so a
- *     direction token would drop the continuation lines; extra co-located plain-SPL lines correlate out on upload.
- * Splunk de-dupes the union, so the shared SPLHostMessage marker never double-counts a line.
+ * A SINGLE consolidated Splunk query covering every selected app flavour (Mighty + SPL + SPL-Secure) in one
+ * export. It ORs the DISTINCT set of their markers once — Mighty/SPL/SPL-Secure share markers (SPLHostMessage is
+ * in both SPL flavours), so grouping by the distinct marker SET (MightyMessage, MightyHostMessage, SPLMessage,
+ * SPLHostMessage, SPLAppLog) avoids per-app clauses and any duplicate handling. Matched by MARKER ONLY — no
+ * direction filter: it would drop multi-line (split) secure req/responses, and extra non-req/response or
+ * cross-app lines are harmless because the analyser correlates by corrId and ignores what doesn't belong. Splunk
+ * returns each event once. Run once, get one file; the analyser buckets each line to its flavour on upload.
  */
 export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
                                        flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS,
                                        mode: 'scoped' | 'all' = 'all', paths: string[] = []): string {
+  const markerSet = new Set<string>();
+  for (const f of flavours || []) markersFor(f.app, f.secure).forEach((m) => markerSet.add(m));
+  const markers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
+  if (!markers) return '';
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
   const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
   const slim = slimToResponseObject(responseKeys) + '\n';
-  // One clause per selected flavour (de-duplicated: same app / the single secure clause appears once).
-  const seen = new Set<string>();
-  const clauses: string[] = [];
-  for (const f of flavours || []) {
-    if (f.secure) {
-      if (seen.has('secure')) continue;
-      seen.add('secure');
-      clauses.push(`(${SECURE_MARKERS})`);   // marker-only — don't drop split-response continuation lines
-    } else {
-      const app = f.app && f.app.trim() ? f.app.trim() : 'Mighty';
-      if (seen.has(app)) continue;
-      seen.add(app);
-      clauses.push(`(("${app}Message" OR "${app}HostMessage") ${DIRECTION_FILTER})`);
-    }
-  }
-  if (!clauses.length) return '';
-  const union = clauses.join(' OR ');
   // Scoped: AND in the selected API URLs (front-end paths + backend hosturls) as raw phrases. Nothing selected →
   // no query. (Path-less lines — e.g. a corrId-only secure response — are why "All log lines" exists: it drops
-  // this clause and keeps every marker line the union matched.)
+  // this clause and keeps every marker line.)
   let scope = '';
   if (mode === 'scoped') {
     const uniq = [...new Set((paths || []).map((p) => p.trim()).filter(Boolean))];
     if (!uniq.length) return '';
     scope = ` (${uniq.map((p) => `"${p}"`).join(' OR ')})`;
   }
-  return `index=${index} ${win}${src}(${union})${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+  return `index=${index} ${win}${src}(${markers})${scope}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

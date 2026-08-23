@@ -47,12 +47,17 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
  *  case-insensitively. Configurable in the Splunk panel. */
 export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHeader', 'responses', 'ResponseHeader'];
 
-// SPL-Secure markers. Matched by MARKER ONLY — deliberately NO direction-token filter. A secure request/response
-// is split across several log lines (status, body, headers — and the corrId/TRACE-ID sits on the headers line), so
-// a direction filter like "- Response:" keeps only the first line and drops the continuation lines "in between",
-// which breaks correlation. Pulling every marker line is safe: lines from the co-located plain-SPL app (same
-// SPLHostMessage template, but a different log file) simply don't share a corrId with a secure transaction, so the
-// analyser ignores them on upload. (SPLWSAppLog is not used — SPLAppLog carries both FE request and response.)
+// Request/Response direction filter. Bare tokens "Request"/"Response" match EVERY direction form as standalone
+// words regardless of the surrounding "-", ":" or "[]" — "-Request -", "- Request -", "- Response:", "[Request]:",
+// "[Response]:" all match — so no request/response line is dropped (an over-precise per-token split was dropping
+// the host lines "in between"), while pure chatter (INFO/error lines with no direction word) is excluded. Splunk
+// term search is case-insensitive; camel-case JSON keys (serviceRequest) are single tokens, so they don't trip it.
+const DIRECTION_FILTER = '("Request" OR "Response")';
+
+// SPL-Secure markers. SPLAppLog carries both FE request & response; SPLHostMessage is the host marker (shared with
+// plain-SPL — the co-located plain-SPL app reuses the same template in a different log file). Extra plain-SPL lines
+// pulled via the shared marker are harmless: they don't share a corrId with a secure transaction, so the analyser
+// drops them on upload. (SPLWSAppLog is not used — SPLAppLog carries both request and response.)
 const SECURE_MARKERS = '("SPLAppLog" OR "SPLHostMessage")';
 
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
@@ -142,11 +147,11 @@ export function buildEventsSpl(
   // (clientVersion is kept in the signature for callers but no longer filters the search.)
   void clientVersion;
 
-  // SPL-Secure: match by MARKER ONLY (see SECURE_MARKERS) — no direction filter, because a secure request/response
-  // spans several lines and a direction token would drop the continuation lines (breaking correlation). Extra lines
-  // from the co-located plain-SPL app are harmless — they don't share a corrId with a secure transaction, so the
-  // analyser drops them on upload. In scoped mode the selected paths are ANDed, but a secure FE response often has
-  // NO path (tied by corrId), so use "All log lines" for secure to keep it.
+  // SPL-Secure: the secure markers AND the DIRECTION_FILTER — pull only Request/Response lines (not other chatter),
+  // with bare tokens that catch every direction form so no req/response line is dropped. Extra plain-SPL lines from
+  // the shared SPLHostMessage marker are harmless (different corrId — the analyser drops them on upload). In scoped
+  // mode the selected paths are ANDed, but a secure FE response often has NO path (tied by corrId), so use "All log
+  // lines" for secure to keep it.
   if (secure) {
     let scope = '';
     if (mode !== 'all') {
@@ -154,7 +159,7 @@ export function buildEventsSpl(
       if (sel.length === 0) return '';
       scope = ` (${sel.map((p) => `"${p}"`).join(' OR ')})`;
     }
-    return `index=${index} ${win}${src}${SECURE_MARKERS}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+    return `index=${index} ${win}${src}${SECURE_MARKERS} ${DIRECTION_FILTER}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -211,10 +216,11 @@ export function markersFor(app: string, secure: boolean): string[] {
  * A SINGLE consolidated Splunk query covering every selected app flavour (Mighty + SPL + SPL-Secure) in one
  * export. It ORs the DISTINCT set of their markers once — Mighty/SPL/SPL-Secure share markers (SPLHostMessage is
  * in both SPL flavours), so grouping by the distinct marker SET (MightyMessage, MightyHostMessage, SPLMessage,
- * SPLHostMessage, SPLAppLog) avoids per-app clauses and any duplicate handling. Matched by MARKER ONLY — no
- * direction filter: it would drop multi-line (split) secure req/responses, and extra non-req/response or
- * cross-app lines are harmless because the analyser correlates by corrId and ignores what doesn't belong. Splunk
- * returns each event once. Run once, get one file; the analyser buckets each line to its flavour on upload.
+ * SPLHostMessage, SPLAppLog) avoids per-app clauses and any duplicate handling — then ANDs the DIRECTION_FILTER so
+ * only Request/Response lines come back (not other chatter). The bare tokens catch every direction form across
+ * every flavour ("-Request -", "- Response:", "[Request]:" …), so no req/response line is dropped; extra
+ * non-matching or cross-app lines are harmless (the analyser correlates by corrId and ignores what doesn't
+ * belong). Splunk returns each event once. Run once, get one file; the analyser buckets each line on upload.
  */
 export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
                                        flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS,
@@ -236,7 +242,7 @@ export function buildMergedAllLinesSpl(index: string, earliest: string, sources:
     if (!uniq.length) return '';
     scope = ` (${uniq.map((p) => `"${p}"`).join(' OR ')})`;
   }
-  return `index=${index} ${win}${src}(${markers})${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+  return `index=${index} ${win}${src}(${markers}) ${DIRECTION_FILTER}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

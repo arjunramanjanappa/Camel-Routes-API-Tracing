@@ -47,15 +47,15 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
  *  case-insensitively. Configurable in the Splunk panel. */
 export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHeader', 'responses', 'ResponseHeader'];
 
-// Direction filter for the CLEAN markers (Mighty*, SPLMessage, SPLHostMessage): those loggers emit only
-// request/response lines, so the bare tokens "Request"/"Response" (standalone words, any surrounding "-"/":"/"[]")
-// keep every direction line and exclude nothing they shouldn't.
-const DIRECTION_FILTER = '("Request" OR "Response")';
+// The CLEAN markers (Mighty*, SPLMessage, SPLHostMessage) are dedicated request/response loggers, so they're
+// matched by MARKER ONLY — every line under them belongs to a transaction, and a "Request"/"Response" WORD filter
+// wrongly dropped the req/resp lines that don't literally carry the word (it cut ~21k clean-marker lines). SPLAppLog
+// is the exception (below).
 
 // SPLAppLog is a general APPLICATION logger — it emits MANY lines that merely contain the word "Request" (not just
-// the FE direction lines), so the bare filter would pull everything. Filter it to its PRECISE FE direction tokens:
-// the request is "…- Request - {" and the response is "…- Response: …" (leading "- ", so body mentions like
-// serviceRequest / X-Request-Id don't match). This is the one chatty marker; the rest stay on DIRECTION_FILTER.
+// the FE direction lines), so a marker-only match would pull everything. Filter it to its PRECISE FE direction
+// tokens: request "…- Request - {", response "…- Response: …" / "…- Response - …" (leading "- ", so body mentions
+// like serviceRequest / X-Request-Id don't match). This is the ONE chatty marker.
 const SPLAPPLOG_DIR = '("- Request -" OR "- Response:" OR "- Response -")';
 
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
@@ -146,10 +146,10 @@ export function buildEventsSpl(
   void clientVersion;
 
   // SPL-Secure: SPLAppLog (chatty app logger) → its PRECISE FE tokens so it pulls only the request/response lines,
-  // not every line containing the word "Request"; SPLHostMessage (dedicated host logger, clean) → the bare
-  // DIRECTION_FILTER. Extra plain-SPL lines via the shared SPLHostMessage marker are harmless (different corrId —
-  // the analyser drops them on upload). In scoped mode the selected paths are ANDed, but a secure FE response often
-  // has NO path (tied by corrId), so use "All log lines" for secure to keep it.
+  // not every line containing the word "Request"; SPLHostMessage (dedicated host logger, clean) → MARKER ONLY.
+  // Extra plain-SPL lines via the shared SPLHostMessage marker are harmless (different corrId — the analyser drops
+  // them on upload). In scoped mode the selected paths are ANDed, but a secure FE response often has NO path (tied
+  // by corrId), so use "All log lines" for secure to keep it.
   if (secure) {
     let scope = '';
     if (mode !== 'all') {
@@ -157,7 +157,7 @@ export function buildEventsSpl(
       if (sel.length === 0) return '';
       scope = ` (${sel.map((p) => `"${p}"`).join(' OR ')})`;
     }
-    const group = `(("SPLAppLog" ${SPLAPPLOG_DIR}) OR ("SPLHostMessage" ${DIRECTION_FILTER}))`;
+    const group = `(("SPLAppLog" ${SPLAPPLOG_DIR}) OR "SPLHostMessage")`;
     return `index=${index} ${win}${src}${group}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
@@ -214,20 +214,19 @@ export function markersFor(app: string, secure: boolean): string[] {
 /**
  * A SINGLE consolidated Splunk query covering every selected app flavour (Mighty + SPL + SPL-Secure) in one
  * export. It groups the DISTINCT set of their markers (MightyMessage, MightyHostMessage, SPLMessage,
- * SPLHostMessage, SPLAppLog) — the shared SPLHostMessage appears once, so no per-app duplicate clauses — and pulls
- * only request/response lines. The CLEAN markers use the bare DIRECTION_FILTER; SPLAppLog (a chatty app logger)
- * uses its PRECISE FE tokens so it isn't pulled for every line containing "Request". Extra cross-app lines are
- * harmless (the analyser correlates by corrId and ignores what doesn't belong). Splunk returns each event once.
+ * SPLHostMessage, SPLAppLog) — the shared SPLHostMessage appears once, so no per-app duplicate clauses. The CLEAN
+ * markers are matched MARKER-ONLY (dedicated req/response loggers — a word filter wrongly dropped their lines that
+ * don't literally carry "Request"/"Response"); only SPLAppLog (a chatty app logger) is filtered to its PRECISE FE
+ * tokens so it isn't pulled for every line containing "Request". Extra cross-app lines are harmless (the analyser
+ * correlates by corrId and ignores what doesn't belong). Splunk returns each event once.
  */
 export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
                                        flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS,
                                        mode: 'scoped' | 'all' = 'all', paths: string[] = []): string {
   const markerSet = new Set<string>();
   for (const f of flavours || []) markersFor(f.app, f.secure).forEach((m) => markerSet.add(m));
-  const chatty = markerSet.delete('SPLAppLog');   // handled with its own precise tokens, not the bare filter
-  const cleanMarkers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
-  const groups: string[] = [];
-  if (cleanMarkers) groups.push(`((${cleanMarkers}) ${DIRECTION_FILTER})`);
+  const chatty = markerSet.delete('SPLAppLog');   // chatty logger → its own precise tokens; the rest are marker-only
+  const groups: string[] = [...markerSet].map((m) => `"${m}"`);   // clean markers: MARKER ONLY (they only log req/resp)
   if (chatty) groups.push(`("SPLAppLog" ${SPLAPPLOG_DIR})`);
   if (!groups.length) return '';
   const markers = groups.join(' OR ');

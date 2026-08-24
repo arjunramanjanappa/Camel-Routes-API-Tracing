@@ -56,7 +56,7 @@ const DIRECTION_FILTER = '("Request" OR "Response")';
 // the FE direction lines), so the bare filter would pull everything. Filter it to its PRECISE FE direction tokens:
 // the request is "…- Request - {" and the response is "…- Response: …" (leading "- ", so body mentions like
 // serviceRequest / X-Request-Id don't match). This is the one chatty marker; the rest stay on DIRECTION_FILTER.
-const SPLAPPLOG_DIR = '("- Request -" OR "- Response:")';
+const SPLAPPLOG_DIR = '("- Request -" OR "- Response:" OR "- Response -")';
 
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
 function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

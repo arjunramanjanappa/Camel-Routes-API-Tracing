@@ -47,18 +47,16 @@ export function buildSpl(index: string, field: string, terms: string[], earliest
  *  case-insensitively. Configurable in the Splunk panel. */
 export const DEFAULT_HEADER_KEYS = ['serviceRequestHeader', 'serviceResponseHeader', 'responses', 'ResponseHeader'];
 
-// Request/Response direction filter. Bare tokens "Request"/"Response" match EVERY direction form as standalone
-// words regardless of the surrounding "-", ":" or "[]" — "-Request -", "- Request -", "- Response:", "[Request]:",
-// "[Response]:" all match — so no request/response line is dropped (an over-precise per-token split was dropping
-// the host lines "in between"), while pure chatter (INFO/error lines with no direction word) is excluded. Splunk
-// term search is case-insensitive; camel-case JSON keys (serviceRequest) are single tokens, so they don't trip it.
+// Direction filter for the CLEAN markers (Mighty*, SPLMessage, SPLHostMessage): those loggers emit only
+// request/response lines, so the bare tokens "Request"/"Response" (standalone words, any surrounding "-"/":"/"[]")
+// keep every direction line and exclude nothing they shouldn't.
 const DIRECTION_FILTER = '("Request" OR "Response")';
 
-// SPL-Secure markers. SPLAppLog carries both FE request & response; SPLHostMessage is the host marker (shared with
-// plain-SPL — the co-located plain-SPL app reuses the same template in a different log file). Extra plain-SPL lines
-// pulled via the shared marker are harmless: they don't share a corrId with a secure transaction, so the analyser
-// drops them on upload. (SPLWSAppLog is not used — SPLAppLog carries both request and response.)
-const SECURE_MARKERS = '("SPLAppLog" OR "SPLHostMessage")';
+// SPLAppLog is a general APPLICATION logger — it emits MANY lines that merely contain the word "Request" (not just
+// the FE direction lines), so the bare filter would pull everything. Filter it to its PRECISE FE direction tokens:
+// the request is "…- Request - {" and the response is "…- Response: …" (leading "- ", so body mentions like
+// serviceRequest / X-Request-Id don't match). This is the one chatty marker; the rest stay on DIRECTION_FILTER.
+const SPLAPPLOG_DIR = '("- Request -" OR "- Response:")';
 
 /** Escape a wrapper key for use inside a rex alternation (keys are plain identifiers, but be safe). */
 function reEsc(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -147,11 +145,11 @@ export function buildEventsSpl(
   // (clientVersion is kept in the signature for callers but no longer filters the search.)
   void clientVersion;
 
-  // SPL-Secure: the secure markers AND the DIRECTION_FILTER — pull only Request/Response lines (not other chatter),
-  // with bare tokens that catch every direction form so no req/response line is dropped. Extra plain-SPL lines from
-  // the shared SPLHostMessage marker are harmless (different corrId — the analyser drops them on upload). In scoped
-  // mode the selected paths are ANDed, but a secure FE response often has NO path (tied by corrId), so use "All log
-  // lines" for secure to keep it.
+  // SPL-Secure: SPLAppLog (chatty app logger) → its PRECISE FE tokens so it pulls only the request/response lines,
+  // not every line containing the word "Request"; SPLHostMessage (dedicated host logger, clean) → the bare
+  // DIRECTION_FILTER. Extra plain-SPL lines via the shared SPLHostMessage marker are harmless (different corrId —
+  // the analyser drops them on upload). In scoped mode the selected paths are ANDed, but a secure FE response often
+  // has NO path (tied by corrId), so use "All log lines" for secure to keep it.
   if (secure) {
     let scope = '';
     if (mode !== 'all') {
@@ -159,7 +157,8 @@ export function buildEventsSpl(
       if (sel.length === 0) return '';
       scope = ` (${sel.map((p) => `"${p}"`).join(' OR ')})`;
     }
-    return `index=${index} ${win}${src}${SECURE_MARKERS} ${DIRECTION_FILTER}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+    const group = `(("SPLAppLog" ${SPLAPPLOG_DIR}) OR ("SPLHostMessage" ${DIRECTION_FILTER}))`;
+    return `index=${index} ${win}${src}${group}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
   }
 
   // "All log lines": every front-end + backend marker line in the window. The path/svc
@@ -214,21 +213,24 @@ export function markersFor(app: string, secure: boolean): string[] {
 
 /**
  * A SINGLE consolidated Splunk query covering every selected app flavour (Mighty + SPL + SPL-Secure) in one
- * export. It ORs the DISTINCT set of their markers once — Mighty/SPL/SPL-Secure share markers (SPLHostMessage is
- * in both SPL flavours), so grouping by the distinct marker SET (MightyMessage, MightyHostMessage, SPLMessage,
- * SPLHostMessage, SPLAppLog) avoids per-app clauses and any duplicate handling — then ANDs the DIRECTION_FILTER so
- * only Request/Response lines come back (not other chatter). The bare tokens catch every direction form across
- * every flavour ("-Request -", "- Response:", "[Request]:" …), so no req/response line is dropped; extra
- * non-matching or cross-app lines are harmless (the analyser correlates by corrId and ignores what doesn't
- * belong). Splunk returns each event once. Run once, get one file; the analyser buckets each line on upload.
+ * export. It groups the DISTINCT set of their markers (MightyMessage, MightyHostMessage, SPLMessage,
+ * SPLHostMessage, SPLAppLog) — the shared SPLHostMessage appears once, so no per-app duplicate clauses — and pulls
+ * only request/response lines. The CLEAN markers use the bare DIRECTION_FILTER; SPLAppLog (a chatty app logger)
+ * uses its PRECISE FE tokens so it isn't pulled for every line containing "Request". Extra cross-app lines are
+ * harmless (the analyser correlates by corrId and ignores what doesn't belong). Splunk returns each event once.
  */
 export function buildMergedAllLinesSpl(index: string, earliest: string, sources: string[],
                                        flavours: { app: string; secure: boolean }[], responseKeys = DEFAULT_HEADER_KEYS,
                                        mode: 'scoped' | 'all' = 'all', paths: string[] = []): string {
   const markerSet = new Set<string>();
   for (const f of flavours || []) markersFor(f.app, f.secure).forEach((m) => markerSet.add(m));
-  const markers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
-  if (!markers) return '';
+  const chatty = markerSet.delete('SPLAppLog');   // handled with its own precise tokens, not the bare filter
+  const cleanMarkers = [...markerSet].map((m) => `"${m}"`).join(' OR ');
+  const groups: string[] = [];
+  if (cleanMarkers) groups.push(`((${cleanMarkers}) ${DIRECTION_FILTER})`);
+  if (chatty) groups.push(`("SPLAppLog" ${SPLAPPLOG_DIR})`);
+  if (!groups.length) return '';
+  const markers = groups.join(' OR ');
   const win = earliest ? `earliest=${earliest} latest=now ` : '';
   const srcList = [...new Set((sources || []).map((s) => s.trim()).filter(Boolean))];
   const src = srcList.length ? `(${srcList.map((s) => `source="${s}"`).join(' OR ')}) ` : '';
@@ -242,7 +244,7 @@ export function buildMergedAllLinesSpl(index: string, earliest: string, sources:
     if (!uniq.length) return '';
     scope = ` (${uniq.map((p) => `"${p}"`).join(' OR ')})`;
   }
-  return `index=${index} ${win}${src}(${markers}) ${DIRECTION_FILTER}${scope}\n${slim}| sort 0 -_time\n| table _raw`;
+  return `index=${index} ${win}${src}(${markers})${scope}\n${slim}| sort 0 -_time\n| table _raw`;
 }
 
 export function downloadText(name: string, text: string): void {

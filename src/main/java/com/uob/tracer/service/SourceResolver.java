@@ -4,6 +4,7 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.TransportConfigCallback;
 import org.eclipse.jgit.api.errors.CheckoutConflictException;
+import org.eclipse.jgit.api.errors.InvalidRemoteException;
 import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.ObjectId;
@@ -185,6 +186,12 @@ public class SourceResolver {
             // that Git.open() rejects as "repository not found". The gate only checks that .git exists, so it
             // routed here instead of re-cloning. Discard the poisoned cache and clone fresh.
             LOG.warn("Cached repo at {} is corrupt/incomplete ({}); re-cloning from scratch.", dir, rootMessage(e));
+            rebuild = true;
+        } catch (InvalidRemoteException e) {
+            // The cached repo opened, but has no 'origin' remote to fetch from — a clone that never finished
+            // writing its config, or a dir left in a half-initialised state. ("Invalid remote: origin".) Fetch
+            // can't proceed, so discard the cache and clone fresh, which re-adds origin.
+            LOG.warn("Cached repo at {} has no 'origin' remote ({}); re-cloning from scratch.", dir, rootMessage(e));
             rebuild = true;
         }
         if (rebuild) {

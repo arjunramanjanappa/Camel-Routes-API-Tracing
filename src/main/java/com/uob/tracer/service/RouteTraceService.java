@@ -96,6 +96,10 @@ public class RouteTraceService {
     // log-analysis reusing the index), rebuilding only when the tree actually changed on disk.
     private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final GitBlameService gitBlame = new GitBlameService();
+    // Within-report git-blame dedup: identical (file|start|end) blames are memoised for the duration of ONE
+    // computeVersionDiff, so a route shared across several APIs' diffs isn't blamed once per API. Scoped per report
+    // (set/cleared around computeVersionDiff), so blame stays fresh across reports — no persistent/warm blame cache.
+    private final ThreadLocal<Map<String, List<String>>> blameCache = new ThreadLocal<>();
     // Release code-change detection for the Release Impact tab: which files an app-version release changed.
     private final GitChangeService gitChange = new GitChangeService();
     // Resolves a "Bitbucket branch" source to a local checkout; unused in local-path mode.
@@ -345,6 +349,15 @@ public class RouteTraceService {
     }
 
     private VersionDiffReport computeVersionDiff(TraceRequest request) {
+        blameCache.set(new java.util.HashMap<>());   // memoise duplicate blames within this one report
+        try {
+            return doComputeVersionDiff(request);
+        } finally {
+            blameCache.remove();
+        }
+    }
+
+    private VersionDiffReport doComputeVersionDiff(TraceRequest request) {
         Prepared prepared = prepare(request);
         VersionDiffReport report = new VersionDiffReport();
         report.setCountry(prepared.country());
@@ -387,7 +400,8 @@ public class RouteTraceService {
         // shared lower-version routes). Only captured when an app version is given, to avoid extra traces otherwise.
         boolean wantCode = !nz(request.appVersion()).isEmpty();
         Map<String, List<String>> flowByApi = new LinkedHashMap<>();
-        for (OperationInfo op : operationsInScope(prepared)) {
+        List<OperationInfo> ops = operationsInScope(prepared);   // computed once; reused by routeOwnership below
+        for (OperationInfo op : ops) {
             String routeOp = entryOperation(op, registry, commandDispatch);   // send<command>/send<method>Route or the method name
             String effTarget = target;
             ResolvedRoute targetResolved = versionResolver.resolve(registry, routeOp, effTarget);
@@ -474,7 +488,7 @@ public class RouteTraceService {
         }
         if (wantCode) {
             // release version = the concrete target — changes on R<target>_ routes are this release's own new code.
-            applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry),
+            applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry, ops),
                     flowByApi, request.appVersion(), target);
         }
         finalizeRisk(report);
@@ -498,7 +512,8 @@ public class RouteTraceService {
         boolean wantCode = !nz(request.appVersion()).isEmpty();
         var templateVersion = templateVersionResolver(request);
         Map<String, List<String>> flowByApi = new LinkedHashMap<>();
-        for (OperationInfo op : operationsInScope(prepared)) {
+        List<OperationInfo> ops = operationsInScope(prepared);   // computed once; reused by routeOwnership below
+        for (OperationInfo op : ops) {
             String routeOp = entryOperation(op, registry, commandDispatch);
             ResolvedRoute resolved = versionResolver.resolveLatest(registry, routeOp);
             if (!registry.contains(resolved.routeName())) {
@@ -522,7 +537,7 @@ public class RouteTraceService {
         if (wantCode) {
             Roots roots = resolveRoots(request);
             // N/A snapshot: no "own" release version — every route is pre-existing, so all changes count.
-            applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry),
+            applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry, ops),
                     flowByApi, request.appVersion(), null);
         }
         finalizeRisk(report);
@@ -1222,11 +1237,11 @@ public class RouteTraceService {
      * themselves (path = the route alone); any route reached from an entry via {@code <to uri="direct:…"/>} is
      * attributed to that entry's API with the full call chain. Routes reachable from no entry get no owner.
      */
-    private Map<String, RouteOwner> routeOwnership(Prepared prepared, RouteRegistry registry) {
+    private Map<String, RouteOwner> routeOwnership(Prepared prepared, RouteRegistry registry, List<OperationInfo> ops) {
         // 1. Entry routes: route id -> API path (the operation whose entry name matches the route's from-name).
         boolean cmd = prepared.commandDispatch();
         Map<String, String> apiByOp = new LinkedHashMap<>();
-        for (OperationInfo op : operationsInScope(prepared)) {
+        for (OperationInfo op : ops) {   // scope computed once by the caller — don't recompute operationsInScope here
             apiByOp.putIfAbsent(entryOperation(op, registry, cmd), op.path());
         }
         Map<String, String> apiByEntry = new LinkedHashMap<>();
@@ -1568,12 +1583,18 @@ public class RouteTraceService {
                 k -> RouteXmlDiff.indexRouteLocations(scanCached(roots).allFiles()));
     }
 
-    /** git-blame authors of a route's lines, or empty when the location/repo is unknown. */
+    /** git-blame authors of a route's lines, or empty when the location/repo is unknown. Deduped within a report
+     *  (a route shared across several APIs' diffs is blamed once) — see {@link #blameCache}. */
     private List<String> blameAuthors(RouteXmlDiff.RouteLocation loc) {
         if (loc == null) {
             return List.of();
         }
-        return gitBlame.authors(loc.file(), loc.startLine(), loc.endLine());
+        Map<String, List<String>> cache = blameCache.get();
+        if (cache == null) {   // called outside a report (shouldn't happen on the versionDiff path) — no memo
+            return gitBlame.authors(loc.file(), loc.startLine(), loc.endLine());
+        }
+        return cache.computeIfAbsent(loc.file() + "|" + loc.startLine() + "|" + loc.endLine(),
+                k -> gitBlame.authors(loc.file(), loc.startLine(), loc.endLine()));
     }
 
     /**

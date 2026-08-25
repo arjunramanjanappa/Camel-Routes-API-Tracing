@@ -270,17 +270,29 @@ final class RouteXmlDiff {
         @Override public void fatalError(org.xml.sax.SAXParseException e) throws org.xml.sax.SAXException { throw e; }
     };
 
+    // A configured DocumentBuilder is reused per thread: JAXP's DocumentBuilderFactory.newInstance() lookup + a
+    // fresh builder per call is non-trivial repeated setup, and indexRouteBodies / bodiesFromXml parse one per
+    // XML file / git blob. DocumentBuilder isn't thread-safe (hence ThreadLocal) but is safe to reuse for
+    // sequential parses on the same thread; its QUIET error handler is set once at creation and persists.
+    private static final ThreadLocal<DocumentBuilder> BUILDER = ThreadLocal.withInitial(() -> {
+        try {
+            DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
+            f.setNamespaceAware(true);
+            f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            f.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            f.setExpandEntityReferences(false);
+            DocumentBuilder b = f.newDocumentBuilder();
+            b.setErrorHandler(QUIET);
+            return b;
+        } catch (javax.xml.parsers.ParserConfigurationException e) {
+            throw new IllegalStateException("XML parser configuration failed", e);
+        }
+    });
+
     private static Document parse(String xml) throws Exception {
-        DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
-        f.setNamespaceAware(true);
-        f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        f.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-        f.setExpandEntityReferences(false);
-        DocumentBuilder b = f.newDocumentBuilder();
-        b.setErrorHandler(QUIET);
         // A leading UTF-8 BOM (git show / a BOM-saved file) is "content in prolog" and fails parsing at 1:1.
         String cleaned = !xml.isEmpty() && xml.charAt(0) == 0xFEFF ? xml.substring(1) : xml;
-        return b.parse(new InputSource(new StringReader(cleaned)));
+        return BUILDER.get().parse(new InputSource(new StringReader(cleaned)));
     }
 
     private static List<Element> childElements(Node parent) {

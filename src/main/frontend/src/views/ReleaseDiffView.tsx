@@ -855,10 +855,13 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   // Stage picked files instead of correlating immediately — the user may attach several logs (incl. Release
   // Test logs) before correlating, to check the whole Release Impact scope in one pass. Dedup by name+size.
   const onPickLogs = (files: FileList | null) => {
-    if (!files || !files.length) return;
+    // Snapshot to a File[] NOW — the onChange resets input.value='' right after this call, which empties the
+    // live FileList, so the (deferred) state updater would otherwise see nothing selected.
+    const picked = files ? Array.from(files) : [];
+    if (!picked.length) return;
     setPendingLogs((prev) => {
       const next = [...prev];
-      Array.from(files).forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
+      picked.forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
       return next;
     });
   };

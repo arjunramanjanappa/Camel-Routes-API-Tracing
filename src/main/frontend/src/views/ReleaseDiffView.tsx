@@ -798,6 +798,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   const [logWindow, setLogWindow] = useState<{ start?: string; end?: string } | null>(null);   // analysed log span
   const [logInfo, setLogInfo] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
+  const [pendingLogs, setPendingLogs] = useState<File[]>([]);   // staged for correlation — analysed on button click
   const hasLog = Object.keys(logByVer).length > 0;
   // A row's tested result, looked up by the version it resolves to (main card = its targetVersion; re-test route = its own version).
   const testedFor = (api?: string | null, version?: string | null): ApiLogResult | undefined =>
@@ -837,7 +838,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         (r) => r.moduleName,
       );
       setReports(results);
-      setLogByVer({}); setLogWindow(null); setLogInfo(null);   // a fresh comparison invalidates any merged test log
+      setLogByVer({}); setLogWindow(null); setLogInfo(null); setPendingLogs([]);   // a fresh comparison invalidates any merged test log
       const first = results.find((r) => r.result) || results[0];
       setActiveId(first?.module.id ?? null);
       show(first?.result ?? null);
@@ -851,9 +852,20 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
 
   // Correlate an uploaded test/Splunk log against the compared modules (reuses the log-analysis endpoint),
   // then merge each API's executed/passed status into the checklist by API path.
-  const onLogUpload = async (files: FileList | null) => {
+  // Stage picked files instead of correlating immediately — the user may attach several logs (incl. Release
+  // Test logs) before correlating, to check the whole Release Impact scope in one pass. Dedup by name+size.
+  const onPickLogs = (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setPendingLogs((prev) => {
+      const next = [...prev];
+      Array.from(files).forEach((f) => { if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f); });
+      return next;
+    });
+  };
+
+  const onLogUpload = async (fileArr: File[]) => {
     const valid = modules.filter(moduleValid);
-    if (!files || !files.length || !valid.length) return;
+    if (!fileArr.length || !valid.length) return;
     setLogBusy(true); setLogInfo(null);
     try {
       // Every version we need to prove: the compared version, each API's resolved version, and every
@@ -864,7 +876,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         (a.impactedRoutes ?? []).forEach((ir) => versions.add(routeVersion(ir)));
       }));
       const specs = valid.map((m) => { const sp = sourceParams(m); return { name: names[m.id] || m.id, sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch, app }; });
-      const fileArr = Array.from(files);
       // Correlate every version in parallel (overlaps the uploads) instead of one-after-another.
       const perVer = await Promise.all([...versions].map((v) =>
         analyzeLogMulti(fileArr, specs, { version: v === 'BASE' ? undefined : v, country, dep: depParams(deps) })
@@ -899,6 +910,29 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
       setLogBusy(false);
     }
   };
+
+  /** The "attach test log(s)" bar — pick several files (incl. Release Test logs), then Correlate on the button.
+   *  Used in both the diff and N/A-snapshot views so they behave identically. */
+  const logAttachBar = () => (
+    <div className="testlog-bar" style={{ marginTop: 10 }}>
+      <label className="testlog-btn" title="Attach one or more Splunk exports / output logs (Release Test logs too) — then click Correlate to see which impacted APIs were executed and passed">
+        <Paperclip size={14} aria-hidden="true" /> {pendingLogs.length ? 'Add more test logs' : 'Attach test log(s)'}
+        <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
+               disabled={logBusy} onChange={(e) => { onPickLogs(e.target.files); e.currentTarget.value = ''; }} />
+      </label>
+      {pendingLogs.length > 0 && (
+        <>
+          <span className="testlog-info">{pendingLogs.length} file{pendingLogs.length === 1 ? '' : 's'} ready — {pendingLogs.map((f) => f.name).join(', ')}</span>
+          <button className="trace" disabled={logBusy} onClick={() => onLogUpload(pendingLogs)}>
+            {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating…</> : `Correlate ${pendingLogs.length} file${pendingLogs.length === 1 ? '' : 's'}`}
+          </button>
+          {!logBusy && <button className="linkbtn" onClick={() => setPendingLogs([])}>Remove</button>}
+        </>
+      )}
+      {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
+      {hasLog && <button className="linkbtn" onClick={() => { setLogByVer({}); setLogWindow(null); setLogInfo(null); }}>Clear results</button>}
+    </div>
+  );
 
   const selectModule = (id: string) => { setActiveId(id); show(reports.find((r) => r.module.id === id)?.result ?? null); };
   const impactRollup = useMemo<ModuleStat[]>(() => {
@@ -1106,15 +1140,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
           <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
           <CodeChangeSummary report={report} />
           <TemplateIssuesPanel report={report} />
-          <div className="testlog-bar" style={{ marginTop: 10 }}>
-            <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log to see which APIs were executed and passed">
-              {logBusy ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</> : <><Paperclip size={14} aria-hidden="true" /> Attach test log</>}
-              <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
-                     disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
-            </label>
-            {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
-            {hasLog && <button className="linkbtn" onClick={() => { setLogByVer({}); setLogWindow(null); setLogInfo(null); }}>Clear</button>}
-          </div>
+          {logAttachBar()}
           <ImpactSummary report={report} log={activeLog} />
         </div>
       )}
@@ -1205,20 +1231,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
             })()}
 
             <ReadinessStrip report={report} log={activeLog} />
-            <div className="testlog-bar">
-              <label className={'testlog-btn' + (logBusy ? ' busy' : '')} title="Upload a Splunk export / output log — TraceGuard correlates it and shows which of these APIs were executed and passed">
-                {logBusy
-                  ? <><span className="mini-spin" aria-hidden="true" /> Correlating test log…</>
-                  : <><Paperclip size={14} aria-hidden="true" /> Attach test log</>}
-                <input type="file" multiple accept=".log,.txt,.csv,.json,.gz" style={{ display: 'none' }}
-                       disabled={logBusy} onChange={(e) => { onLogUpload(e.target.files); e.currentTarget.value = ''; }} />
-              </label>
-              {logBusy && <span className="testlog-info">matching your log against the impacted APIs across versions…</span>}
-              {!logBusy && logInfo && <span className="testlog-info">{logInfo}</span>}
-              {hasLog && (
-                <button className="linkbtn" onClick={() => { setLogByVer({}); setLogWindow(null); setLogInfo(null); }}>Clear</button>
-              )}
-            </div>
+            {logAttachBar()}
             <CodeChangeSummary report={report} />
             <TemplateIssuesPanel report={report} />
 

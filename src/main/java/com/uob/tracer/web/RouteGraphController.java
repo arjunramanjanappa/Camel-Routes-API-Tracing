@@ -3,6 +3,7 @@ package com.uob.tracer.web;
 import com.uob.tracer.api.LogAnalysisReport;
 import com.uob.tracer.api.ModuleLogReport;
 import com.uob.tracer.api.TraceRequest;
+import com.uob.tracer.api.VersionLogReport;
 import com.uob.tracer.service.AppConfigService;
 import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.LogAnalysisService;
@@ -189,6 +190,44 @@ public class RouteGraphController {
         // The upload is spooled by the servlet, so combined(files) can be re-opened once per flavour.
         return logService.analyzeModules(() -> combined(files), firstName(files), version, country,
                 specs, dep == null ? List.of() : dep);
+    }
+
+    /**
+     * Release Impact: upload the log ONCE and correlate it against EVERY requested version (compared version +
+     * each API's version + impacted re-test route versions). The servlet spools the upload, so combined(files) is
+     * re-opened per version — a large log is not re-uploaded per version (previously the UI POSTed the whole file
+     * once per version in parallel). Each version's result carries the per-module reports, like log-analysis-multi.
+     */
+    @PostMapping("/internal/log-analysis-versions")
+    public List<VersionLogReport> logAnalysisVersions(
+            @RequestParam(value = "file", required = false) List<MultipartFile> file,
+            @RequestParam(required = false) List<String> version,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) List<String> dep,
+            @RequestParam(required = false) List<String> moduleName,
+            @RequestParam(required = false) List<String> moduleSourceDir,
+            @RequestParam(required = false) List<String> moduleRepo,
+            @RequestParam(required = false) List<String> moduleBranch,
+            @RequestParam(required = false) List<String> moduleApp) {
+        int n = moduleName == null ? 0 : moduleName.size();
+        List<MultipartFile> files = file == null ? List.of() : file;
+        List<LogAnalysisService.ModuleSpec> specs = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            specs.add(new LogAnalysisService.ModuleSpec(moduleName.get(i), at(moduleSourceDir, i),
+                    at(moduleRepo, i), at(moduleBranch, i), at(moduleApp, i)));
+        }
+        List<String> versions = version == null || version.isEmpty()
+                ? java.util.Collections.singletonList("BASE") : version;
+        List<String> deps = dep == null ? List.of() : dep;
+        String filename = firstName(files);
+        List<VersionLogReport> out = new ArrayList<>(versions.size());
+        for (String v : versions) {
+            // "BASE"/blank => whole release (null version); the original label is echoed back for the caller to map.
+            String ver = v == null || v.isBlank() || "BASE".equalsIgnoreCase(v) ? null : v;
+            List<ModuleLogReport> mods = logService.analyzeModules(() -> combined(files), filename, ver, country, specs, deps);
+            out.add(new VersionLogReport(v, mods));
+        }
+        return out;
     }
 
     /** The per-app module lists (main repo + sub-modules) the UI prepopulates from. */

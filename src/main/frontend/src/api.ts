@@ -278,3 +278,33 @@ export async function analyzeLogMulti(
   });
   return postForm<ModuleLogReport[]>('/internal/log-analysis-multi', form, onProgress);
 }
+
+/** One version's per-module correlation from analyzeLogMultiVersions. `version` is echoed back (e.g. "9.18"/"BASE"). */
+export interface VersionLogReport { version: string; modules: ModuleLogReport[]; }
+
+/**
+ * Release Impact: upload the log chunk(s) ONCE and correlate them against EVERY given version in a single
+ * request. The backend re-reads the (spooled) upload per version — so a >1 GB log is uploaded once, not once
+ * per version. Returns one entry per version, each with its per-module reports.
+ */
+export async function analyzeLogMultiVersions(
+  files: File[],
+  modules: LogModuleSpec[],
+  versions: string[],
+  params: { country?: string; dep?: string[] },
+  onProgress?: (p: UploadProgress) => void,
+): Promise<VersionLogReport[]> {
+  const form = new FormData();
+  files.forEach((f) => form.append('file', f));
+  versions.forEach((v) => { if (v && v.trim()) form.append('version', v.trim()); });   // one correlation per version
+  if (params.country && params.country.trim()) form.append('country', params.country.trim());
+  (params.dep ?? []).forEach((d) => { if (d && d.trim()) form.append('dep', d.trim()); });
+  modules.forEach((m) => {
+    form.append('moduleName', m.name || '');
+    form.append('moduleSourceDir', m.sourceDir || '');
+    form.append('moduleRepo', m.repo || '');
+    form.append('moduleBranch', m.branch || '');
+    form.append('moduleApp', m.app || '');
+  });
+  return postForm<VersionLogReport[]>('/internal/log-analysis-versions', form, onProgress);
+}

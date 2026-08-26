@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Table2, FileText, FileStack, Paperclip, AlertTriangle, Code2, Target, ArrowLeft,
          ChevronRight, ChevronDown, ChevronUp, StickyNote, Pencil, Plus, Check, Flag,
          CircleDot, Triangle, Diamond, CircleHelp } from 'lucide-react';
-import { fetchVersionDiff, analyzeLogMulti, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
+import { fetchVersionDiff, analyzeLogMultiVersions, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
 import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
@@ -879,12 +879,11 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         (a.impactedRoutes ?? []).forEach((ir) => versions.add(routeVersion(ir)));
       }));
       const specs = valid.map((m) => { const sp = sourceParams(m); return { name: names[m.id] || m.id, sourceDir: sp.sourceDir, repo: sp.repo, branch: sp.branch, app }; });
-      // Correlate every version in parallel (overlaps the uploads) instead of one-after-another.
-      const perVer = await Promise.all([...versions].map((v) =>
-        analyzeLogMulti(fileArr, specs, { version: v === 'BASE' ? undefined : v, country, dep: depParams(deps) })
-          .then((res) => ({ v, res }))));
+      // Upload the log ONCE and correlate it against EVERY version in a single request — the backend re-reads
+      // the spooled upload per version, so a large log isn't re-uploaded per version (was N parallel uploads).
+      const perVer = await analyzeLogMultiVersions(fileArr, specs, [...versions], { country, dep: depParams(deps) });
       const next: Record<string, Record<string, Record<string, ApiLogResult>>> = {};
-      for (const { v, res } of perVer) {
+      for (const { version: v, modules: res } of perVer) {
         const byMod: Record<string, Record<string, ApiLogResult>> = {};
         valid.forEach((m, i) => {
           const byApi: Record<string, ApiLogResult> = {};
@@ -896,7 +895,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
       setLogByVer(next);
       // The analysed log's time span — earliest start / latest end across every version's report.
       let winStart: string | undefined, winEnd: string | undefined;
-      for (const { res } of perVer) {
+      for (const { modules: res } of perVer) {
         for (const mr of res) {
           const s = mr?.report?.logStart ?? undefined, e = mr?.report?.logEnd ?? undefined;
           if (s && (!winStart || s < winStart)) winStart = s;

@@ -7,10 +7,12 @@ spring:
   servlet:
     multipart:
       # Output logs / Splunk exports can be very large and are often uploaded in several chunks
-      # (each may exceed 200 MB). max-file-size caps a single chunk; max-request-size caps the whole
-      # upload (sum of all chunks). Large parts are spooled to a temp file, so memory stays bounded.
-      max-file-size: 1GB
-      max-request-size: 6GB
+      # (a single file may exceed 1 GB). max-file-size caps a SINGLE file/chunk; max-request-size caps
+      # the whole upload (sum of all chunks). Large parts are spooled to a temp file, so memory stays
+      # bounded even at these sizes — the limit is disk/time, not RAM. Raised from 1GB because a single
+      # >1GB log was rejected mid-upload, surfacing in the UI as a generic "Network error during upload".
+      max-file-size: 8GB
+      max-request-size: 20GB
       file-size-threshold: 2MB
 
 # Framework source directory to analyse. No default — set it to your framework

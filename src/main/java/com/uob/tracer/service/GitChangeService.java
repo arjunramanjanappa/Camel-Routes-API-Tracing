@@ -320,6 +320,52 @@ public class GitChangeService {
         return changes;
     }
 
+    /** Changed line spans of a file across a diff: 1-based, inclusive {@code [start,end]} pairs, per side. */
+    public record LineRanges(List<int[]> oldRanges, List<int[]> newRanges) {
+    }
+
+    private static final Pattern HUNK =
+            Pattern.compile("^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@");
+
+    /**
+     * The line spans a diff changed in {@code relPath}, as 1-based inclusive {@code [start,end]} pairs on the OLD
+     * and NEW side. Reads only the {@code @@} hunk headers of a {@code -U0} diff (whitespace / blank-line / CR
+     * differences ignored, exactly like {@link #diffLines}), so no per-line counting is needed. A pure addition
+     * contributes only a new-side span; a pure deletion only an old-side span. Returns null when git is missing
+     * or the diff could not be produced — the caller then treats the change as undetermined.
+     */
+    public LineRanges changedLineRanges(Path repoDir, String fromRef, String toRef, String relPath) {
+        if (repoDir == null || toRef == null || relPath == null || relPath.isBlank()) {
+            return null;
+        }
+        String path = relPath.replace('\\', '/');
+        List<String> out = (fromRef == null || fromRef.isBlank())
+                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "-U0", "--format=", toRef, "--", path)
+                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "-U0", fromRef, toRef, "--", path);
+        if (out == null) {
+            return null;
+        }
+        List<int[]> oldR = new ArrayList<>();
+        List<int[]> newR = new ArrayList<>();
+        for (String l : out) {
+            Matcher m = HUNK.matcher(l);
+            if (!m.find()) {
+                continue;
+            }
+            int oStart = Integer.parseInt(m.group(1));
+            int oCount = m.group(2) == null ? 1 : Integer.parseInt(m.group(2));
+            int nStart = Integer.parseInt(m.group(3));
+            int nCount = m.group(4) == null ? 1 : Integer.parseInt(m.group(4));
+            if (oCount > 0) {
+                oldR.add(new int[]{oStart, oStart + oCount - 1});
+            }
+            if (nCount > 0) {
+                newR.add(new int[]{nStart, nStart + nCount - 1});
+            }
+        }
+        return new LineRanges(oldR, newR);
+    }
+
     /** Split the field into the distinct version tokens the user entered (comma/whitespace-separated), trimmed. */
     static Set<String> parseVersions(String field) {
         Set<String> out = new LinkedHashSet<>();

@@ -681,16 +681,22 @@ public class RouteTraceService {
         // AMBIENT routes are excluded: a dependency route from another country's scope (not reachable from this
         // country's bootstrap) must not make a class look pre-existing/shared here, nor appear as an impacted
         // route — that BAU-class change belongs to the other country's scope (picked up when it's analysed).
-        Map<String, List<String>> beanUsage = new LinkedHashMap<>();
+        Map<String, List<RouteBean>> beanUsage = new LinkedHashMap<>();
         for (RouteModel rm : registry.all()) {
             if (registry.isAmbient(rm)) {
                 continue;
             }
-            for (String bn : beanRefs(rm)) {
-                beanUsage.computeIfAbsent(bn, k -> new ArrayList<>()).add(rm.routeId());
+            for (BeanRef br : beanRefs(rm)) {
+                beanUsage.computeIfAbsent(br.bean(), k -> new ArrayList<>())
+                        .add(new RouteBean(rm.routeId(), br.method()));
             }
         }
 
+        // Which methods the release changed in each changed class file, computed once per file (null value =
+        // undetermined → flag conservatively). Camel runs only the bean's ?method=, so a class change matters to a
+        // route only when the method it calls changed — see computeChangedMethods.
+        Path repo = roots.primary();
+        Map<String, Set<String>> changedMethodsByFile = new HashMap<>();
         int codeChangedCount = 0;
         int newToChanged = 0;         // NEW APIs promoted to the Changed group because they change shared code
         int unchangedToChanged = 0;   // BAU/Unchanged APIs promoted because their own route's shared class changed
@@ -708,16 +714,18 @@ public class RouteTraceService {
                 if (rm == null) {
                     continue;
                 }
-                for (String beanName : beanRefs(rm)) {
+                for (BeanRef ref : beanRefs(rm)) {
+                    String beanName = ref.bean();
                     String classFile = beans.get(beanName);
                     if (classFile == null) {
                         // Bean referenced but its @Component class is not in the current source. If that class was
                         // DELETED by this release while a (pre-existing/BAU) route still references it, that is a
-                        // removed shared class — the older flow breaks: a backward-incompatible change.
+                        // removed shared class — the older flow breaks: a backward-incompatible change. A deletion
+                        // removes every method, so it impacts callers regardless of which ?method= they use.
                         String removed = matchDeleted(beanName, rc.deletedFiles());
                         if (removed != null) {
                             List<ImpactedRoute> hits = collapseImpactedRoutes(
-                                    beanUsage.getOrDefault(beanName, List.of()), release, ownership);
+                                    routeIdsFor(beanUsage.get(beanName), null), release, ownership);
                             if (!hits.isEmpty()) {
                                 List<String> vers = rc.fileVersions().getOrDefault(removed, List.of());
                                 changedVersions.addAll(vers);
@@ -731,11 +739,19 @@ public class RouteTraceService {
                     if (hit == null) {
                         continue;
                     }
+                    // Camel executes only the method this route calls: the class change touches THIS route only if
+                    // that method changed. No ?method= (whole bean) or an undetermined diff → flag as before.
+                    Set<String> changedMethods = changedMethodsByFile.computeIfAbsent(hit,
+                            f -> computeChangedMethods(repo, rc, f));
+                    if (!methodChanged(ref.method(), changedMethods)) {
+                        continue;
+                    }
                     // Routes to re-test for this class change, per route family: the release's own route (Current),
-                    // the current BAU baseline (immediate-lower, else base) and every future/higher version. Empty
-                    // means ONLY the release's own route uses it → new code shipped with a new route, so skip.
+                    // the current BAU baseline (immediate-lower, else base) and every future/higher version — but
+                    // only routes whose OWN ?method= changed. Empty means ONLY the release's own route calls a
+                    // changed method → new code shipped with a new route, so skip (no BAU to re-test).
                     List<ImpactedRoute> hits = collapseImpactedRoutes(
-                            beanUsage.getOrDefault(beanName, List.of()), release, ownership);
+                            routeIdsFor(beanUsage.get(beanName), changedMethods), release, ownership);
                     if (hits.isEmpty()) {
                         continue;
                     }
@@ -1345,14 +1361,26 @@ public class RouteTraceService {
         return (authors != null && !authors.isEmpty()) ? base + " — " + String.join(", ", authors) : base;
     }
 
-    /** Distinct {@code bean:name} references in a route's steps (walks nested choice/container branches). */
-    private static List<String> beanRefs(RouteModel route) {
-        Set<String> out = new LinkedHashSet<>();
+    /**
+     * A route's reference to a Spring bean: the bean name and the specific method it invokes ({@code ?method=}),
+     * or null when the bean is called without a method. Camel executes ONLY the named method, so a change to the
+     * bean class matters to this route only when that method changed — see {@link #computeChangedMethods}.
+     */
+    private record BeanRef(String bean, String method) {
+    }
+
+    /** A registry route that references a bean, with the method it invokes ({@code ?method=}, null if none). */
+    private record RouteBean(String routeId, String method) {
+    }
+
+    /** Distinct {@code bean:name(?method=x)} references in a route's steps (walks nested choice/container branches). */
+    private static List<BeanRef> beanRefs(RouteModel route) {
+        Set<BeanRef> out = new LinkedHashSet<>();
         collectBeanRefs(route.elements(), out);
         return new ArrayList<>(out);
     }
 
-    private static void collectBeanRefs(List<RouteElement> elements, Set<String> out) {
+    private static void collectBeanRefs(List<RouteElement> elements, Set<BeanRef> out) {
         for (RouteElement el : elements) {
             if (el instanceof ToElement to) {
                 addBeanRef(to.uri(), out);
@@ -1369,8 +1397,8 @@ public class RouteTraceService {
         }
     }
 
-    /** Pull the bean name out of a {@code bean:residenceProcessor?method=foo} uri (ignores non-bean endpoints). */
-    private static void addBeanRef(String uri, Set<String> out) {
+    /** Pull the bean name + {@code ?method=} out of a {@code bean:residenceProcessor?method=foo} uri. */
+    private static void addBeanRef(String uri, Set<BeanRef> out) {
         if (uri == null) {
             return;
         }
@@ -1378,15 +1406,262 @@ public class RouteTraceService {
         if (!u.startsWith("bean:")) {
             return;
         }
-        String name = u.substring("bean:".length());
-        int q = name.indexOf('?');
+        String rest = u.substring("bean:".length());
+        String name;
+        String query = null;
+        int q = rest.indexOf('?');
         if (q >= 0) {
-            name = name.substring(0, q);
+            name = rest.substring(0, q).trim();
+            query = rest.substring(q + 1);
+        } else {
+            name = rest.trim();
         }
-        name = name.trim();
         if (!name.isEmpty() && !name.contains("{")) {   // skip unresolved placeholders
-            out.add(name);
+            out.add(new BeanRef(name, methodParam(query)));
         }
+    }
+
+    /** The {@code method=} option of a bean uri query ({@code ?method=foo&sync=true} → {@code foo}), else null. */
+    private static String methodParam(String query) {
+        if (query == null || query.isEmpty()) {
+            return null;
+        }
+        for (String part : query.split("&")) {
+            String p = part.trim();
+            if (p.regionMatches(true, 0, "method=", 0, "method=".length())) {
+                String m = p.substring("method=".length()).trim();
+                int paren = m.indexOf('(');   // method=foo(java.lang.String) → foo (Camel method with an arg type)
+                if (paren >= 0) {
+                    m = m.substring(0, paren).trim();
+                }
+                return m.isEmpty() || m.contains("{") ? null : m;   // unresolved placeholder → treat as no method
+            }
+        }
+        return null;
+    }
+
+    // block kinds tracked while scanning a Java file's braces (see parseMethods)
+    private static final int TYPE_OR_ROOT = 1;   // file root, or a class/enum/interface/record body — where methods live
+    private static final int METHOD = 2;         // a method/constructor body — everything inside is OTHER
+    private static final int OTHER = 3;          // control block, initializer, lambda, anonymous class, array init
+    private static final Pattern TYPE_DECL = Pattern.compile("\\b(class|interface|enum|record)\\s+\\w");
+    private static final Pattern METHOD_SIG =
+            Pattern.compile("(\\w+)\\s*\\([^)]*\\)\\s*(?:throws [\\w.,\\s]+)?$");
+    private static final Pattern ANNOTATION = Pattern.compile("@\\w+(?:\\s*\\([^()]*\\))?");
+
+    /** A method's/constructor's 1-based inclusive line span in a source file. */
+    private record MethodSpan(String name, int start, int end) {
+    }
+
+    /**
+     * Best-effort scan of a Java source file into its method/constructor line spans (1-based inclusive). Comments
+     * and string/char literals are skipped for brace counting; a {@code "{"} opened directly inside a
+     * class/enum/interface/record body after a {@code name(...)} signature (with no top-level {@code "="}, so not
+     * a field initializer) starts a method whose span ends at the matching {@code "}"}. Nested types and in-method
+     * blocks are tracked but not reported. Heuristic — used only to attribute changed lines to the called method;
+     * the caller treats an empty result as "undetermined" and falls back to flagging.
+     */
+    static List<MethodSpan> parseMethods(List<String> lines) {
+        List<MethodSpan> out = new ArrayList<>();
+        Deque<Integer> stack = new ArrayDeque<>();
+        stack.push(TYPE_OR_ROOT);
+        Deque<Integer> mStart = new ArrayDeque<>();
+        Deque<String> mName = new ArrayDeque<>();
+        StringBuilder pending = new StringBuilder();
+        int pendingStart = -1;
+        boolean inBlockComment = false;
+        for (int li = 0; li < lines.size(); li++) {
+            String line = lines.get(li);
+            int lineNo = li + 1;
+            int i = 0;
+            int n = line.length();
+            boolean inStr = false;
+            boolean inChar = false;
+            while (i < n) {
+                char c = line.charAt(i);
+                char d = i + 1 < n ? line.charAt(i + 1) : '\0';
+                if (inBlockComment) {
+                    if (c == '*' && d == '/') {
+                        inBlockComment = false;
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                    continue;
+                }
+                if (inStr) {
+                    i += (c == '\\') ? 2 : 1;
+                    if (c == '"') {
+                        inStr = false;
+                    }
+                    continue;
+                }
+                if (inChar) {
+                    i += (c == '\\') ? 2 : 1;
+                    if (c == '\'') {
+                        inChar = false;
+                    }
+                    continue;
+                }
+                if (c == '/' && d == '/') {
+                    break;   // line comment — ignore the rest of the line
+                }
+                if (c == '/' && d == '*') {
+                    inBlockComment = true;
+                    i += 2;
+                    continue;
+                }
+                if (c == '"') {
+                    inStr = true;
+                    i++;
+                    continue;
+                }
+                if (c == '\'') {
+                    inChar = true;
+                    i++;
+                    continue;
+                }
+                if (c == '{') {
+                    int top = stack.peek();
+                    String name = top == TYPE_OR_ROOT ? methodNameIfMethod(pending.toString()) : null;
+                    if (name != null) {
+                        stack.push(METHOD);
+                        mStart.push(pendingStart > 0 ? pendingStart : lineNo);
+                        mName.push(name);
+                    } else if (top == TYPE_OR_ROOT && TYPE_DECL.matcher(stripAnnotations(pending.toString())).find()) {
+                        stack.push(TYPE_OR_ROOT);
+                    } else {
+                        stack.push(OTHER);
+                    }
+                    pending.setLength(0);
+                    pendingStart = -1;
+                    i++;
+                    continue;
+                }
+                if (c == '}') {
+                    int kind = stack.size() > 1 ? stack.pop() : TYPE_OR_ROOT;
+                    if (kind == METHOD && !mStart.isEmpty()) {
+                        out.add(new MethodSpan(mName.pop(), mStart.pop(), lineNo));
+                    }
+                    pending.setLength(0);
+                    pendingStart = -1;
+                    i++;
+                    continue;
+                }
+                if (c == ';') {
+                    pending.setLength(0);   // statement / field / import ended — nothing to open a body
+                    pendingStart = -1;
+                    i++;
+                    continue;
+                }
+                if (!Character.isWhitespace(c) && pending.length() == 0) {
+                    pendingStart = lineNo;
+                }
+                pending.append(c);
+                i++;
+            }
+            if (pending.length() > 0) {
+                pending.append(' ');   // keep a token break across a signature that spans lines
+            }
+        }
+        return out;
+    }
+
+    /** The method name if {@code pending} (the text before a "{") is a method/constructor signature, else null. */
+    private static String methodNameIfMethod(String pending) {
+        String sig = stripAnnotations(pending).trim();
+        if (sig.isEmpty() || TYPE_DECL.matcher(sig).find() || sig.indexOf('=') >= 0) {
+            return null;   // empty, a type declaration, or a field initializer — not a method
+        }
+        Matcher m = METHOD_SIG.matcher(sig);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String stripAnnotations(String s) {
+        return ANNOTATION.matcher(s).replaceAll(" ");
+    }
+
+    /** Add the name of every method whose line span overlaps any of the changed line ranges. */
+    private static void addCovering(List<MethodSpan> methods, List<int[]> ranges, Set<String> out) {
+        for (int[] r : ranges) {
+            for (MethodSpan ms : methods) {
+                if (r[0] <= ms.end() && r[1] >= ms.start()) {
+                    out.add(ms.name());
+                }
+            }
+        }
+    }
+
+    /**
+     * The methods the release actually changed in a shared class file — for the {@code bean:name?method=x} rule:
+     * Camel executes only the named method, so a BAU route is impacted by a class change ONLY when the method it
+     * calls changed. Diffs the file across the release (its own commit span), maps each changed line span to the
+     * enclosing method on both sides (so additions, modifications and whole-method removals are all caught), and
+     * returns the union of method names. Returns {@code null} when the change cannot be attributed reliably (git
+     * unavailable, content unreadable, or the file wouldn't parse) — the caller then flags conservatively.
+     */
+    private Set<String> computeChangedMethods(Path repo, GitChangeService.ReleaseChanges rc, String file) {
+        if (repo == null) {
+            return null;
+        }
+        String before = rc.beforeRefFor(file);
+        String after = rc.afterRefFor(file);
+        GitChangeService.LineRanges ranges = gitChange.changedLineRanges(repo, before, after, file);
+        if (ranges == null) {
+            return null;   // git failed → undetermined
+        }
+        Set<String> changed = new LinkedHashSet<>();
+        if (!ranges.newRanges().isEmpty()) {
+            List<String> afterLines = gitChange.fileAtRef(repo, after, file);
+            if (afterLines == null) {
+                return null;
+            }
+            List<MethodSpan> methods = parseMethods(afterLines);
+            if (methods.isEmpty()) {
+                return null;   // couldn't attribute the change to a method → undetermined
+            }
+            addCovering(methods, ranges.newRanges(), changed);
+        }
+        if (!ranges.oldRanges().isEmpty() && before != null && !before.isBlank()) {
+            List<String> beforeLines = gitChange.fileAtRef(repo, before, file);
+            if (beforeLines == null) {
+                return null;
+            }
+            List<MethodSpan> methods = parseMethods(beforeLines);
+            if (methods.isEmpty()) {
+                return null;
+            }
+            addCovering(methods, ranges.oldRanges(), changed);
+        }
+        return changed;
+    }
+
+    /**
+     * Whether a class change reaches a route that calls {@code calledMethod}. A method-less bean reference (no
+     * {@code ?method=} — the whole bean is invoked) is reached by any change; an undetermined change set
+     * ({@code null} — see {@link #computeChangedMethods}) is treated as reaching everything, to stay conservative;
+     * otherwise the route is reached only when its own method is among the changed ones.
+     */
+    private static boolean methodChanged(String calledMethod, Set<String> changedMethods) {
+        return calledMethod == null || changedMethods == null || changedMethods.contains(calledMethod);
+    }
+
+    /**
+     * The distinct route ids among {@code usage} whose called method a class change reaches (see
+     * {@link #methodChanged}). {@code changedMethods == null} (an undetermined change, or a class deletion that
+     * removes every method) selects every route that uses the bean.
+     */
+    private static List<String> routeIdsFor(List<RouteBean> usage, Set<String> changedMethods) {
+        if (usage == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (RouteBean rb : usage) {
+            if (methodChanged(rb.method(), changedMethods) && !out.contains(rb.routeId())) {
+                out.add(rb.routeId());
+            }
+        }
+        return out;
     }
 
     /**

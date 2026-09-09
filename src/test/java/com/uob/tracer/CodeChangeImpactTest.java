@@ -468,6 +468,127 @@ class CodeChangeImpactTest {
         assertThat(rt).allMatch(r -> r.api() != null);
     }
 
+    // --- bean:?method= scoping: Camel runs only the named method, so a class change hits a BAU route only when
+    //     the specific method that route calls changed (not a sibling method added for a new API). ---
+
+    // getResidence is NEW at 9.18; getStatus is BAU on R7.14. Both call the SAME bean updateResponseProcessor but
+    // each via its own ?method=. {resMethod}/{statusMethod} are substituted per test.
+    private static final String METHOD_ROUTES = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="c">
+                <route id="R9.18_getResidenceRoute">
+                  <from uri="direct:R9.18_getResidence"/>
+                  <to uri="bean:updateResponseProcessor?method={resMethod}"/>
+                </route>
+                <route id="R7.14_getStatusRoute">
+                  <from uri="direct:R7.14_getStatus"/>
+                  <to uri="bean:updateResponseProcessor?method={statusMethod}"/>
+                </route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    /** UpdateResponseProcessor with processTxnSign (returns {sign}) and, when {withNewStore}, a newStoreTxn method. */
+    private static String updateResponseProcessor(int sign, boolean withNewStore) {
+        StringBuilder b = new StringBuilder();
+        b.append("import org.springframework.stereotype.Component;\n")
+                .append("@Component(\"updateResponseProcessor\")\n")
+                .append("public class UpdateResponseProcessor {\n")
+                .append("    public int processTxnSign() {\n")
+                .append("        return ").append(sign).append(";\n")
+                .append("    }\n");
+        if (withNewStore) {
+            b.append("    public int newStoreTxn() {\n")
+                    .append("        return 7;\n")
+                    .append("    }\n");
+        }
+        b.append("}\n");
+        return b.toString();
+    }
+
+    private static void writeMethodFixture(Path dir, String resMethod, String statusMethod, String processor)
+            throws Exception {
+        Files.writeString(dir.resolve("routes.xml"),
+                METHOD_ROUTES.replace("{resMethod}", resMethod).replace("{statusMethod}", statusMethod));
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @PostMapping("/getResidence") public Object getResidence(Object b){ return null; }
+                    @PostMapping("/getStatus") public Object getStatus(Object b){ return null; }
+                }
+                """);
+        Files.writeString(dir.resolve("UpdateResponseProcessor.java"), processor);
+    }
+
+    @Test
+    void scenario1_theSameMethodBothRoutesCallIsChanged_flagsTheBauRoute(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        // Both routes call ?method=processTxnSign.
+        writeMethodFixture(dir, "processTxnSign", "processTxnSign", updateResponseProcessor(1, false));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release changes processTxnSign — the method the BAU R7.14 route invokes → BAU impact.
+        writeMethodFixture(dir, "processTxnSign", "processTxnSign", updateResponseProcessor(2, false));
+        commit(dir, "[JIRA-2][SG][19.18.0] change processTxnSign body");
+
+        VersionDiffReport report = run918(dir);
+        assertThat(report.getMatchedCommits()).isEqualTo(1);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.codeChanged()).isTrue();
+        assertThat(status.changedClasses()).anyMatch(c -> c.contains("updateResponseProcessor"));
+        assertThat(status.impactedRoutes())
+                .anyMatch(r -> r.route().contains("R7.14_getStatus") && r.category().equals("BAU"));
+        assertThat(report.getCodeChangedCount()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void scenario2_aNewSiblingMethodForTheNewApi_doesNotFlagTheBauRoute(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        // The new 9.18 route calls newStoreTxn; the BAU route calls processTxnSign. Baseline has processTxnSign only.
+        writeMethodFixture(dir, "newStoreTxn", "processTxnSign", updateResponseProcessor(1, false));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The 9.18 release ADDS newStoreTxn (leaving processTxnSign byte-for-byte unchanged). The BAU route calls
+        // processTxnSign, which Camel runs and which did not change → no BAU impact, nothing flagged (no noise).
+        writeMethodFixture(dir, "newStoreTxn", "processTxnSign", updateResponseProcessor(1, true));
+        commit(dir, "[JIRA-2][SG][19.18.0] add newStoreTxn for the new API");
+
+        VersionDiffReport report = run918(dir);
+        assertThat(report.getMatchedCommits()).isEqualTo(1);
+
+        assertThat(apiByRoute(report, "getStatus").codeChanged()).isFalse();
+        assertThat(apiByRoute(report, "getResidence").codeChanged()).isFalse();   // newStoreTxn is new code for the new route
+        assertThat(report.getApis()).allMatch(a -> !a.codeChanged());
+        assertThat(report.getCodeChangedCount()).isZero();
+    }
+
+    @Test
+    void scenario3_onlyRoutesCallingTheChangedMethodAppearInImpactedRoutes(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        // The new route calls newStoreTxn; the BAU route calls processTxnSign. Baseline already has BOTH methods.
+        writeMethodFixture(dir, "newStoreTxn", "processTxnSign", updateResponseProcessor(1, true));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The release changes processTxnSign only (newStoreTxn untouched). The BAU route (processTxnSign) is
+        // impacted; the new route (newStoreTxn) must NOT be listed as a re-test route for this change.
+        writeMethodFixture(dir, "newStoreTxn", "processTxnSign", updateResponseProcessor(2, true));
+        commit(dir, "[JIRA-2][SG][19.18.0] change processTxnSign body");
+
+        VersionDiffReport report = run918(dir);
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.codeChanged()).isTrue();
+        assertThat(status.impactedRoutes())
+                .anyMatch(r -> r.route().contains("R7.14_getStatus"))
+                .noneMatch(r -> r.route().contains("R9.18_getResidence"));   // calls newStoreTxn, unaffected
+        // getResidence (newStoreTxn) is not flagged — its method didn't change.
+        assertThat(apiByRoute(report, "getResidence").codeChanged()).isFalse();
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

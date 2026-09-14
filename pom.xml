@@ -40,7 +40,15 @@
         <jpackage.executable>${java.home}/bin/jpackage</jpackage.executable>
         <exe.suffix></exe.suffix>
         <os.tag>unix</os.tag>
-        <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.crypto.mscapi,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
+        <!-- Cross-build (-Pdist): point this at a TARGET-platform JDK 21's jmods/ (for a macOS JDK that is
+             <jdk>/Contents/Home/jmods) and jlink emits a runtime for THAT platform even though Maven runs
+             here. Must be the same JDK major as the jlink in use. Empty = link the running JDK (same-OS
+             bundle). Pair with -Dos.tag=<target> so the zip is named for the target, e.g.
+                 mvn -Pdist -Dos.tag=mac "-Djlink.jmods=C:\jdk-21-mac\Contents\Home\jmods" clean package -->
+        <jlink.jmods></jlink.jmods>
+        <!-- Platform-neutral module set. jdk.crypto.mscapi (Windows CAPI) exists only in Windows JDKs, so the
+             dist target appends it only when the TARGET (os.tag) is windows. -->
+        <jlink.modules>java.base,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.jdwp.agent</jlink.modules>
     </properties>
 
     <dependencyManagement>
@@ -237,9 +245,12 @@
              Maven, so it works where group policy blocks scripts. Output:
                  target/dist/TraceGuard-<os>/       (the folder)
                  target/dist/TraceGuard-<os>.zip    (ship this)
-             jlink builds a runtime for the OS Maven runs on, so build the mac bundle on a
-             Mac, the windows bundle on Windows. Normal `package` / spring-boot:run are
-             unaffected (this only runs under -Pdist).
+             By default jlink links the RUNNING JDK, so the bundle targets the build OS. To
+             build for ANOTHER OS from here (e.g. the mac bundle on a Windows box), point jlink
+             at a JDK 21 for the target platform (same JDK major as your jlink):
+                 mvn -Pdist -Dos.tag=mac "-Djlink.jmods=C:\jdk-21-mac\Contents\Home\jmods" clean package
+             The CDS step is skipped on a cross-build (the target runtime can't execute here).
+             Normal `package` / spring-boot:run are unaffected (this only runs under -Pdist).
              ============================================================================ -->
         <profile>
             <id>dist</id>
@@ -255,7 +266,7 @@
                                 <phase>package</phase>
                                 <goals><goal>run</goal></goals>
                                 <configuration>
-                                    <target>
+                                    <target xmlns:if="ant:if" xmlns:unless="ant:unless">
                                         <property name="bundle" value="${project.build.directory}/dist/TraceGuard-${os.tag}"/>
                                         <delete dir="${project.build.directory}/dist"/>
                                         <mkdir dir="${bundle}/app"/>
@@ -263,8 +274,22 @@
                                         <!-- compress=zip-0 (uncompressed): larger on disk but classes load as fast as a
                                              full JDK - compression makes analysis slower (a Camel context per XML file
                                              loads many classes). -->
+                                        <!-- Cross-build plumbing. -Djlink.jmods=<target JDK jmods> passes that folder as jlink's
+                                             module path, so the image is linked from THAT platform's modules (a mac runtime
+                                             from Windows, etc.). jdk.crypto.mscapi is Windows-only: appended only for a
+                                             windows target. -->
+                                        <condition property="jlink.cross" value="true" else="false">
+                                            <not><equals arg1="${jlink.jmods}" arg2=""/></not>
+                                        </condition>
+                                        <condition property="jlink.modulepath" value="--module-path &quot;${jlink.jmods}&quot;" else="">
+                                            <istrue value="${jlink.cross}"/>
+                                        </condition>
+                                        <condition property="jlink.modules.effective" value="${jlink.modules},jdk.crypto.mscapi" else="${jlink.modules}">
+                                            <equals arg1="${os.tag}" arg2="windows"/>
+                                        </condition>
+                                        <echo if:true="${jlink.cross}" message="CROSS-BUILD for ${os.tag}: linking from ${jlink.jmods}"/>
                                         <exec executable="${jlink.executable}" failonerror="true">
-                                            <arg line="--add-modules ${jlink.modules} --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output &quot;${bundle}/jre&quot;"/>
+                                            <arg line="${jlink.modulepath} --add-modules ${jlink.modules.effective} --strip-debug --no-header-files --no-man-pages --compress=zip-0 --output &quot;${bundle}/jre&quot;"/>
                                         </exec>
                                         <!-- Bake any corporate CA cert(s) in packaging/certs/ into the shipped JRE's cacerts,
                                              so the bundle trusts an internal Bitbucket over HTTPS out of the box - injected
@@ -285,8 +310,9 @@
                                         </apply>
                                         <!-- Generate the default CDS archive so JDK classes load as fast as on a full
                                              JDK (a jlink image ships without one). Non-fatal if it can't be created. -->
-                                        <echo message="generating CDS archive (faster class loading)"/>
-                                        <exec executable="${bundle}/jre/bin/java${exe.suffix}" failonerror="false">
+                                        <echo unless:true="${jlink.cross}" message="generating CDS archive (faster class loading)"/>
+                                        <echo if:true="${jlink.cross}" message="cross-build: skipping the CDS archive (the ${os.tag} runtime can't run here; the app still works, just without the class-data cache)"/>
+                                        <exec unless:true="${jlink.cross}" executable="${bundle}/jre/bin/java${exe.suffix}" failonerror="false">
                                             <arg value="-Xshare:dump"/>
                                         </exec>
                                         <!-- Ship the app EXTRACTED (exploded), not as a fat jar: a nested-jar fat jar

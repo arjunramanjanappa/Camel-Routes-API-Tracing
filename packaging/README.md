@@ -46,9 +46,18 @@ target\dist\TraceGuard-windows.zip      (~64 MB: app jar + bundled JRE + launche
 - First run: opens **⚙ Config** and pastes their **own** Bitbucket token (tokens are per-machine — everyone
   sets their own).
 
-> **macOS recipients:** run `mvn -Pdist clean package` **on a Mac** (jlink builds a runtime for the OS it
-> runs on) to produce `target/dist/TraceGuard-mac.zip`; they double-click `TraceGuard.command` (right-click ▸
-> Open the first time to clear Gatekeeper).
+> **macOS recipients:** you can build the mac bundle **from this Windows machine** — jlink can link a runtime
+> for another platform if you hand it that platform's JDK modules. Download a **macOS JDK 21** (`.tar.gz`,
+> e.g. Temurin — pick **aarch64** for Apple Silicon or **x64** for Intel Macs; same JDK major as your jlink),
+> extract it anywhere, then:
+>
+> ```
+> mvn -Pdist -Dos.tag=mac "-Djlink.jmods=C:\path\to\jdk-21-mac\Contents\Home\jmods" clean package
+> ```
+>
+> → `target\dist\TraceGuard-mac.zip`. Recipients double-click `TraceGuard.command` (right-click ▸ Open the
+> first time to clear Gatekeeper). Building **on a Mac** with plain `mvn -Pdist clean package` also works.
+> Shipping to both chips? Build twice, e.g. `-Dos.tag=mac-arm64` and `-Dos.tag=mac-x64`.
 
 **Prefer a real `.exe`?** `mvn -Pexe clean package` builds a native `TraceGuard.exe` (Windows) —
 see [Native `.exe`](#native-exe--pexe-windows) below.
@@ -128,8 +137,10 @@ mvn -Pdist clean package
 
 Pure Maven — no PowerShell or `.bat` execution, so it works on locked-down machines where group policy
 blocks scripts. The `dist` profile does the normal build, then jlinks a trimmed JRE and assembles + zips the
-bundle. `jlink` builds a runtime for the OS Maven runs on, so **build the Windows bundle on Windows and the
-mac bundle on a Mac**. Expect a final `[echo]` banner ending in `BUILD SUCCESS`, and:
+bundle. By default `jlink` links the **running** JDK, so the bundle targets the build OS; to target another
+OS from the same machine, add `-Dos.tag=<target>` and `-Djlink.jmods=<that platform's JDK 21 jmods>` (see the
+macOS note above — the CDS archive step is skipped on such cross-builds since the target runtime can't execute
+locally). Expect a final `[echo]` banner ending in `BUILD SUCCESS`, and:
 
 ```
 target\dist\TraceGuard-<os>\        the bundle folder

@@ -147,6 +147,31 @@ package` builds a native `TraceGuard.exe` (via `jpackage`) with the same no-admi
 unzip-and-run model. Full guide (prerequisites, sharing, install, troubleshooting):
 **[packaging/README.md](packaging/README.md)**.
 
+#### Building the macOS bundle — from a Windows machine
+
+By default `jlink` links the JDK it runs on, so plain `-Pdist` produces a bundle for
+the **build** OS. You don't need a Mac to build for one: `jlink` can link a runtime
+for another platform if you hand it that platform's JDK modules.
+
+1. Download a **macOS JDK 21** as a `.tar.gz` (e.g. Temurin or Microsoft OpenJDK — no
+   install, just extract) matching the recipients' chip: **`aarch64`** for Apple Silicon
+   (M1–M4), **`x64`** for Intel Macs. It must be JDK **21**, the same major as your `jlink`.
+2. Build with `JAVA_HOME` pointing at a **JDK 21** (one that has `jlink`):
+
+```bash
+mvn -Pdist -Dos.tag=mac "-Djlink.jmods=C:\path\to\jdk-21-mac\Contents\Home\jmods" clean package
+```
+
+→ `target/dist/TraceGuard-mac.zip`. Recipients unzip and double-click `TraceGuard.command`
+(right-click ▸ **Open** the first time to clear Gatekeeper). Shipping to both chips? Build
+twice, e.g. `-Dos.tag=mac-arm64` and `-Dos.tag=mac-x64`.
+
+On a cross-build the profile automatically uses the given jmods as the module path, drops
+`jdk.crypto.mscapi` (Windows-only), and skips the CDS `-Xshare:dump` step (a mac binary
+can't run on the build host — the app runs fine without that cache). The zip keeps `755`
+permissions, so the launcher and `jre/bin/*` stay executable on the Mac. Building **on a
+Mac** with plain `mvn -Pdist clean package` still works too.
+
 ---
 
 ## Applications (Mighty / SPL)

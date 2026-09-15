@@ -4,11 +4,24 @@
 #  Double-click (macOS: this .command opens in Terminal) or run from a shell.
 #  Starts the bundled server; the app opens your browser itself when ready.
 #  No install, no admin. Close this window / press Ctrl-C to stop TraceGuard.
+#
+#  First launch on macOS: Gatekeeper blocks unsigned downloads. Approve it ONCE via
+#  System Settings > Privacy & Security > "Open Anyway" (older macOS: right-click >
+#  Open). This script then clears the quarantine flag from the bundle so the bundled
+#  Java runtime is not blocked as well.
 # ============================================================================
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PORT=8080
 URL="http://localhost:${PORT}/"
+
+# --- macOS: clear the download-quarantine flag from our own bundle folder ---
+# Everything extracted from a downloaded zip carries com.apple.quarantine, so even after the user
+# approves THIS launcher, Gatekeeper would still block the bundled jre/bin/java. Once we are running,
+# strip the flag from the whole bundle (our files only) so every later start is silent. No-op elsewhere.
+if command -v xattr >/dev/null 2>&1; then
+  xattr -dr com.apple.quarantine "$HERE" 2>/dev/null || true
+fi
 
 # --- Locate a Java runtime: bundled JRE first, then JAVA_HOME, then PATH ---
 JAVA="$HERE/jre/bin/java"

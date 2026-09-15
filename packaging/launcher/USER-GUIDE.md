@@ -9,14 +9,16 @@ are needed.
 ## 1. Start it
 
 - **Windows:** double-click **`TraceGuard.exe`** (or `TraceGuard.bat`).
-- **macOS:** double-click **`TraceGuard.command`** (first time: right-click ▸ **Open**).
+- **macOS:** double-click **`TraceGuard.command`**.
 
 A console window opens, then your browser opens at **http://localhost:8080**.
 **Keep the console open while you work — closing it stops the app.**
 
 > First launch may show *"Windows protected your PC" (SmartScreen)* → **More info ▸ Run
-> anyway** (this is an unsigned internal tool). If the browser doesn't open on its own,
-> just go to **http://localhost:8080** yourself.
+> anyway** (this is an unsigned internal tool). On **macOS** the first launch is blocked by
+> Gatekeeper → open **System Settings ▸ Privacy & Security** and click **Open Anyway**
+> (older macOS: right-click ▸ **Open**); it's a one-time step. If the browser doesn't open
+> on its own, just go to **http://localhost:8080** yourself.
 
 ---
 

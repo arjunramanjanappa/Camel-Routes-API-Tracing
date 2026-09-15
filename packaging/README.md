@@ -55,8 +55,10 @@ target\dist\TraceGuard-windows.zip      (~64 MB: app jar + bundled JRE + launche
 > mvn -Pdist -Dos.tag=mac "-Djlink.jmods=C:\path\to\jdk-21-mac\Contents\Home\jmods" clean package
 > ```
 >
-> → `target\dist\TraceGuard-mac.zip`. Recipients double-click `TraceGuard.command` (right-click ▸ Open the
-> first time to clear Gatekeeper). Building **on a Mac** with plain `mvn -Pdist clean package` also works.
+> → `target\dist\TraceGuard-mac.zip`. Recipients double-click `TraceGuard.command`. First launch only:
+> Gatekeeper blocks it — **System Settings ▸ Privacy & Security ▸ Open Anyway** (older macOS: right-click ▸
+> Open); the launcher then clears the quarantine flag so the bundled Java runtime isn't blocked either.
+> Building **on a Mac** with plain `mvn -Pdist clean package` also works.
 > Shipping to both chips? Build twice, e.g. `-Dos.tag=mac-arm64` and `-Dos.tag=mac-x64`.
 
 **Prefer a real `.exe`?** `mvn -Pexe clean package` builds a native `TraceGuard.exe` (Windows) —
@@ -221,7 +223,8 @@ Boot + Tomcat + Camel + JGit).
 1. Copy the zip to the machine and unzip it anywhere under your user folder
    (e.g. `C:\Users\<you>\Apps\TraceGuard-windows`).
 2. Double-click **`TraceGuard.bat`** — or **`TraceGuard.exe`** if you built the `-Pexe` variant — on Windows;
-   **`TraceGuard.command`** on macOS (right-click ▸ Open the first time to clear Gatekeeper).
+   **`TraceGuard.command`** on macOS (first launch only: **System Settings ▸ Privacy & Security ▸ Open Anyway**,
+   or right-click ▸ Open on older macOS — the launcher then clears the quarantine flag for the bundled runtime).
 3. Optional desktop icon — **no scripts needed:** right-click `TraceGuard.bat` ▸ **Send to ▸ Desktop (create
    shortcut)**. To brand it, right-click the shortcut ▸ **Properties ▸ Change Icon** ▸ browse to the bundled
    `traceguard.ico`. (Where scripts are allowed, `Create-Shortcut.ps1` does this automatically.)
@@ -291,6 +294,9 @@ nothing to re-enter.
   next to the `app\` and `jre\` folders (run it from inside the unzipped folder).
 - **A class is missing at runtime** (rare, only if the module set was trimmed too far) — rebuild with the full
   module set: `packaging\build-bundle.bat full` (or `build-bundle.ps1 -Full`). Bigger, includes every JDK module.
-- **macOS “can't be opened” (Gatekeeper)** — right-click `TraceGuard.command` ▸ **Open** once; thereafter it
-  double-clicks normally.
+- **macOS “can't be opened” / “Apple could not verify…” (Gatekeeper)** — approve it once: **System Settings ▸
+  Privacy & Security ▸ Open Anyway** (Sequoia/Tahoe and later; older macOS: right-click `TraceGuard.command` ▸
+  **Open**). The launcher then strips the download-quarantine flag from the bundle, so the bundled `jre/bin/java`
+  isn't blocked too and every later start double-clicks normally. If Java is still blocked, run once from
+  Terminal: `xattr -dr com.apple.quarantine <path-to>/TraceGuard-mac`.
 - **First launch is slow** — the JVM warms up on first start; subsequent launches are quicker.

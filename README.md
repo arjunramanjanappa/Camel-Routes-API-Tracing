@@ -162,9 +162,11 @@ for another platform if you hand it that platform's JDK modules.
 mvn -Pdist -Dos.tag=mac "-Djlink.jmods=C:\path\to\jdk-21-mac\Contents\Home\jmods" clean package
 ```
 
-→ `target/dist/TraceGuard-mac.zip`. Recipients unzip and double-click `TraceGuard.command`
-(right-click ▸ **Open** the first time to clear Gatekeeper). Shipping to both chips? Build
-twice, e.g. `-Dos.tag=mac-arm64` and `-Dos.tag=mac-x64`.
+→ `target/dist/TraceGuard-mac.zip`. Recipients unzip and double-click `TraceGuard.command`.
+First launch only: Gatekeeper blocks it — open **System Settings ▸ Privacy & Security** and
+click **Open Anyway** (older macOS: right-click ▸ **Open**); the launcher then clears the
+quarantine flag from the bundle so the bundled Java runtime isn't blocked either. Shipping to
+both chips? Build twice, e.g. `-Dos.tag=mac-arm64` and `-Dos.tag=mac-x64`.
 
 On a cross-build the profile automatically uses the given jmods as the module path, drops
 `jdk.crypto.mscapi` (Windows-only), and skips the CDS `-Xshare:dump` step (a mac binary

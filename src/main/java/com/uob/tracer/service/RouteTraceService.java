@@ -800,6 +800,11 @@ public class RouteTraceService {
      * a route already in production changed. Complements {@code applyCodeChanges} (shared {@code @Component} class
      * changes) and the version diff (new route vs old route), neither of which can see a route modified against
      * its own earlier self. No-op unless the source is a git work tree with a matched release.
+     *
+     * <p>Only the <b>net effect</b> of the release counts: a route body or template that the release edited and
+     * then put back to its pre-release state (by its last release commit) ships no change to the BAU app, so it is
+     * not reported — however many release commits touched it. A partially reverted template shows only the lines
+     * that actually stuck.
      */
     private void applyBauRouteEdits(VersionDiffReport report, Roots roots, RouteRegistry registry,
                                     GitChangeService.ReleaseChanges rc, String release,
@@ -863,6 +868,13 @@ public class RouteTraceService {
                 if (gitPath != null) {
                     RouteXmlDiff.Diff d = releaseBodyDiff(repo, gitPath, routeId,
                             rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef, prevByCommit);
+                    // NET-effect gate: if the route reads the same just before the release as after the release's
+                    // LAST commit on its file, every in-between edit was reverted ("put back like BAU") — nothing
+                    // ships to the old app, so nothing to re-test, however many release commits touched it.
+                    if ((!d.added().isEmpty() || !d.removed().isEmpty())
+                            && sameRouteAtSpanEnds(repo, rc, gitPath, routeId, bodiesByRef, rawByRef)) {
+                        d = new RouteXmlDiff.Diff(List.of(), List.of());
+                    }
                     addedSteps = d.added();
                     removedSteps = d.removed();
                     if (!addedSteps.isEmpty() || !removedSteps.isEmpty()) {
@@ -888,6 +900,12 @@ public class RouteTraceService {
                 }
                 // Cache the WITH-CONTEXT diff per template (one git call); the compact +/- view is derived from it.
                 List<String> tFull = payloadDiffByTemplate.computeIfAbsent(tGit, gp -> {
+                    // NET-effect gate: identical (whitespace-normalised) content just before the release and after
+                    // its LAST commit means every change was reverted — nothing ships, nothing to report.
+                    if (sameNormalized(gitChange.fileAtRef(repo, rc.beforeRefFor(gp), gp),
+                            gitChange.fileAtRef(repo, rc.afterRefFor(gp), gp))) {
+                        return List.of();
+                    }
                     List<String> lines = new ArrayList<>();
                     for (String c : rc.fileReleaseCommits().getOrDefault(gp, List.of())) {
                         String prev = prevFileRef(repo, c, gp, prevByCommit);
@@ -897,7 +915,9 @@ public class RouteTraceService {
                             }
                         }
                     }
-                    return lines;
+                    // A line the release changed and later changed back appears as both +X and -X in that union —
+                    // cancel such pairs so only what actually stuck is shown (A→B→C nets to -A / +C).
+                    return netDiffLines(lines);
                 });
                 List<String> tCompact = tFull.stream()
                         .filter(l -> (l.startsWith("+") || l.startsWith("-")) && !l.substring(1).trim().isEmpty())
@@ -1057,6 +1077,83 @@ public class RouteTraceService {
             String p = gitChange.previousFileCommit(repo, commit, gitPath);
             return p == null ? "" : p;
         });
+    }
+
+    /**
+     * True when a BAU route's body is identical just before the release and after the release's LAST commit on its
+     * file — i.e. every release edit to it was reverted, so the old app runs exactly what it ran before. Unknown
+     * (the route absent at either end, or no span) → false, so the per-commit replay result stands.
+     */
+    private boolean sameRouteAtSpanEnds(Path repo, GitChangeService.ReleaseChanges rc, String gitPath, String routeId,
+                                        Map<String, Map<String, List<String>>> bodiesByRef,
+                                        Map<String, String> rawByRef) {
+        String before = rc.beforeRefFor(gitPath);
+        String after = rc.afterRefFor(gitPath);
+        if (before == null || after == null) {
+            return false;
+        }
+        List<String> b0 = bodiesAt(repo, before, gitPath, bodiesByRef, rawByRef).get(routeId);
+        List<String> b1 = bodiesAt(repo, after, gitPath, bodiesByRef, rawByRef).get(routeId);
+        return b0 != null && b1 != null && b0.equals(b1);
+    }
+
+    /** True when two file contents match once each line is trimmed and blank lines are dropped (whitespace-only
+     *  differences never count as a change). Either side unknown (null) → false. */
+    static boolean sameNormalized(List<String> a, List<String> b) {
+        return a != null && b != null && normalizedLines(a).equals(normalizedLines(b));
+    }
+
+    private static List<String> normalizedLines(List<String> lines) {
+        List<String> out = new ArrayList<>(lines.size());
+        for (String l : lines) {
+            String t = l.trim();
+            if (!t.isEmpty()) {
+                out.add(t);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Net out an accumulated diff: a {@code +X} and a {@code -X} with the same (trimmed) text cancel each other,
+     * so a line the release changed and later changed back nets to nothing and A→B→C nets to {@code -A}/{@code +C}.
+     * Context and {@code @@} locator lines pass through untouched; order is otherwise preserved.
+     */
+    static List<String> netDiffLines(List<String> lines) {
+        Map<String, Integer> plus = new HashMap<>();
+        Map<String, Integer> minus = new HashMap<>();
+        for (String l : lines) {
+            if (l.startsWith("+")) {
+                plus.merge(l.substring(1).trim(), 1, Integer::sum);
+            } else if (l.startsWith("-")) {
+                minus.merge(l.substring(1).trim(), 1, Integer::sum);
+            }
+        }
+        Map<String, Integer> dropPlus = new HashMap<>();    // text → how many +/- pairs cancel
+        for (var e : plus.entrySet()) {
+            Integer m = minus.get(e.getKey());
+            if (m != null) {
+                dropPlus.put(e.getKey(), Math.min(e.getValue(), m));
+            }
+        }
+        if (dropPlus.isEmpty()) {
+            return lines;
+        }
+        Map<String, Integer> dropMinus = new HashMap<>(dropPlus);
+        List<String> out = new ArrayList<>(lines.size());
+        for (String l : lines) {
+            Map<String, Integer> drop = l.startsWith("+") ? dropPlus : l.startsWith("-") ? dropMinus : null;
+            if (drop != null) {
+                String t = l.substring(1).trim();
+                Integer n = drop.get(t);
+                if (n != null && n > 0) {
+                    drop.put(t, n - 1);
+                    continue;   // cancelled against its opposite
+                }
+            }
+            out.add(l);
+        }
+        return out;
     }
 
     /**

@@ -293,6 +293,86 @@ class CodeChangeImpactTest {
         assertThat(report.getBackwardCompatCount()).isGreaterThanOrEqualTo(1);
     }
 
+    // --- Net effect: a change the release made and then REVERTED ships nothing to the BAU app → not reported. ---
+
+    @Test
+    void aPayloadChangeRevertedByALaterReleaseCommitIsNotFlagged(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        String bau = "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"MOBILE\"\n}\n";
+        writePayFixture(dir, bau);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // 19.18.0 changes channel MOBILE -> APP ... then its LAST commit puts it back exactly like BAU.
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"APP\"\n}\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] change channel value");
+        Files.writeString(dir.resolve("templates/pay.ftl"), bau);
+        commit(dir, "[JIRA-3][SG][19.18.0] revert channel value back to BAU");
+        // A LATER release keeps the file different at HEAD, so the file-level net check alone can't drop it —
+        // the per-route/template net effect must (this is what leaked the -MOBILE/+APP/-APP/+MOBILE noise).
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"MOBILE\",\n  \"note\": \"next\"\n}\n");
+        commit(dir, "[JIRA-9][SG][19.19.0] next release adds note");
+
+        VersionDiffReport report = runPay918(dir);
+
+        ApiDiff pay = apiByRoute(report, "pay");
+        assertThat(pay.bauRouteEdits()).isEmpty();          // net zero for 19.18.0 → no BAU change to test
+        assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_LOW);
+    }
+
+    @Test
+    void aPartiallyRevertedPayloadChangeShowsOnlyWhatStuck(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writePayFixture(dir, "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"channel\": \"MOBILE\"\n}\n");
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // Commit 1: adds fieldX AND changes channel. Commit 2: reverts channel only — fieldX stays.
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"fieldX\": \"x\",\n  \"channel\": \"APP\"\n}\n");
+        commit(dir, "[JIRA-2][SG][19.18.0] add fieldX, change channel");
+        Files.writeString(dir.resolve("templates/pay.ftl"),
+                "{\n  \"serviceVersionNumber\": \"2.0\",\n  \"fieldX\": \"x\",\n  \"channel\": \"MOBILE\"\n}\n");
+        commit(dir, "[JIRA-3][SG][19.18.0] revert channel, keep fieldX");
+
+        VersionDiffReport report = runPay918(dir);
+
+        ApiDiff pay = apiByRoute(report, "pay");
+        assertThat(pay.bauRouteEdits()).hasSize(1);
+        var diff = pay.bauRouteEdits().get(0).payloadDiff();
+        assertThat(diff).anyMatch(l -> l.startsWith("+") && l.contains("fieldX"));   // what actually stuck
+        assertThat(diff).noneMatch(l -> l.contains("MOBILE") || l.contains("APP"));  // the reverted pair is gone
+        assertThat(pay.risk()).isEqualTo(ApiDiff.RISK_HIGH);   // a real payload key was added to a BAU route
+    }
+
+    @Test
+    void aBauRouteStepAddedThenRevertedWithinTheReleaseIsNotFlagged(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // 19.18.0 adds a step to the BAU route R7.14 ... then its last commit removes it again (back to BAU).
+        Files.writeString(dir.resolve("routes.xml"), ROUTES.replace("<to uri=\"bean:statusProcessor\"/>",
+                "<to uri=\"bean:statusProcessor\"/><to uri=\"bean:auditProcessor\"/>"));
+        commit(dir, "[JIRA-2][SG][19.18.0] add audit step to R7.14");
+        Files.writeString(dir.resolve("routes.xml"), ROUTES);
+        commit(dir, "[JIRA-3][SG][19.18.0] revert audit step");
+        // A later release edits ANOTHER route in the same file, so the file still differs at HEAD.
+        Files.writeString(dir.resolve("routes.xml"), ROUTES.replace("<to uri=\"bean:residenceProcessor\"/>",
+                "<to uri=\"bean:residenceProcessor\"/><log message=\"next\"/>"));
+        commit(dir, "[JIRA-9][SG][19.19.0] next release touches R9.18");
+
+        VersionDiffReport report = run918(dir);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.bauRouteEdits()).isEmpty();
+        assertThat(status.codeChanged()).isFalse();
+        assertThat(status.risk()).isEqualTo(ApiDiff.RISK_LOW);
+    }
+
     @Test
     void aWhitespaceOnlyReformatOfABauRouteTemplateIsNotFlagged(@TempDir Path dir) throws Exception {
         assumeTrue(gitAvailable(), "git CLI not available");

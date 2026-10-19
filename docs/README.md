@@ -1,6 +1,6 @@
 # TraceGuard — guides & explainers
 
-Shareable explainers for the release / testing teams (also on claude.ai as live pages).
+Shareable explainers for the release / testing teams (also shared as live web pages).
 
 | Guide | Audience | What it explains |
 |---|---|---|

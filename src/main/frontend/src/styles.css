@@ -1363,3 +1363,13 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .tp-g dt::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: rgb(var(--tp-stripe)); }
 .tp-g dd { margin: 4px 0 0; font-size: 12.5px; color: rgb(var(--tg-ink-2)); }
 .tp-carry { margin-top: 12px; font-size: 12.5px; color: rgb(var(--tg-muted)); }
+
+/* Detailed view: the card's test-focus block and the readiness strip's collapsible glossary (same .tp-* vocabulary). */
+.card-focus { margin: 8px 0 10px; padding: 10px 12px; border-radius: 10px; background: rgb(var(--tg-surface-2)); border: 1px solid rgb(var(--tg-hair)); }
+.card-focus-label { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: rgb(var(--tg-muted)); margin-bottom: 6px; }
+.card-focus .tp-focus { max-width: none; font-size: 13px; }
+.card-focus-bc { display: inline-block; font-size: 9.5px; font-weight: 800; letter-spacing: .03em; padding: 1px 6px; border-radius: 999px; background: rgb(var(--tg-bc-soft)); color: rgb(var(--tg-bc)); vertical-align: 1px; margin-right: 2px; }
+.tp-legend { margin: 8px 0 4px; font-size: 12.5px; }
+.tp-legend summary { cursor: pointer; color: rgb(var(--tg-muted)); font-weight: 600; font-size: 12px; }
+.tp-legend dl { margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 20px; }
+.tp-legend .tp-g dd { font-size: 12px; }

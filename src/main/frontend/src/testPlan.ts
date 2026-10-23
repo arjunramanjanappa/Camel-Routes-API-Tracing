@@ -19,6 +19,8 @@ export const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 
 export interface PlanRow {
   a: ApiDiff;
+  /** Which bucket the API's own change falls in (BC is the BAU set seen from the old client). */
+  bucket: 'bau' | 'new';
   /** What changed — one precise phrase (e.g. "channel: MOBILE → APP"). */
   what: string;
   /** Where it lives — route / class / author, for the small print. */
@@ -235,15 +237,8 @@ export function buildTestPlan(report: VersionDiffReport): TestPlan {
   const bau: PlanRow[] = [];
   const newOnly: PlanRow[] = [];
   for (const a of toVerify) {
-    if (isBauImpact(a)) {
-      const live = liveVersions(a);
-      const { what, detail } = bauWhat(a);
-      bau.push({ a, what, detail, test: bauTests(a, live), who: hasNewAppWork(a) ? 'Both teams' : 'BAU team',
-        risk: riskOf(a), bc: true, oldVersions: live, logVersion: live[0] ?? a.lowerVersion ?? null });
-    } else {
-      const { what, detail } = newWhat(a, ver);
-      newOnly.push({ a, what, detail, test: newTests(a, ver), who: 'New-app team', risk: riskOf(a), bc: false, oldVersions: [], logVersion: a.targetVersion });
-    }
+    const row = planRowFor(a, ver);
+    (row.bucket === 'bau' ? bau : newOnly).push(row);
   }
   const bc: PlanRow[] = bau.map((r) => ({ ...r, test: bcTests(r.a), what: r.oldVersions.length ? 'Still called by ' + r.oldVersions.join(', ') : 'Still called by the current app' }));
   const shared = sharedClasses(report.apis);
@@ -253,6 +248,31 @@ export function buildTestPlan(report: VersionDiffReport): TestPlan {
     : `${inScope} APIs in scope: ${bau.length} BAU regression · ${bc.length} backward-compat · ${newOnly.length} new app only · ${unchanged} unchanged.`;
   return { version: ver, snapshot, inScope, unchanged, bau, bc, newOnly, shared, verdict };
 }
+
+/** The plan row for ONE API — the Detailed card and Detailed PDF use this so every view says the same thing. */
+export function planRowFor(a: ApiDiff, ver: string): PlanRow {
+  if (isBauImpact(a)) {
+    const live = liveVersions(a);
+    const { what, detail } = bauWhat(a);
+    return { a, bucket: 'bau', what, detail, test: bauTests(a, live), who: hasNewAppWork(a) ? 'Both teams' : 'BAU team',
+      risk: riskOf(a), bc: true, oldVersions: live, logVersion: live[0] ?? a.lowerVersion ?? null };
+  }
+  const { what, detail } = newWhat(a, ver);
+  return { a, bucket: 'new', what, detail, test: newTests(a, ver), who: 'New-app team', risk: riskOf(a), bc: false, oldVersions: [], logVersion: a.targetVersion };
+}
+/** The backward-compatibility checks for a BAU-impact API (old client against the new build). */
+export function bcTestsFor(a: ApiDiff): string[] { return isBauImpact(a) ? bcTests(a) : []; }
+/** One-line verdict for a card / PDF block: bucket + the precise change. */
+export function verdictFor(row: PlanRow): string {
+  return (row.bucket === 'bau' ? 'BAU regression' : 'New app only') + ' · ' + row.what;
+}
+/** Shared-code re-test groups, in reader's words (Current/BAU/Future are the backend's category names). */
+export const SHARED_GROUP: Record<'Current' | 'BAU' | 'Future' | 'Unknown', { label: string; desc: string }> = {
+  Current: { label: 'This release', desc: 'verify here' },
+  BAU: { label: 'Live now', desc: 'regression-test the current app' },
+  Future: { label: 'Upcoming', desc: 'pre-test now; not flagged again under its own version' },
+  Unknown: { label: 'Untraced', desc: 'not wired to a controller — trace and verify manually' },
+};
 
 // ---- one vocabulary ----
 export interface Bucket { key: 'bau' | 'bc' | 'new' | 'shared'; title: string; question: string; who: string; define: string }

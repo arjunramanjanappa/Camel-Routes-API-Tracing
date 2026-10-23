@@ -9,6 +9,7 @@ import { exportDiffPdf } from '../diffPdf';
 import { exportDiffSummaryPdf } from '../diffSummaryPdf';
 import { backendPath } from '../spl';
 import ImpactSummary from '../components/ImpactSummary';
+import { planRowFor, bcTestsFor, verdictFor, buckets as planBuckets, SHARED_GROUP } from '../testPlan';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
 import { sourceParams } from '../components/SourceFields';
@@ -35,7 +36,7 @@ const DIFF_MESSAGES = [
 ];
 
 function statusLabel(s: DiffStatus): string {
-  return s === 'NEW' ? 'New' : s === 'CHANGED' ? 'Changed' : 'No change';
+  return s === 'NEW' ? 'New' : s === 'CHANGED' ? 'Changed' : 'Unchanged';
 }
 
 /** Sort route versions descending (9.14 > 9.12 > 9.10), with BASE / BAU last. */
@@ -67,16 +68,6 @@ function bauRouteRemoval(a: ApiDiff): boolean {
 /** The release edited a BAU route at all — its body OR its payload changed. Any such change is High risk: it
  *  alters a route already in production, so it directly impacts the old/PROD app. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
-/** The kind of BAU-route change for the card chip — Payload change / Route change / Route removed / a mix. */
-function bauKind(a: ApiDiff): { label: string; cls: string } {
-  const edits = a.bauRouteEdits || [];
-  if (edits.some((e) => e.routeRemoved)) return { label: 'BAU · Route removed', cls: 'body' };
-  const payload = edits.some((e) => (e.payloadDiff?.length ?? 0) > 0);
-  const body = edits.some((e) => e.addedSteps.length > 0 || e.removedSteps.length > 0);
-  if (payload && body) return { label: 'BAU · Payload + route change', cls: 'payload' };
-  if (body) return { label: 'BAU · Route change', cls: 'body' };
-  return { label: 'BAU · Payload change', cls: 'payload' };
-}
 /** A short, still-disambiguating template path: from `META-INF/` (the recognisable resource path that matches the
  *  route's own `freemarker:META-INF/...` uri, keeping `templates/`), else from `templates/`, else the last two
  *  segments. Drops only the long `src/main/resources/...` prefix. The full repo-relative path is shown on hover. */
@@ -97,9 +88,9 @@ function needsBC(a: ApiDiff): boolean {
 }
 function bcReason(a: ApiDiff): string {
   const parts: string[] = [];
-  if (a.codeChanged) parts.push('shared class changed — regression-test the older (BAU) version against the new code');
-  if (bauRouteModified(a)) parts.push('a BAU route the old app runs was modified' + (bauRouteRemoval(a) ? ' (a step/key was removed — backward-incompatible)' : '') + ' — regression-test the old app');
-  return parts.join('; ');
+  if (a.codeChanged) parts.push('shared class the live app runs changed');
+  if (bauRouteModified(a)) parts.push('live route edited in place' + (bauRouteRemoval(a) ? ' (step/field removed — incompatible)' : ''));
+  return parts.join('; ') + ' — old client against the new build must pass';
 }
 
 // Version keys for the per-version test-log correlation (BASE for un-versioned / N/A).
@@ -193,14 +184,14 @@ function riskReasons(a: ApiDiff): string[] {
   // BAU-impact model: a BAU class change or an in-place BAU-route edit is High; a backend service-version
   // bump is Medium (new route only); everything else — including a version-diff payload change — is scoped to
   // the new version → Low, no BAU impact.
-  if (a.codeChanged) why.push('BAU Java class changed');
-  if (bauRouteModified(a)) why.push('BAU route modified — changes existing PROD behaviour' + (bauRouteRemoval(a) ? ' (step/key removed — backward-incompatible)' : ''));
+  if (a.codeChanged) why.push('shared class the live app runs changed');
+  if (bauRouteModified(a)) why.push('live route edited in place' + (bauRouteRemoval(a) ? ' (step/field removed — incompatible)' : ''));
   if (a.codeChanged || bauRouteModified(a)) return why;   // High signals lead
-  if (a.payloadChange?.removedKeys?.length) why.push('payload fields removed on the new version route (new-app-scoped — old app unchanged)');
-  if (a.payloadChange?.addedKeys?.length) why.push('payload fields added on the new version route (new-app-scoped)');
+  if (a.payloadChange?.removedKeys?.length) why.push('fields removed on the new route — new app only');
+  if (a.payloadChange?.addedKeys?.length) why.push('fields added on the new route — new app only');
   if (why.length) return why;
-  if (a.backendVersionChanges?.length) { why.push('backend service version bumped (new route only)'); return why; }
-  if (a.status === 'NEW' || a.status === 'CHANGED') why.push('scoped to the new version — no BAU impact');
+  if (a.backendVersionChanges?.length) { why.push('backend service version bumped — new route only'); return why; }
+  if (a.status === 'NEW' || a.status === 'CHANGED') why.push('new app only — old app unaffected');
   return why;
 }
 
@@ -208,21 +199,9 @@ function riskReasons(a: ApiDiff): string[] {
 // The verdict line does NOT repeat the risk word — the risk pill (e.g. "Medium risk") already shows it, so
 // prefixing "Medium · …" here would just duplicate it on the card.
 function verdictLine(d: ApiDiff): string {
-  if (bauRouteModified(d)) return 'BAU route modified in place — regression needed';
-  if (d.codeChanged) return 'shared BAU class changed — regression needed';
-  if (d.status === 'NEW') return 'new API — new-app work, no BAU impact';
-  if (d.backendVersionChanges?.length) return 'backend service version bumped (new route)';
-  const add = d.payloadChange?.addedKeys?.length ?? 0;
-  const rem = d.payloadChange?.removedKeys?.length ?? 0;
-  if (add || rem) {
-    const parts = [rem ? `−${rem}` : '', add ? `+${add}` : ''].filter(Boolean).join(' ');
-    return `new-version route · payload ${parts} field(s), no BAU impact`;
-  }
-  if ((d.routeDiffs?.length ?? 0) > 0 || (d.addedRoutes?.length ?? 0) > 0 || (d.removedRoutes?.length ?? 0) > 0) {
-    return 'route/flow changed — new-version-scoped';
-  }
-  if (d.status === 'UNCHANGED') return 'version bumped — identical flow';
-  return 'changed';
+  // Same words as the Summary test plan: "<bucket> · <precise change>".
+  if (effectiveStatus(d) === 'UNCHANGED') return 'Unchanged · version bumped, identical flow';
+  return verdictFor(planRowFor(d, d.targetVersion || ''));
 }
 
 /**
@@ -280,10 +259,10 @@ function apiDiffText(a: ApiDiff): string {
 type ImpactGroup = 'Current' | 'BAU' | 'Future' | 'Unknown';
 const IMPACT_ORDER: ImpactGroup[] = ['Current', 'BAU', 'Future', 'Unknown'];
 const IMPACT_META: Record<ImpactGroup, { icon: ReactNode; label: string; desc: string }> = {
-  Current: { icon: <CircleDot size={13} aria-hidden="true" />, label: 'Current release', desc: 'this release — verify the change here' },
-  BAU: { icon: <Triangle size={13} aria-hidden="true" />, label: 'BAU (in production)', desc: 'live now — regression-test' },
-  Future: { icon: <Diamond size={13} aria-hidden="true" />, label: 'Future release', desc: "pre-test now; won't resurface under its own version" },
-  Unknown: { icon: <CircleHelp size={13} aria-hidden="true" />, label: 'Unknown (untraced)', desc: 'not wired to a controller — trace & verify manually' },
+  Current: { icon: <CircleDot size={13} aria-hidden="true" />, label: SHARED_GROUP.Current.label, desc: SHARED_GROUP.Current.desc },
+  BAU: { icon: <Triangle size={13} aria-hidden="true" />, label: SHARED_GROUP.BAU.label, desc: SHARED_GROUP.BAU.desc },
+  Future: { icon: <Diamond size={13} aria-hidden="true" />, label: SHARED_GROUP.Future.label, desc: SHARED_GROUP.Future.desc },
+  Unknown: { icon: <CircleHelp size={13} aria-hidden="true" />, label: SHARED_GROUP.Unknown.label, desc: SHARED_GROUP.Unknown.desc },
 };
 /** The display group: a route with no resolved API is bucketed as Unknown (needs manual back-trace). */
 function impactGroup(r: ImpactedRoute): ImpactGroup {
@@ -300,8 +279,8 @@ function CodeChangeBlock({ d, onOpenApi, routeLog }: { d: ApiDiff; onOpenApi?: (
     .map((cat) => ({ cat, rows: impacted.filter((r) => impactGroup(r) === cat) }))
     .filter((g) => g.rows.length > 0);
   return (
-    <div className="diff-code" title="Pre-existing (BAU) @Component Java classes wired into this API's flow that the app-version release modified">
-      <span className="diff-code-label"><Code2 size={13} aria-hidden="true" /> Code changed</span>
+    <div className="diff-code" title="A Java class this API's flow runs was changed by the release — every route version that runs it needs a test">
+      <span className="diff-code-label"><Code2 size={13} aria-hidden="true" /> Shared class changed</span>
       {classes.map((c) => {
         // Label: "bean (File.java) · <versions> — <authors>"  (· versions and — authors both optional).
         const dash = c.lastIndexOf(' — ');
@@ -320,7 +299,7 @@ function CodeChangeBlock({ d, onOpenApi, routeLog }: { d: ApiDiff; onOpenApi?: (
       })}
       {byCat.length > 0 && (
         <div className="diff-code-cross">
-          <div className="diff-code-cross-head"><AlertTriangle size={13} aria-hidden="true" /> Shared code — also re-test:</div>
+          <div className="diff-code-cross-head"><AlertTriangle size={13} aria-hidden="true" /> Shared code · versions to test:</div>
           <div className="impact-cats">
             {byCat.map((g) => (
               <div key={g.cat} className={'impact-cat ' + g.cat.toLowerCase()}>
@@ -376,16 +355,22 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
   return (
     <>
       <div className="readiness" role="group" aria-label="Release readiness">
-        <span className="rd-chip total" title="Changed + new APIs to regression-test this release"><b>{toTest}</b> to test</span>
-        <span className="rd-chip high" title="High test-priority: a change that impacts the BAU/PROD app — a shared BAU @Component class changed, or a BAU route modified in place (its steps or payload). A version-diff payload change is new-app-scoped, not High."><b>{high}</b> high risk</span>
-        {bauMod > 0 && <span className="rd-chip high" title="BAU (in-production) routes the release modified in place — their steps or payload changed. Existing PROD behaviour changed; regression-test the old app."><b>{bauMod}</b> BAU routes modified</span>}
-        {report.appVersion && <span className="rd-chip code" title="APIs with a shared Java class change"><b>{code}</b> code-changed</span>}
-        <span className="rd-chip bc" title="APIs that removed/renamed a payload field — backend must stay backward compatible"><b>{bc}</b> backward-compat</span>
+        <span className="rd-chip total" title="Changed + new APIs to test this release"><b>{toTest}</b> to test</span>
+        <span className="rd-chip high" title="High risk = live behaviour changes (BAU regression): a shared class the live app runs changed, or a live route was edited in place"><b>{high}</b> high risk</span>
+        {bauMod > 0 && <span className="rd-chip high" title="Live routes the release edited in place (steps or payload) — regression-test the current app"><b>{bauMod}</b> live routes edited</span>}
+        {report.appVersion && <span className="rd-chip code" title="APIs whose flow runs a shared Java class the release changed"><b>{code}</b> shared code</span>}
+        <span className="rd-chip bc" title="Backward compatibility: old app versions still call what changed — an old client against the new build must pass"><b>{bc}</b> backward-compat</span>
         {!log && <span className="rd-chip muted" title="Attach a test log to see which impacted flows were exercised">coverage — not checked</span>}
         {log && <span className="rd-chip tested" title="Of the changed/new APIs, how many the uploaded log shows executed &amp; passed"><b>{t.passed}</b>/{t.toTest} tested &amp; passed</span>}
         {log && <span className="rd-chip flows-ok" title="Impacted change flows the log shows exercised"><b>{f.tested}</b> flows tested</span>}
         {log && f.untested > 0 && <span className="rd-chip flows-gap" title="Impacted change flows no transaction covered — still to run"><b>{f.untested}</b> flows not tested</span>}
       </div>
+      <details className="tp-legend">
+        <summary>What the labels mean</summary>
+        <dl>{planBuckets((report.version && report.version.trim()) || report.appVersion || 'the release').map((b) => (
+          <div key={b.key} className={'tp-g ' + b.key}><dt>{b.title}</dt><dd>{b.define}</dd></div>
+        ))}</dl>
+      </details>
       {log && f.untested > 0 && (
         <div className="closeloop" role="note">
           <span className="closeloop-icon" aria-hidden="true"><Target size={15} /></span>
@@ -411,8 +396,8 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
         ) : (
           <span className="muted">
             {' · '}{report.matchedCommits ?? 0} commit{(report.matchedCommits ?? 0) === 1 ? '' : 's'} tagged
-            {' · '}{n} API{n === 1 ? '' : 's'} with a shared Java class change
-            {bauMod > 0 && ` · ${bauMod} BAU route${bauMod === 1 ? '' : 's'} modified in place`}
+            {' · '}{n} API{n === 1 ? '' : 's'} with shared code changed
+            {bauMod > 0 && ` · ${bauMod} live route${bauMod === 1 ? '' : 's'} edited`}
           </span>
         )}
       </div>
@@ -493,6 +478,7 @@ function BauRouteEditBlock({ d }: { d: ApiDiff }) {
   if (!edits.length) return null;
   return (
     <div className="diff-code bau">
+      <span className="diff-code-label"><Flag size={13} aria-hidden="true" /> BAU regression · live route edited</span>
       {edits.map((e) => <BauEditRow key={e.route} e={e} />)}
     </div>
   );
@@ -561,6 +547,12 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
 }) {
   const svc = d.backendVersionChanges || [];
   const tested = testedMeta(log);
+  // The test-plan row for this API — same words as the Summary (bucket, change, test focus, who).
+  const plan = planRowFor(d, d.targetVersion || '');
+  const toTest = effectiveStatus(d) !== 'UNCHANGED';
+  const whoCls = plan.who === 'BAU team' ? 'bau' : plan.who === 'New-app team' ? 'new' : 'both';
+  const whoTitle = plan.who === 'BAU team' ? 'Live behaviour changes — regression-test the current app'
+    : plan.who === 'New-app team' ? 'Versioned to the release — only the new app sees this' : 'Live impact plus new-app work — both teams test';
   const [editingRemark, setEditingRemark] = useState(false);
   const [remarkDraft, setRemarkDraft] = useState(remark ?? '');
   const [expanded, setExpanded] = useState(false);   // collapsed to a scannable row by default; details on click
@@ -581,14 +573,9 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           {showPill && (
             <span className="ver-pill"><b>{d.lowerVersion}</b><span className="ver-arrow">→</span><b>{d.targetVersion}</b></span>
           )}
-          {d.codeChanged && (
-            <span className="diff-badge code" title="A Java class or route XML in this API's flow was changed by the app-version release">Changed (code)</span>
-          )}
-          {bauRouteModified(d) && (
-            <span className={'chg-tag ' + bauKind(d).cls} title={'A BAU (in-production) route was modified in place — ' + bcReason(d)}><Flag size={12} aria-hidden="true" /> {bauKind(d).label}</span>
-          )}
+          {toTest && <span className={'tp-who ' + whoCls} title={whoTitle}>{plan.who}</span>}
           <span className={'risk-badge ' + RISK_CLASS[riskOf(d)]} title={'Test priority: ' + riskOf(d) + (riskReasons(d).length ? ' — ' + riskReasons(d).join('; ') : '')}>{riskOf(d)} risk</span>
-          {needsBC(d) && <span className="bc-badge" title={'Backward compatibility required — ' + bcReason(d)}>BC</span>}
+          {needsBC(d) && <span className="bc-badge" title={'Backward compatibility: ' + bcReason(d)}>BC</span>}
           {tested && <span className={'tested-badge ' + tested.cls} title={tested.title}>{tested.label}</span>}
           <span className={'diff-badge ' + d.status.toLowerCase()}>{statusLabel(d.status as DiffStatus)}</span>
         </span>
@@ -621,8 +608,19 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         )}
       </div>
 
+      {/* Test focus — what to run and who runs it, in the Summary's words; the evidence blocks follow. */}
+      {toTest && (
+        <div className="card-focus">
+          <span className="card-focus-label"><Target size={13} aria-hidden="true" /> Test focus · {plan.who}</span>
+          <ul className="tp-focus">
+            {plan.test.map((t, i) => <li key={'t' + i}>{t}</li>)}
+            {plan.bucket === 'bau' && bcTestsFor(d).map((t, i) => <li key={'bc' + i}><span className="card-focus-bc">BC</span> {t}</li>)}
+          </ul>
+        </div>
+      )}
+
       {/* BAU-impact changes FIRST (highest severity — they touch the prod/old app): an in-place BAU-route edit,
-          then a shared BAU class change. The new-version-scoped "release changes" (chips / svc / route diff /
+          then a shared BAU class change. The new-app-only "release changes" (chips / svc / route diff /
           payload) follow below. */}
       <BauRouteEditBlock d={d} />
 
@@ -645,7 +643,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
             <button type="button" className="rdiff-toggle" aria-expanded={open} onClick={onToggle}>
               <span className="collapse-caret">{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
               <span className="rdiff-toggle-title">Release changes</span>
-              <span className="muted">{summary} — new-version-scoped</span>
+              <span className="muted">{summary} — new app only</span>
             </button>
             {open && (
               <>
@@ -677,8 +675,8 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
                     <span className="diff-payload-label">Payload change</span>
                     {d.payloadChange!.addedKeys.map((k) => <span key={'+' + k} className="pk add">+ {k}</span>)}
                     {d.payloadChange!.removedKeys.map((k) => <span key={'-' + k} className="pk del">− {k}</span>)}
-                    <div className="bc-flag ok" title="This is the difference between the new version route and the unchanged lower (BAU) route — the old app keeps calling the lower route, so a field added or removed here is scoped to the new app and needs no backward-compat test. (A change to the BAU route's OWN payload is git-detected and flagged separately.)">
-                      Scoped to the new version route — old app unchanged, no backward-compat needed
+                    <div className="bc-flag ok" title="Difference between the new route and the unchanged lower route — the old app keeps calling the lower route, so no backward-compat test is needed. (An edit to a live route's OWN payload is git-detected and flagged under BAU regression.)">
+                      New app only — old app unaffected
                     </div>
                   </div>
                 )}
@@ -1249,9 +1247,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               </span>
             </div>
             <div className="filter-chips">
-              <button className={'fchip' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="Show only APIs that modified a BAU (in-production) route"><Flag size={12} aria-hidden="true" /> BAU route</button>
+              <button className={'fchip' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="Only APIs whose live route was edited in place"><Flag size={12} aria-hidden="true" /> BAU regression</button>
               <button className={'fchip' + (filters.has('high') ? ' on' : '')} onClick={() => toggleFilter('high')}>High risk</button>
-              {report.appVersion && <button className={'fchip' + (filters.has('code') ? ' on' : '')} onClick={() => toggleFilter('code')}>Code-changed</button>}
+              {report.appVersion && <button className={'fchip' + (filters.has('code') ? ' on' : '')} onClick={() => toggleFilter('code')} title="Only APIs whose flow runs a shared class the release changed">Shared code</button>}
               <button className={'fchip' + (filters.has('bc') ? ' on' : '')} onClick={() => toggleFilter('bc')}>Backward-compat</button>
               {activeLog && <button className={'fchip' + (filters.has('failed') ? ' on' : '')} onClick={() => toggleFilter('failed')}>Test failed</button>}
               {filters.size > 0 && <button className="linkbtn" onClick={() => setFilters(new Set())}>Clear filters</button>}
@@ -1273,9 +1271,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
               }
               return (
                 <div className="impact-statbar">
-                  {bau > 0 && <button type="button" className={'isb bau' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="APIs that modified a BAU (in-production) route — click to filter"><b>{bau}</b> BAU route</button>}
-                  <span className="isb high" title="High-risk APIs"><b>{high}</b> High</span>
-                  <span className="isb bc" title="APIs needing a backward-compatibility check"><b>{bc}</b> BC</span>
+                  {bau > 0 && <button type="button" className={'isb bau' + (filters.has('bau') ? ' on' : '')} onClick={() => toggleFilter('bau')} title="Live routes edited in place — click to filter"><b>{bau}</b> BAU regression</button>}
+                  <span className="isb high" title="High risk = live behaviour changes"><b>{high}</b> High</span>
+                  <span className="isb bc" title="Backward compatibility: old app versions still call what changed"><b>{bc}</b> BC</span>
                   {activeLog && <span className="isb tested" title="APIs with an uploaded test result"><b>{tested}/{total}</b> tested</span>}
                 </div>
               );
@@ -1321,8 +1319,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                         const owners = [...new Set(bau.flatMap((a) => (a.bauRouteEdits || []).flatMap((e) => e.changedBy || [])))];
                         return (
                           <Fragment key="__bau">
-                            <div className="diff-ver-head bau"><span><Flag size={13} aria-hidden="true" /> BAU route modified</span><span className="diff-ver-cnt">{bau.length}</span></div>
-                            {owners.length > 0 && <div className="bau-owners" title="Commit author(s) of the BAU route changes — who to ask">Who to ask: {owners.join(', ')}</div>}
+                            <div className="diff-ver-head bau"><span><Flag size={13} aria-hidden="true" /> BAU regression · live routes edited</span><span className="diff-ver-cnt">{bau.length}</span></div>
+                            {owners.length > 0 && <div className="bau-owners" title="Commit author(s) of the live-route edits — who to ask">Who to ask: {owners.join(', ')}</div>}
                             {bau.map(card)}
                           </Fragment>
                         );

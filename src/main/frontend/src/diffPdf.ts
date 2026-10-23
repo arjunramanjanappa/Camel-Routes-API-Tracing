@@ -3,6 +3,7 @@ import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, logWindowLin
 import { appLabel } from './appName';
 import { versionLabel } from './feature';
 import { backendPath } from './spl';
+import { buildTestPlan, buckets, planRowFor, bcTestsFor, verdictFor, SHARED_GROUP } from './testPlan';
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
 // release". Unchanged APIs are still counted in the summary table, just not enumerated.
@@ -14,10 +15,6 @@ function needsBC(a: ApiDiff): boolean {
   // A version-diff payload change is new-app-scoped (new route vs unchanged lower route), so it does NOT need
   // backward-compat — only a shared BAU class change or an in-place BAU-route edit does.
   return !!a.codeChanged || bauRouteModified(a);
-}
-/** A step or payload key removed from a BAU route the old app still runs — backward-incompatible. */
-function bauRouteRemoval(a: ApiDiff): boolean {
-  return !!a.bauRouteEdits?.some((e) => e.routeRemoved || e.removedSteps?.length || e.removedKeys?.length);
 }
 /** The release edited a BAU route at all — its body OR its payload changed → it alters existing PROD behaviour. */
 function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
@@ -136,11 +133,14 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   ]);
   r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
     + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged`
-    + `${appVersion ? `. App version ${appVersion} changed shared Java classes affecting ${tot.code} API(s)` : ''}. Impact by module:`);
-  if (tot.high || tot.bc) {
-    r.para(`Test priority: ${tot.high} high-risk API(s) to focus on first`
-      + `${tot.bc ? `, ${tot.bc} require backward compatibility (a payload field was removed/renamed)` : ''}.`,
-      M, CONTENT_W, 'bold', 9.5, tot.high ? PAL.red.text : PAL.amber.text, 13);
+    + `${appVersion ? `. App version ${appVersion}: ${tot.code} API(s) run shared code that changed` : ''}. Impact by module:`);
+  // The four test-plan buckets (same model and words as the Summary view / Summary PDF).
+  const plans = mods.filter((m) => m.report).map((m) => buildTestPlan(m.report!));
+  const pb = plans.reduce((n, p) => n + p.bau.length, 0), pbc = plans.reduce((n, p) => n + p.bc.length, 0),
+    pn = plans.reduce((n, p) => n + p.newOnly.length, 0), ps = plans.reduce((n, p) => n + p.shared.length, 0);
+  if (pb || pbc || pn || ps) {
+    r.para(`Test plan: ${pb} BAU regression - ${pbc} backward compatibility - ${pn} new app only - ${ps} shared class(es) changed.`,
+      M, CONTENT_W, 'bold', 9.5, pb ? PAL.red.text : PAL.amber.text, 13);
     r.y += 4;
   }
   r.dataTable(
@@ -160,10 +160,10 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   // ===== How to read =====
   r.legend('How to read this report', [
     'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
-    'Only changed, new and code-changed APIs are listed — the ones to regression-test this release. Unchanged APIs are counted in the summary above but not listed.',
-    'Changed = the resolved Camel flow differs (routes, backends or service versions). New = first appears in this release.',
-    ...(appVersion ? ['Code changed = a pre-existing (BAU) @Component Java class an API uses was modified by app version(s) ' + appVersion + ' (matched exactly; whitespace-only changes ignored; new classes shipped with a new route are not counted), shown with the version(s) that changed each class and the commit authors. A NEW API that changes shared code is listed under Changed. "Shared code — also re-test" lists, per route family, the current BAU route (immediate-lower, else base) plus every future/higher version — each must be tested now, as this change won\'t surface under their own version later.'] : []),
-    'Under "What changed", lines marked - were removed and + were added vs the previous version.',
+    'Only changed and new APIs are listed - the ones to test this release. Unchanged APIs are counted above but not listed.',
+    ...buckets(ver).map((b) => `${b.title} - ${b.define}`),
+    ...(appVersion ? [`Shared code is detected from the commits tagged [${appVersion}] (exact match; whitespace-only changes ignored; a class used only by the new route is not shared). "Versions to test" lists This release / Live now / Upcoming routes - each must be run now; the change is not flagged again under their own version.`] : []),
+    'In diffs, lines marked - were removed and + were added.',
   ]);
 
   const footer = `TraceGuard - Release impact ${ver}${app ? ' - ' + app : ''}`;
@@ -174,21 +174,22 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   const bcItems = mods.flatMap((m) => (m.report?.apis ?? [])
     .filter((a) => a.codeChanged || bauRouteModified(a))
     .map((a) => {
-      const reasons: string[] = [];
-      if (a.codeChanged) reasons.push('shared class changed - regression-test the older (BAU) version');
-      if (bauRouteModified(a)) reasons.push('BAU route modified' + (bauRouteRemoval(a) ? ' (step/key removed - backward-incompatible)' : '') + ' - regression-test the old app');
-      return { module: m.name, api: a.api, reason: reasons.join('; ') };
+      const row = planRowFor(a, ver);
+      return { module: m.name, api: a.api,
+        called: row.oldVersions.length ? row.oldVersions.join(', ') : 'current app',
+        test: bcTestsFor(a).join('; ') };
     }));
   if (bcItems.length) {
+    const b = buckets(ver)[1];
     r.bookmark('Backward compatibility');
-    r.section('Backward compatibility required', bcItems.length, PAL.red,
-      'These APIs need the previous version re-verified against this release: a request field was removed/renamed (the backend must still accept old clients), and/or a shared class they use was changed (the older version\'s flow must be regression-tested).');
+    r.section('Backward compatibility', bcItems.length, PAL.purple, b.define);
     r.wrapTable(
-      [{ header: 'API', w: 0.32, mono: true }, { header: 'Module', w: 0.22 }, { header: 'Why', w: 0.46 }],
+      [{ header: 'API', w: 0.30, mono: true }, { header: 'Module', w: 0.18 }, { header: 'Still called by', w: 0.16 }, { header: 'Test focus', w: 0.36 }],
       bcItems.map((it) => [
         { text: it.api, mono: true, color: PAL.ink },
         it.module,
-        { text: it.reason, color: PAL.delText },
+        it.called,
+        { text: it.test, color: PAL.body },
       ]));
   }
 
@@ -315,7 +316,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
   if (!a.codeChanged) return;
   // Changed shared classes, one per line (label + commit authors), so it doesn't run together.
   (a.changedClasses || []).forEach((c, i) => {
-    r.para((i === 0 ? 'Code changed - shared classes:   ' : '') + c,
+    r.para((i === 0 ? 'Shared class changed:   ' : '') + c,
       M + 4, CONTENT_W - 4, i === 0 ? 'bold' : 'normal', 9, PAL.purple.text, 12);
   });
   const impacted = a.impactedRoutes || [];
@@ -333,7 +334,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
   const rows = GROUPS.flatMap((g) =>
     impacted.filter((rt) => groupOf(rt) === g.key).map((rt) => {
       const row: (string | { pill: { label: string; fill: [number, number, number]; text: [number, number, number]; stripe: [number, number, number] } } | { text: string; mono?: boolean; color?: [number, number, number] })[] = [
-        { pill: { label: g.key, fill: g.ramp.fill, text: g.ramp.text, stripe: g.ramp.text } },
+        { pill: { label: SHARED_GROUP[g.key].label, fill: g.ramp.fill, text: g.ramp.text, stripe: g.ramp.text } },
         { text: rt.api || '-', mono: true, color: PAL.blue.text },
         { text: rt.routePath.join('  ->  '), mono: true, color: PAL.body },
       ];
@@ -343,7 +344,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
       }
       return row;
     }));
-  r.para('Shared code - also re-test (Current = this release, BAU = live, Future = upcoming, Unknown = trace manually):',
+  r.para('Shared code - versions to test (This release = verify here; Live now = regression-test the current app; Upcoming = pre-test now; Untraced = trace manually):',
     M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
   r.wrapTable(
     withTested
@@ -357,7 +358,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
 function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
   const edits = a.bauRouteEdits || [];
   if (!edits.length) return;
-  r.para('BAU route modified - existing PROD behaviour changed (High risk):', M + 4, CONTENT_W - 4, 'bold', 9, PAL.delText, 12);
+  r.para('BAU regression - live route edited:', M + 4, CONTENT_W - 4, 'bold', 9, PAL.delText, 12);
   edits.forEach((e) => {
     r.ensure(18);
     const removed = !!e.routeRemoved;
@@ -395,6 +396,12 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
     r.pill(vt, PAGE.w - M - riskW - 8 - vw, PAL.gray.fill, PAL.gray.text, 8);
   }
   r.y += 16;
+
+  // Verdict + test focus, in the Summary's words (bucket, precise change, what to run, who runs it).
+  const plan = planRowFor(a, a.targetVersion || '');
+  r.para(verdictFor(plan).replace(' · ', ' - '), M, CONTENT_W, 'bold', 9.5, plan.bucket === 'bau' ? PAL.red.text : PAL.green.text, 13);
+  const focus = [...plan.test, ...(plan.bucket === 'bau' ? bcTestsFor(a).map((t) => 'BC: ' + t) : [])];
+  r.para(`Test focus (${plan.who}): ${focus.join('; ')}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
 
   if (status === 'NEW') {
     r.para(`Introduced in ${a.targetVersion}. Entry route ${a.targetRoute}. No earlier version to compare against.`,
@@ -458,7 +465,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
     summarize('Payload change (keys)', keys, PAL.blue.text);
     // New route vs unchanged lower (BAU) route: fields added OR removed here are new-app-scoped — the old app
     // keeps calling the lower route, so no backward-compat test is needed.
-    r.para('Scoped to the new version route - old app unchanged, no backward-compat needed',
+    r.para('New app only - old app unaffected',
       M + 4, CONTENT_W - 4, 'normal', 9, PAL.gray.text, 12);
   }
   // Tester's manual remark (e.g. why an impacted API wasn't/can't be retested).

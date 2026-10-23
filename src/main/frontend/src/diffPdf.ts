@@ -1,7 +1,7 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
 import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { appLabel } from './appName';
-import { versionLabel } from './feature';
+import { versionLabel, groupItemsByFeature } from './feature';
 import { backendPath } from './spl';
 import { buildTestPlan, buckets, planRowFor, bcTestsFor, verdictFor, SHARED_GROUP } from './testPlan';
 
@@ -257,7 +257,11 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
           const showVerHeads = byVer.length > 1;
           byVer.forEach((g) => {
             if (showVerHeads) r.para(`${versionLabel(g.ver)}  (${g.apis.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
-            g.apis.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
+            // Within a version, APIs grouped by business feature (payment, manage, ...) like the screen.
+            groupItemsByFeature(g.apis, (a) => a.api).forEach((fg) => {
+              r.para(`${fg.feature}  (${fg.items.length})`, M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
+              fg.items.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
+            });
           });
         }
       }

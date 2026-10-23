@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { CircleCheck, CircleX, Minus } from 'lucide-react';
+import { groupItemsByFeature } from '../feature';
 import type { ApiLogResult, VersionDiffReport } from '../types';
 import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from '../testPlan';
 
@@ -37,7 +38,7 @@ export default function ImpactSummary({ report, log, logByVer }: {
       <Section b={B_BAU} count={plan.bau.length} empty="None — no live route or shared class changed.">
         <table className="tp-table">
           <thead><tr><th>API</th><th>Change</th><th>Test focus</th><th>Who</th>{hasLog && <th>Tested</th>}</tr></thead>
-          <tbody>{plan.bau.map((r) => (
+          <tbody>{withFeatures(plan.bau, hasLog ? 5 : 4, (r) => (
             <tr key={r.a.api + '|' + r.a.operation}>
               <ApiCell r={r} />
               <td className="tp-what">{r.what}{r.detail && <small>{r.detail}</small>}</td>
@@ -53,7 +54,7 @@ export default function ImpactSummary({ report, log, logByVer }: {
       <Section b={B_BC} count={plan.bc.length} empty="None.">
         <table className="tp-table">
           <thead><tr><th>API</th><th>Still called by</th><th>Test focus</th>{hasLog && <th>Tested</th>}</tr></thead>
-          <tbody>{plan.bc.map((r) => (
+          <tbody>{withFeatures(plan.bc, hasLog ? 4 : 3, (r) => (
             <tr key={r.a.api + '|' + r.a.operation}>
               <ApiCell r={r} />
               <td className="tp-what">{r.oldVersions.length ? r.oldVersions.map((v) => <code key={v} className="tp-ver">{v}</code>) : 'current app'}</td>
@@ -68,7 +69,7 @@ export default function ImpactSummary({ report, log, logByVer }: {
       <Section b={B_NEW} count={plan.newOnly.length} empty="None.">
         <table className="tp-table">
           <thead><tr><th>API</th><th>Change</th><th>Test focus</th><th>Risk</th>{hasLog && <th>Tested</th>}</tr></thead>
-          <tbody>{plan.newOnly.map((r) => (
+          <tbody>{withFeatures(plan.newOnly, hasLog ? 5 : 4, (r) => (
             <tr key={r.a.api + '|' + r.a.operation}>
               <ApiCell r={r} />
               <td className="tp-what">{r.what}{r.detail && <small>{r.detail}</small>}</td>
@@ -175,4 +176,15 @@ function SharedRow({ s, logByVer, hasLog }: { s: SharedClass; logByVer?: Record<
       <td className="tp-what">{s.apis.slice(0, 3).map((p) => <code key={p} className="tp-ver">{p}</code>)}{s.apis.length > 3 ? ` +${s.apis.length - 3}` : ''}</td>
     </tr>
   );
+}
+
+/** Rows grouped by business feature (payment, manage, …), each group led by a header row — like the screen.
+ *  Order within a feature is preserved, so the risk sort survives. */
+function withFeatures(rows: PlanRow[], colSpan: number, render: (r: PlanRow) => ReactNode): ReactNode[] {
+  return groupItemsByFeature(rows, (r) => r.a.api).map((fg) => (
+    <Fragment key={fg.feature}>
+      <tr className="tp-feat-row"><td colSpan={colSpan}><span className="tp-feat-name">{fg.feature}</span><span className="tp-feat-cnt">{fg.items.length}</span></td></tr>
+      {fg.items.map(render)}
+    </Fragment>
+  ));
 }

@@ -1373,3 +1373,7 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .tp-legend summary { cursor: pointer; color: rgb(var(--tg-muted)); font-weight: 600; font-size: 12px; }
 .tp-legend dl { margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 20px; }
 .tp-legend .tp-g dd { font-size: 12px; }
+/* Feature header rows inside the test-plan tables (payment / manage / ...). */
+.tp-feat-row td { background: rgb(var(--tg-surface-2)); padding: 6px 12px; border-bottom: 1px solid rgb(var(--tg-hair)); }
+.tp-feat-name { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgb(var(--tg-accent-ink)); }
+.tp-feat-cnt { margin-left: 8px; font-size: 10.5px; font-weight: 700; color: rgb(var(--tg-muted)); background: rgb(var(--tg-hair-2)); border-radius: 999px; padding: 0 7px; }

@@ -1,6 +1,7 @@
 import type { ApiLogResult } from './types';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, ascii, type Ramp, type RGB } from './pdfReport';
 import { appLabel } from './appName';
+import { groupItemsByFeature } from './feature';
 import type { ModuleDiff } from './diffPdf';
 import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from './testPlan';
 
@@ -70,6 +71,13 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
   ]);
 
   const apiCell = (x: R): Cell => ({ text: x.row.a.api + (multi ? `  [${x.m.name}]` : ''), mono: true, color: PAL.ink });
+  // Rows grouped by business feature (payment, manage, ...) like the screen; risk order kept within a feature.
+  const byFeature = (rows: R[], cols: { header: string; w: number; mono?: boolean }[], cells: (x: R) => Cell[]) => {
+    for (const fg of groupItemsByFeature(rows, (x) => x.row.a.api)) {
+      r.para(ascii(`${fg.feature}  (${fg.items.length})`), M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
+      r.wrapTable(cols, fg.items.map(cells));
+    }
+  };
   const section = (b: Bucket, count: number, emptyText: string, body: () => void) => {
     r.bookmark(b.title);
     r.section(b.title, count, RAMP[b.key], ascii(`${b.question} - ${b.who}`));
@@ -82,11 +90,11 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
     const cols = hasAnyLog
       ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Change', w: 0.28 }, { header: 'Test focus', w: 0.24 }, { header: 'Who', w: 0.11 }, { header: 'Tested', w: 0.11 }]
       : [{ header: 'API', w: 0.28, mono: true }, { header: 'Change', w: 0.32 }, { header: 'Test focus', w: 0.27 }, { header: 'Who', w: 0.13 }];
-    r.wrapTable(cols, bau.map((x) => {
+    byFeature(bau, cols, (x) => {
       const cells: Cell[] = [apiCell(x), x.row.what + (x.row.detail ? `\n${x.row.detail}` : ''), x.row.test.join('; '), pill(x.row.who, whoRamp(x.row.who))];
       if (hasAnyLog) cells.push(testedCell(logOf(x)));
       return cells;
-    }));
+    });
   });
 
   // ---- Backward compatibility ----
@@ -94,11 +102,11 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
     const cols = hasAnyLog
       ? [{ header: 'API', w: 0.30, mono: true }, { header: 'Still called by', w: 0.20 }, { header: 'Test focus', w: 0.38 }, { header: 'Tested', w: 0.12 }]
       : [{ header: 'API', w: 0.32, mono: true }, { header: 'Still called by', w: 0.22 }, { header: 'Test focus', w: 0.46 }];
-    r.wrapTable(cols, bc.map((x) => {
+    byFeature(bc, cols, (x) => {
       const cells: Cell[] = [apiCell(x), x.row.oldVersions.length ? x.row.oldVersions.join(', ') : 'current app', x.row.test.join('; ')];
       if (hasAnyLog) cells.push(testedCell(logOf(x)));
       return cells;
-    }));
+    });
   });
 
   // ---- New app only ----
@@ -106,11 +114,11 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
     const cols = hasAnyLog
       ? [{ header: 'API', w: 0.28, mono: true }, { header: 'Change', w: 0.30 }, { header: 'Test focus', w: 0.22 }, { header: 'Risk', w: 0.10 }, { header: 'Tested', w: 0.10 }]
       : [{ header: 'API', w: 0.30, mono: true }, { header: 'Change', w: 0.34 }, { header: 'Test focus', w: 0.24 }, { header: 'Risk', w: 0.12 }];
-    r.wrapTable(cols, neu.map((x) => {
+    byFeature(neu, cols, (x) => {
       const cells: Cell[] = [apiCell(x), x.row.what + (x.row.detail ? `\n${x.row.detail}` : ''), x.row.test.join('; '), pill(x.row.risk, riskRamp(x.row.risk))];
       if (hasAnyLog) cells.push(testedCell(logOf(x)));
       return cells;
-    }));
+    });
   });
 
   // ---- Shared code ----

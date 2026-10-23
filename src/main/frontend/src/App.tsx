@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { APP_VERSION, buildTimeLabel } from './version';
 import { ShieldCheck, Radar, ClipboardCheck, GitCompareArrows, LayoutDashboard, Table2,
          ArrowLeftRight, KeyRound, SlidersHorizontal, Moon, Sun } from 'lucide-react';
 import TraceView from './views/TraceView';
@@ -49,6 +50,11 @@ export default function App() {
           <ShieldCheck className="w-[26px] h-[26px] text-white" />
           <span className="leading-none">TraceGuard
             <span className="block text-[9px] font-semibold tracking-[.14em] uppercase text-[#8fb0e6] mt-0.5">Release intelligence</span>
+          </span>
+          {/* Release + build time: tells the user at a glance whether this bundle is the latest. */}
+          <span className="ml-1 self-start mt-0.5 rounded-full border border-white/20 bg-white/[.06] px-2 py-[2px] text-[10.5px] font-semibold tracking-wide text-[#c7d5ea] font-mono"
+                title={'TraceGuard ' + APP_VERSION + (buildTimeLabel() ? ' · built ' + buildTimeLabel() : '')}>
+            {APP_VERSION}
           </span>
         </div>
         {/* Primary tabs */}

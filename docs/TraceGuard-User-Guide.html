@@ -215,7 +215,10 @@
     <tr><td><strong>Service version</strong></td><td>The version of a backend contract the route is calling — TraceGuard checks the release used the one you expect.</td></tr>
     <tr><td><strong>Client / release version</strong></td><td>The app release under review, e.g. <span class="ui">9.14</span>. TraceGuard scopes everything to it.</td></tr>
     <tr><td><strong>Module</strong></td><td>A distinct part of the release, traced on its own. A release may span several modules; TraceGuard can analyse them together.</td></tr>
-    <tr><td><strong>BAU route</strong></td><td>A "business-as-usual" production route that already existed — changing one carries more risk, so TraceGuard flags it.</td></tr>
+    <tr><td><strong>BAU regression</strong></td><td>Live behaviour changes: a production ("business-as-usual") route, or code it runs, was edited. Regression-test the current app.</td></tr>
+    <tr><td><strong>Backward compatibility (BC)</strong></td><td>Older app versions still call what changed. An old client against the new build must pass.</td></tr>
+    <tr><td><strong>New app only</strong></td><td>Versioned to the release: a new route, new fields or a backend bump on the new route. The old app never sees it.</td></tr>
+    <tr><td><strong>Shared code</strong></td><td>One Java class serves several route versions. Test every version that runs the changed method: this release, live, upcoming.</td></tr>
   </table>
 </section>
 
@@ -314,17 +317,30 @@
       the actual change, attributed to its author.</li>
   </ol>
 
-  <h3>What you'll see</h3>
+  <h3>Summary view — the test plan</h3>
+  <p>Written for managers: one line says how much the release touches, then four buckets. Each row gives the
+  API, what changed in one phrase, what to test, and who tests it. APIs are grouped by business feature
+  (payment, manage, …) and the highest risk comes first.</p>
+  <table>
+    <tr><th style="width:40mm">Bucket</th><th>Question it answers</th><th style="width:30mm">Who tests</th></tr>
+    <tr><td><strong>BAU regression</strong></td><td>What changes for customers on the current app? A live route was edited, or code it runs changed.</td><td>BAU team</td></tr>
+    <tr><td><strong>Backward compatibility</strong></td><td>Will older app versions still work against what changed? Lists the versions that still call it.</td><td>BAU team</td></tr>
+    <tr><td><strong>New app only</strong></td><td>What is confined to the new version? New APIs, new fields or backend bumps on the new route — the old app is unaffected.</td><td>New-app team</td></tr>
+    <tr><td><strong>Shared code</strong></td><td>Which route versions run a changed class? Listed as <em>This release / Live now / Upcoming</em>.</td><td>Both teams</td></tr>
+  </table>
+  <p class="footnote">The four definitions are repeated under the plan, so a reader new to the tool never has to ask what BAU or BC means.</p>
+
+  <h3>Detailed view — the evidence</h3>
   <ul>
-    <li>APIs grouped, with <strong>BAU-route changes leading</strong> (marked ⚑) because they carry the most risk.</li>
-    <li>Each card shows a <strong>risk level</strong> and a <strong>backward-compatibility (BC)</strong> marker.</li>
-    <li>A <strong>Summary</strong> view — one line per API for leadership — and a <strong>Detailed</strong> view with the full diffs.</li>
+    <li>One card per API, in the same words: a <strong>who-tests</strong> chip, the <strong>risk level</strong>, a <strong>BC</strong> marker when it applies, and the test result once a log is attached.</li>
+    <li>The card's first line is the verdict, e.g. <em>BAU regression · channel: MOBILE → APP</em>; expand it for the <strong>test focus</strong> and the full route, class and payload diffs.</li>
+    <li>Live-route edits lead, because they carry the most risk; everything else is grouped by release version.</li>
   </ul>
 
   <h3>What you can share</h3>
   <div class="grid2">
-    <div class="card"><h4>Summary PDF</h4><p>The one-line-per-API overview — ideal for a go / no-go conversation.</p></div>
-    <div class="card"><h4>Detailed PDF</h4><p>Every change in full, for the development and test teams.</p></div>
+    <div class="card"><h4>Summary PDF</h4><p>The test plan on one page — the four counts, who tests what, and the definitions — for a go / no-go conversation.</p></div>
+    <div class="card"><h4>Detailed PDF</h4><p>Every change in full, grouped by version and feature, for the development and test teams.</p></div>
   </div>
 </section>
 
@@ -340,7 +356,7 @@
     <tr><td>Release Scope</td><td>Flow diagram</td><td><span class="tag png">PNG</span></td><td>Slides and review packs</td></tr>
     <tr><td>Release Test</td><td>Verification report</td><td><span class="tag pdf">PDF</span></td><td>Release readiness sign-off</td></tr>
     <tr><td>Release Test</td><td>Capability Matrix (per-module + ALL tab)</td><td><span class="tag xls">Excel</span></td><td>Handing test steps + verdicts to the test team</td></tr>
-    <tr><td>Release Impact</td><td>Summary report</td><td><span class="tag pdf">PDF</span></td><td>Go / no-go leadership decisions</td></tr>
+    <tr><td>Release Impact</td><td>Summary report (test plan)</td><td><span class="tag pdf">PDF</span></td><td>Go / no-go decisions — who tests what</td></tr>
     <tr><td>Release Impact</td><td>Detailed report</td><td><span class="tag pdf">PDF</span></td><td>Full change review by dev &amp; test</td></tr>
   </table>
 

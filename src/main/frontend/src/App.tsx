@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { APP_VERSION, buildTimeLabel } from './version';
+import { useStaleBundle } from './staleBundle';
 import { ShieldCheck, Radar, ClipboardCheck, GitCompareArrows, LayoutDashboard, Table2,
          ArrowLeftRight, KeyRound, SlidersHorizontal, Moon, Sun } from 'lucide-react';
 import TraceView from './views/TraceView';
@@ -28,6 +29,8 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem('tracer.viewMode') as ViewMode) || 'summary');
   const [showConfig, setShowConfig] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  // A newer bundle on the server than the one this page runs -> offer a reload (hooks stay above the early return).
+  const { stale } = useStaleBundle();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -44,6 +47,12 @@ export default function App() {
 
   return (
     <div className="app" data-app={app}>
+      {stale && (
+        <div className="stale-bar" role="status">
+          <span>A newer TraceGuard build is available.</span>
+          <button type="button" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
       <header className="sticky top-0 z-20 flex items-center gap-4 h-[54px] px-5 bg-navy text-[#e8eef8]">
         {/* Brand */}
         <div className="flex items-center gap-2.5 font-extrabold text-[16px] tracking-tight shrink-0">

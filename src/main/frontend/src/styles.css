@@ -1379,3 +1379,7 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .tp-feat-cnt { margin-left: 8px; font-size: 10.5px; font-weight: 700; color: rgb(var(--tg-muted)); background: rgb(var(--tg-hair-2)); border-radius: 999px; padding: 0 7px; }
 .cfg-textarea { width: 100%; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; resize: vertical; }
 [data-theme="dark"] .cfg-textarea { background: #0e1729; border-color: #1c2942; color: #e8eef8; }
+/* Newer bundle available on the server than the one this page runs — offer a reload. */
+.stale-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 7px 14px; font-size: 13px; font-weight: 600; background: rgb(var(--tg-warn-soft)); color: rgb(var(--tg-warn)); border-bottom: 1px solid rgb(var(--tg-warn) / .35); }
+.stale-bar button { padding: 4px 12px; border-radius: 999px; border: 1px solid rgb(var(--tg-warn) / .5); background: rgb(var(--tg-surface)); color: rgb(var(--tg-warn)); font-weight: 700; font-size: 12px; cursor: pointer; }
+.stale-bar button:hover { background: rgb(var(--tg-warn)); color: #fff; }

@@ -1,222 +1,178 @@
-import { Fragment, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { CircleCheck, CircleX, Minus } from 'lucide-react';
-import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from '../types';
-import { groupItemsByFeature } from '../feature';
+import type { ApiLogResult, VersionDiffReport } from '../types';
+import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from '../testPlan';
 
 /**
- * The leadership-facing "Summary" projection of a Release Impact report — the same data the detailed
- * view uses, with the developer layers (route chains, changed classes, Splunk) stripped out. Answers, at
- * a glance: what's changing, is it tested, how risky. No backend data is added — every value here is
- * derived from the existing {@link VersionDiffReport}.
- *
- * <p>The to-verify work is split into two clearly-separated tracks so a reader never mistakes new-app work
- * for a production regression:
- * <ul>
- *   <li><b>New app</b> (release version): new APIs, payload changes on the new-version route, backend bumps.
- *       The old (BAU) app keeps running the unchanged lower route, so these carry no production impact.</li>
- *   <li><b>BAU / existing app</b>: shared code changed, or a BAU route edited in place — the old app runs
- *       that code, so it must be regression-tested.</li>
- * </ul>
+ * The manager-facing "Summary" of a Release Impact report, laid out as a test plan: four buckets (BAU
+ * regression · Backward compatibility · New app only · Shared code), each answering what changed, what to
+ * test and who tests it. Same model as the Summary PDF ({@link buildTestPlan}), so screen and paper agree.
+ * Derived entirely from the existing report — no backend data is added.
  */
-
-type Risk = 'High' | 'Medium' | 'Low';
-const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
-function riskOf(a: ApiDiff): Risk { return (a.risk as Risk) || 'Low'; }
-function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
-
-/** The kind of BAU-route change, for the summary label — payload (template), route body (steps), a removal, or
- *  a mix. The actual diff lives in the detailed view; the summary stays a one-line label. */
-function bauKind(a: ApiDiff): string {
-  const edits = a.bauRouteEdits || [];
-  if (edits.some((e) => e.routeRemoved)) return 'Route removed';
-  const payload = edits.some((e) => (e.payloadDiff?.length ?? 0) > 0);
-  const body = edits.some((e) => e.addedSteps.length > 0 || e.removedSteps.length > 0);
-  if (payload && body) return 'Payload + route change';
-  if (body) return 'Route change';
-  return 'Payload change';
-}
-
-/** Impacts the OLD (BAU / production) app: shared code changed, or a BAU route edited in place — the old app
- *  runs that code, so it needs regression. Everything else this release touches is scoped to the NEW app. */
-function isBauImpact(a: ApiDiff): boolean { return !!a.codeChanged || bauRouteModified(a); }
-
-/** A NEW/UNCHANGED API that changed shared BAU code OR modified a BAU route in place is grouped under Changed
- *  (mirrors the backend count promotion). */
-function effectiveStatus(a: ApiDiff): DiffStatus {
-  return (a.status === 'NEW' || a.status === 'UNCHANGED') && (a.codeChanged || bauRouteModified(a)) ? 'CHANGED' : a.status as DiffStatus;
-}
-
-/** Plain-English "what changed" for a stakeholder — one primary reason, derived from existing fields. */
-function whatChanged(a: ApiDiff): { label: string; kind: string } {
-  if (bauRouteModified(a)) return { label: 'BAU · ' + bauKind(a), kind: 'code' };
-  if (effectiveStatus(a) === 'NEW') return { label: 'New API', kind: 'new' };
-  if (a.codeChanged) return { label: 'Shared code changed', kind: 'code' };
-  if (a.payloadChange?.removedKeys?.length || a.payloadChange?.addedKeys?.length) return { label: 'Request/response changed · new app only', kind: 'payload' };
-  if (a.backendVersionChanges?.length) return { label: 'Backend version changed', kind: 'backend' };
-  return { label: 'Logic changed', kind: 'logic' };
-}
-
-/** Pass / Fail / Not-tested from an uploaded log's per-API result. Null when no log covers the API. */
-function testedOf(l: ApiLogResult | undefined): { cls: string; label: ReactNode } {
-  const fail = <CircleX size={13} aria-hidden="true" />;
-  if (!l || !l.tested) return { cls: 'none', label: <><Minus size={13} aria-hidden="true" /> Not tested</> };
-  if (l.status === 'SUCCESS') return { cls: 'pass', label: <><CircleCheck size={13} aria-hidden="true" /> Passed</> };
-  if (l.status === 'PARTIAL') return { cls: 'fail', label: <>{fail} Partial</> };
-  if (l.status === 'FAILED' || l.status === 'TIMEOUT') return { cls: 'fail', label: <>{fail} Failed</> };
-  return { cls: 'none', label: 'Ran' };
-}
-
-type Tally = { passed: number; failed: number; notTested: number; verified: number };
-function tallyOf(items: ApiDiff[], log?: Record<string, ApiLogResult>): Tally {
-  let passed = 0, failed = 0, notTested = 0;
-  if (log) {
-    for (const a of items) {
-      const l = log[a.api];
-      if (l?.tested) { if (l.status === 'SUCCESS') passed++; else failed++; } else notTested++;
-    }
-  }
-  return { passed, failed, notTested, verified: passed + failed };
-}
-
-export default function ImpactSummary({ report, log }: {
+export default function ImpactSummary({ report, log, logByVer }: {
   report: VersionDiffReport;
-  log?: Record<string, ApiLogResult>;   // per-API results for the compared version (undefined = no log uploaded)
+  /** Per-API results for the compared version (fallback lookup). */
+  log?: Record<string, ApiLogResult>;
+  /** Per-version results (version → api → result) so a BAU row is verified at the LIVE route's version. */
+  logByVer?: Record<string, Record<string, ApiLogResult>>;
 }) {
-  const hasLog = !!log;
-  const snapshot = !!report.snapshot;
-
-  // The APIs that need verifying: Changed + New for a diff; for the N/A snapshot (no diff), the ones whose
-  // shared code this release changed. Highest-risk first.
-  const toVerify = (snapshot
-    ? report.apis.filter((a) => a.codeChanged || bauRouteModified(a))
-    : report.apis.filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT'))
-    .sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
-
-  // Segregate: what the old (BAU) app must regression-test vs what is scoped to the new app version.
-  const bauItems = toVerify.filter(isBauImpact);
-  const newItems = toVerify.filter((a) => !isBauImpact(a));
-
-  const inScope = report.snapshotCount ?? report.apis.length;
-  const code = report.codeChangedCount ?? 0;
-  const high = report.highRiskCount ?? 0;
-  const bc = report.backwardCompatCount ?? 0;
-  const versionLabel = (report.version && report.version.trim()) || report.appVersion || '';
+  const plan = buildTestPlan(report);
+  const hasLog = !!log || !!(logByVer && Object.keys(logByVer).length);
+  const [B_BAU, B_BC, B_NEW, B_SHARED] = buckets(plan.version);
+  const tested = (r: PlanRow) => (hasLog ? <Tested l={logForRow(r, logByVer, log)} /> : null);
+  const sharedVersions = new Set(plan.shared.flatMap((s) => s.routes.map((x) => x.version))).size;
 
   return (
-    <div className="sumv">
-      <p className="sumv-eyebrow">Release health · what this release touches</p>
+    <div className="tp">
+      <p className="tp-verdict">{plan.verdict}</p>
 
-      <div className="sumv-tiles">
-        <div className="sumv-tile accent"><div className="n">{inScope}</div><div className="l">APIs in scope</div></div>
-        {snapshot ? (
-          <>
-            {report.appVersion && <div className="sumv-tile violet"><div className="n">{code}</div><div className="l">Code changed</div></div>}
-          </>
-        ) : (
-          <>
-            <div className="sumv-tile accent"><div className="n">{report.newCount ?? 0}</div><div className="l">New</div></div>
-            <div className="sumv-tile warn"><div className="n">{report.changedCount ?? 0}</div><div className="l">Changed</div></div>
-            <div className="sumv-tile"><div className="n">{report.unchangedCount ?? 0}</div><div className="l">Unchanged</div></div>
-            {high > 0 && <div className="sumv-tile crit"><div className="n">{high}</div><div className="l">High risk</div></div>}
-            {bc > 0 && <div className="sumv-tile warn"><div className="n">{bc}</div><div className="l">Need backward-compat</div></div>}
-          </>
-        )}
+      <div className="tp-tiles">
+        <Tile b={B_BAU} n={plan.bau.length} />
+        <Tile b={B_BC} n={plan.bc.length} />
+        <Tile b={B_NEW} n={plan.newOnly.length} />
+        <Tile b={B_SHARED} n={plan.shared.length} sub={plan.shared.length ? `${plan.shared.length} class${plan.shared.length === 1 ? '' : 'es'} · ${sharedVersions} version${sharedVersions === 1 ? '' : 's'}` : undefined} />
       </div>
 
-      {/* Two clearly-separated tracks — new-app work vs old-app (BAU) regression — each with its own health. */}
-      <div className="sumv-split">
-        <VerifySection
-          track="new"
-          title={'New app' + (versionLabel ? ' · ' + versionLabel : '')}
-          subtitle="Release-version work — the old (BAU) app keeps the unchanged route, so no production impact."
-          items={newItems} hasLog={hasLog} log={log}
-          emptyText="No new-app changes to verify in this scope." />
+      {/* BAU regression — every row is High by rule, so no Risk column; Who distinguishes BAU-only from Both. */}
+      <Section b={B_BAU} count={plan.bau.length} empty="None — no live route or shared class changed.">
+        <table className="tp-table">
+          <thead><tr><th>API</th><th>Change</th><th>Test focus</th><th>Who</th>{hasLog && <th>Tested</th>}</tr></thead>
+          <tbody>{plan.bau.map((r) => (
+            <tr key={r.a.api + '|' + r.a.operation}>
+              <ApiCell r={r} />
+              <td className="tp-what">{r.what}{r.detail && <small>{r.detail}</small>}</td>
+              <td><Focus items={r.test} /></td>
+              <td><Who who={r.who} /></td>
+              {hasLog && <td>{tested(r)}</td>}
+            </tr>
+          ))}</tbody>
+        </table>
+      </Section>
 
-        <VerifySection
-          track="bau"
-          title="BAU app · existing production"
-          subtitle="Shared code / routes the old app runs were changed — regression-test the existing app."
-          items={bauItems} hasLog={hasLog} log={log}
-          emptyText="No production (BAU) impact — the old app is unaffected." />
+      {/* Backward compatibility — the BAU set seen from the old client's side. */}
+      <Section b={B_BC} count={plan.bc.length} empty="None.">
+        <table className="tp-table">
+          <thead><tr><th>API</th><th>Still called by</th><th>Test focus</th>{hasLog && <th>Tested</th>}</tr></thead>
+          <tbody>{plan.bc.map((r) => (
+            <tr key={r.a.api + '|' + r.a.operation}>
+              <ApiCell r={r} />
+              <td className="tp-what">{r.oldVersions.length ? r.oldVersions.map((v) => <code key={v} className="tp-ver">{v}</code>) : 'current app'}</td>
+              <td><Focus items={r.test} /></td>
+              {hasLog && <td>{tested(r)}</td>}
+            </tr>
+          ))}</tbody>
+        </table>
+      </Section>
+
+      {/* New app only — Low/Medium risk, so Risk stays; everyone here is the new-app team. */}
+      <Section b={B_NEW} count={plan.newOnly.length} empty="None.">
+        <table className="tp-table">
+          <thead><tr><th>API</th><th>Change</th><th>Test focus</th><th>Risk</th>{hasLog && <th>Tested</th>}</tr></thead>
+          <tbody>{plan.newOnly.map((r) => (
+            <tr key={r.a.api + '|' + r.a.operation}>
+              <ApiCell r={r} />
+              <td className="tp-what">{r.what}{r.detail && <small>{r.detail}</small>}</td>
+              <td><Focus items={r.test} /></td>
+              <td><span className={'sumv-risk ' + r.risk}><span className="dot" />{r.risk}</span></td>
+              {hasLog && <td>{tested(r)}</td>}
+            </tr>
+          ))}</tbody>
+        </table>
+      </Section>
+
+      <Section b={B_SHARED} count={plan.shared.length} empty="None — no shared class changed.">
+        <table className="tp-table">
+          <thead><tr><th>Class</th><th>Changed by</th><th>Versions to test</th><th>APIs</th></tr></thead>
+          <tbody>{plan.shared.map((s) => <SharedRow key={s.name} s={s} logByVer={logByVer} hasLog={hasLog} />)}</tbody>
+        </table>
+      </Section>
+
+      <div className="tp-gloss">
+        <h4>What the labels mean</h4>
+        <dl>
+          {[B_BAU, B_BC, B_NEW, B_SHARED].map((b) => (
+            <div key={b.key} className={'tp-g ' + b.key}><dt>{b.title}</dt><dd>{b.define}</dd></div>
+          ))}
+        </dl>
       </div>
 
-      {!snapshot && (report.unchangedCount ?? 0) > 0 && (
-        <div className="sumv-unchanged">{report.unchangedCount} unchanged API{report.unchangedCount === 1 ? '' : 's'} — carried forward, no action.</div>
+      {plan.unchanged > 0 && (
+        <div className="tp-carry">{plan.unchanged} unchanged API{plan.unchanged === 1 ? '' : 's'} — carried forward, no action.</div>
       )}
     </div>
   );
 }
 
-/** One verify track (New app / BAU app): its own health line, readiness bar and what-to-verify table. */
-function VerifySection({ track, title, subtitle, items, hasLog, log, emptyText }: {
-  track: 'new' | 'bau';
-  title: string;
-  subtitle: string;
-  items: ApiDiff[];
-  hasLog: boolean;
-  log?: Record<string, ApiLogResult>;
-  emptyText: string;
-}) {
-  const t = tallyOf(items, log);
-  const pct = items.length ? Math.round((t.verified / items.length) * 100) : 0;
+function Tile({ b, n, sub }: { b: Bucket; n: number; sub?: string }) {
   return (
-    <section className={'sumv-section ' + track}>
-      <div className="sumv-section-head">
-        <div className="sumv-section-title">{title}</div>
-        <div className="sumv-section-count">{items.length} to verify</div>
+    <div className={'tp-tile ' + b.key}>
+      <div className="n">{n}</div>
+      <div className="t">{b.title}</div>
+      <div className="d">{sub ?? b.question}</div>
+      <div className="w">{b.who}</div>
+    </div>
+  );
+}
+
+function Section({ b, count, empty, children }: { b: Bucket; count: number; empty: string; children: ReactNode }) {
+  return (
+    <section className={'tp-sec ' + b.key}>
+      <div className="tp-sec-head">
+        <span className="k">{b.title}<span className="c">{count}</span></span>
+        <span className="q">{b.question}</span>
+        <span className="w">{b.who}</span>
       </div>
-      <div className="sumv-section-sub">{subtitle}</div>
-
-      {items.length === 0 ? (
-        <div className="sumv-section-empty">{emptyText} <span className="muted">Release health: 0 to verify.</span></div>
-      ) : (
-        <>
-          {hasLog && (
-            <div className="sumv-ready">
-              <div className="sumv-ready-top">
-                <div className="sumv-ready-head">Test readiness — <b>{t.verified} of {items.length}</b> verified <span className="muted">({pct}%)</span></div>
-                <div className="muted" style={{ fontSize: 12.5 }}>{t.passed} passed · {t.failed} failed · {t.notTested} not tested</div>
-              </div>
-              <div className="sumv-bar" aria-hidden="true">
-                <span className="s-pass" style={{ width: pctW(t.passed, items.length) }} />
-                <span className="s-fail" style={{ width: pctW(t.failed, items.length) }} />
-                <span className="s-none" style={{ width: pctW(t.notTested, items.length) }} />
-              </div>
-            </div>
-          )}
-
-          <div className="sumv-tablewrap">
-            <table className="sumv-table">
-              <thead><tr><th>API</th><th>What changed</th><th>Risk</th>{hasLog && <th>Tested</th>}</tr></thead>
-              <tbody>
-                {groupItemsByFeature(items, (a) => a.api).map((fg) => (
-                  <Fragment key={fg.feature}>
-                    <tr className="sumv-feat-row"><td colSpan={hasLog ? 4 : 3}><span className="sumv-feat-name">{fg.feature}</span><span className="sumv-feat-cnt">{fg.items.length}</span></td></tr>
-                    {fg.items.map((a) => {
-                      const wc = whatChanged(a);
-                      const r = riskOf(a);
-                      const ts = hasLog ? testedOf(log![a.api]) : null;
-                      return (
-                        <tr key={a.api + '|' + a.operation} data-sev={r}>
-                          <td className="sumv-sev sumv-api"><span className="path">{a.api}</span></td>
-                          <td>
-                            <span className={'sumv-pill ' + wc.kind}>{wc.label}</span>
-                            {isBauImpact(a) && <span className="sumv-bc" title="Backward-compatibility with the old (BAU) app must be verified">BC</span>}
-                          </td>
-                          <td><span className={'sumv-risk ' + r}><span className="dot" />{r}</span></td>
-                          {hasLog && <td><span className={'sumv-tst ' + ts!.cls}>{ts!.label}</span></td>}
-                        </tr>
-                      );
-                    })}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      {count === 0 ? <div className="tp-empty">{empty}</div> : <div className="tp-tablewrap">{children}</div>}
     </section>
   );
 }
 
-function pctW(n: number, total: number): string { return total ? (Math.round((n / total) * 1000) / 10) + '%' : '0%'; }
+function ApiCell({ r }: { r: PlanRow }) {
+  return <td className="tp-api"><span className="path">{r.a.api}</span><span className="op">{r.a.operation}{r.a.targetVersion && r.a.lowerVersion ? ` · ${r.a.lowerVersion} → ${r.a.targetVersion}` : ''}</span></td>;
+}
+
+function Focus({ items }: { items: string[] }) {
+  return <ul className="tp-focus">{items.map((t, i) => <li key={i}>{t}</li>)}</ul>;
+}
+
+function Who({ who }: { who: PlanRow['who'] }) {
+  const cls = who === 'BAU team' ? 'bau' : who === 'New-app team' ? 'new' : 'both';
+  return <span className={'tp-who ' + cls}>{who}</span>;
+}
+
+function Tested({ l }: { l?: ApiLogResult }) {
+  const t = testedState(l);
+  const icon = t.state === 'pass' ? <CircleCheck size={13} aria-hidden="true" /> : t.state === 'fail' || t.state === 'partial' ? <CircleX size={13} aria-hidden="true" /> : <Minus size={13} aria-hidden="true" />;
+  const cls = t.state === 'pass' ? 'pass' : t.state === 'fail' || t.state === 'partial' ? 'fail' : 'none';
+  return <span className={'sumv-tst ' + cls}>{icon} {t.label}</span>;
+}
+
+const GROUP_CLS: Record<string, string> = { 'This release': 'cur', 'Live now': 'live', Upcoming: 'fut', Untraced: 'unk' };
+
+function SharedRow({ s, logByVer, hasLog }: { s: SharedClass; logByVer?: Record<string, Record<string, ApiLogResult>>; hasLog: boolean }) {
+  const shown = s.routes.slice(0, 6);
+  return (
+    <tr>
+      <td className="tp-api"><span className="path">{s.name}{s.removed ? ' — removed' : ''}</span><span className="op">{s.file}{s.versions.length ? ' · ' + s.versions.join(', ') : ''}</span></td>
+      <td className="tp-what">{s.authors || '—'}</td>
+      <td>
+        <ul className="tp-routes">
+          {shown.map((x) => {
+            const l = hasLog && x.api ? logByVer?.[x.version === 'BASE' ? 'BASE' : x.version]?.[x.api] : undefined;
+            const t = hasLog && x.api ? testedState(l) : null;
+            return (
+              <li key={x.route}>
+                <span className={'tp-grp ' + GROUP_CLS[x.group]}>{x.group}</span>
+                <code>{x.route}</code>
+                {x.api && <span className="tp-rapi">{x.api}</span>}
+                {t && <span className={'tp-mini ' + t.state}>{t.label}</span>}
+              </li>
+            );
+          })}
+          {s.routes.length > shown.length && <li className="tp-more">+{s.routes.length - shown.length} more</li>}
+        </ul>
+      </td>
+      <td className="tp-what">{s.apis.slice(0, 3).map((p) => <code key={p} className="tp-ver">{p}</code>)}{s.apis.length > 3 ? ` +${s.apis.length - 3}` : ''}</td>
+    </tr>
+  );
+}

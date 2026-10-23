@@ -87,9 +87,16 @@ See what a release changed versus the version before it.
 2. *(optional)* enter the **commit/app version** (e.g. `19.18.0`) to also detect, from git
    history, **shared code changes** and **in-place edits to production (BAU) routes** — the
    actual `.ftl`/route diff, whitespace-ignored, attributed to the commit author.
-- APIs are grouped, **BAU-route changes lead** (⚑), and each card shows risk + a **BC**
-  (backward-compatibility) marker. **Summary** view is a one-line-per-API overview for
-  leads; **Detailed** view shows the full diffs. Export **Summary** and **Detailed** PDFs.
+- **Summary** view (for managers) reads as a test plan in four buckets, each saying what
+  changed, what to test and who tests it:
+  - **BAU regression** — live behaviour changes; regression-test the current app (BAU team).
+  - **Backward compatibility** — old app versions still call what changed; an old client
+    against the new build must pass.
+  - **New app only** — versioned to the release; the old app never sees it (new-app team).
+  - **Shared code** — one class, several route versions; test each version that runs it.
+- **Detailed** view (for developers and testers) shows the per-API cards with the full
+  route, class and payload diffs, risk and **BC** markers. Export **Summary** (one-page
+  test plan) and **Detailed** PDFs.
 
 ---
 

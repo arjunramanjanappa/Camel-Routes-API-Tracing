@@ -1,189 +1,134 @@
-import type { ApiDiff, ApiLogResult, DiffStatus } from './types';
-import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import type { ApiLogResult } from './types';
+import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, ascii, type Ramp, type RGB } from './pdfReport';
 import { appLabel } from './appName';
 import type { ModuleDiff } from './diffPdf';
+import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from './testPlan';
 
 /**
- * The 1–2 page leadership Summary PDF — a RAG overview (what's changing, how risky, is it tested) for
- * release managers, coordinators and delivery leads. Derived entirely from the existing report; the full
- * developer report is {@link exportDiffPdf} (route/class/test detail).
+ * The one-page manager Summary PDF — the Release Impact test plan on A4: the verdict, the four counts, then
+ * each bucket as a short table (what changed / test focus / who / tested), and the four definitions as the
+ * legend. Built from the same {@link buildTestPlan} model as the on-screen Summary, so the words match.
+ * The developer report is {@link exportDiffPdf}.
  */
 
-function bauRouteModified(a: ApiDiff): boolean { return !!a.bauRouteEdits?.length; }
-/** The kind of BAU-route change for the summary label (the actual diff is in the detailed PDF). */
-function bauKind(a: ApiDiff): string {
-  const edits = a.bauRouteEdits || [];
-  if (edits.some((e) => e.routeRemoved)) return 'Route removed';
-  const payload = edits.some((e) => (e.payloadDiff?.length ?? 0) > 0);
-  const body = edits.some((e) => e.addedSteps.length > 0 || e.removedSteps.length > 0);
-  if (payload && body) return 'Payload + route change';
-  if (body) return 'Route change';
-  return 'Payload change';
+type Cell = string | { pill: { label: string; fill: RGB; text: RGB; stripe: RGB } } | { text: string; mono?: boolean; color?: RGB };
+const pill = (label: string, r: Ramp): Cell => ({ pill: { label: ascii(label), fill: r.fill, text: r.text, stripe: r.bar } });
+const RAMP: Record<Bucket['key'], Ramp> = { bau: PAL.red, bc: PAL.purple, new: PAL.green, shared: PAL.blue };
+const whoRamp = (who: PlanRow['who']): Ramp => (who === 'BAU team' ? PAL.red : who === 'New-app team' ? PAL.green : PAL.purple);
+const riskRamp = (r: PlanRow['risk']): Ramp => (r === 'High' ? PAL.red : r === 'Medium' ? PAL.amber : PAL.green);
+function testedCell(l?: ApiLogResult): Cell {
+  const t = testedState(l);
+  const r = t.state === 'pass' ? PAL.green : t.state === 'fail' ? PAL.red : t.state === 'partial' ? PAL.amber : PAL.gray;
+  return pill(t.label, r);
 }
-function effectiveStatus(a: ApiDiff): DiffStatus { return (a.status === 'NEW' || a.status === 'UNCHANGED') && (a.codeChanged || bauRouteModified(a)) ? 'CHANGED' : a.status as DiffStatus; }
-function riskOf(a: ApiDiff): 'High' | 'Medium' | 'Low' { return (a.risk as 'High' | 'Medium' | 'Low') || 'Low'; }
-function whatChanged(a: ApiDiff): { label: string; ramp: Ramp } {
-  // A BAU (production) route change leads — it needs backward-compat, the top signal for a stakeholder.
-  if (bauRouteModified(a)) return { label: 'BAU · ' + bauKind(a) + ' · BC', ramp: PAL.red };
-  if (effectiveStatus(a) === 'NEW') return { label: 'New API', ramp: PAL.blue };
-  if (a.codeChanged) return { label: 'Shared code changed · BC', ramp: PAL.purple };
-  if (a.payloadChange?.removedKeys?.length || a.payloadChange?.addedKeys?.length) return { label: 'Request/response changed', ramp: PAL.amber };
-  if (a.backendVersionChanges?.length) return { label: 'Backend version changed', ramp: PAL.gray };
-  return { label: 'Logic changed', ramp: PAL.gray };
-}
-function riskRamp(r: 'High' | 'Medium' | 'Low'): Ramp { return r === 'High' ? PAL.red : r === 'Medium' ? PAL.amber : PAL.green; }
-
-/** Per-module tally of the change categories, e.g. "2 New · 1 Shared code · 1 Backend version" (omits zeros). */
-function changeBreakdown(items: { a: ApiDiff }[]): string {
-  const c = { bau: 0, neu: 0, code: 0, payload: 0, backend: 0, logic: 0 };
-  for (const { a } of items) {
-    const label = whatChanged(a).label;
-    if (label.startsWith('BAU')) c.bau++;
-    else if (label === 'New API') c.neu++;
-    else if (label.startsWith('Shared code changed')) c.code++;
-    else if (label === 'Request/response changed') c.payload++;
-    else if (label === 'Backend version changed') c.backend++;
-    else c.logic++;
-  }
-  const parts: string[] = [];
-  if (c.bau) parts.push(`${c.bau} BAU route`);
-  if (c.neu) parts.push(`${c.neu} New`);
-  if (c.code) parts.push(`${c.code} Shared code`);
-  if (c.payload) parts.push(`${c.payload} Request/response`);
-  if (c.backend) parts.push(`${c.backend} Backend version`);
-  if (c.logic) parts.push(`${c.logic} Logic`);
-  return parts.join(' · ');
-}
-
-function normVer(v?: string | null): string { return v && v !== 'N/A' && v !== 'BASE' ? v : 'BASE'; }
-function logAt(logByVer: Record<string, Record<string, ApiLogResult>> | undefined, version: string | null | undefined, api?: string | null): ApiLogResult | undefined {
-  return api ? logByVer?.[normVer(version)]?.[api] : undefined;
-}
-function testedRamp(l?: ApiLogResult): { label: string; ramp: Ramp } {
-  if (!l || !l.tested) return { label: 'Not tested', ramp: PAL.gray };
-  if (l.status === 'SUCCESS') return { label: 'Passed', ramp: PAL.green };
-  if (l.status === 'PARTIAL') return { label: 'Partial', ramp: PAL.amber };
-  if (l.status === 'FAILED' || l.status === 'TIMEOUT') return { label: 'Failed', ramp: PAL.red };
-  return { label: 'Ran', ramp: PAL.gray };
-}
-function pillCell(label: string, ramp: Ramp) { return { pill: { label, fill: ramp.fill, text: ramp.text, stripe: ramp.bar } }; }
 
 export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }) {
   const r = await ReportDoc.create();
-  const first = mods.find((m) => m.report)?.report;
+  const withReport = mods.filter((m) => m.report);
+  const first = withReport[0]?.report;
   const ver = first?.version || 'N/A';
   const country = first?.country;
-  const appVersion = mods.find((m) => m.report?.appVersion)?.report?.appVersion || null;
-  const hasAnyLog = mods.some((m) => m.logByVer && Object.keys(m.logByVer).length);
+  const appVersion = withReport.find((m) => m.report?.appVersion)?.report?.appVersion || null;
+  const commits = withReport.reduce((n, m) => n + (m.report?.matchedCommits ?? 0), 0);
+  const hasAnyLog = withReport.some((m) => m.logByVer && Object.keys(m.logByVer).length);
+  const multi = withReport.length > 1;
 
-  // Aggregate the counts across modules.
-  const tot = { inScope: 0, changed: 0, added: 0, unchanged: 0, high: 0, bc: 0, code: 0 };
-  for (const m of mods) {
-    const rep = m.report; if (!rep) continue;
-    tot.inScope += rep.snapshot ? (rep.snapshotCount ?? rep.apis.length) : rep.apis.length;
-    tot.changed += rep.changedCount ?? 0;
-    tot.added += rep.newCount ?? 0;
-    tot.unchanged += rep.unchangedCount ?? 0;
-    tot.high += rep.highRiskCount ?? 0;
-    tot.bc += rep.backwardCompatCount ?? 0;
-    tot.code += rep.codeChangedCount ?? 0;
-  }
+  // One plan per module, merged into the four buckets (module name kept for the API cell when > 1 module).
+  type R = { row: PlanRow; m: ModuleDiff };
+  const plans = withReport.map((m) => ({ m, plan: buildTestPlan(m.report!) }));
+  const merge = (pick: (p: ReturnType<typeof buildTestPlan>) => PlanRow[]): R[] =>
+    plans.flatMap(({ m, plan }) => pick(plan).map((row) => ({ row, m })));
+  const bau = merge((p) => p.bau), bc = merge((p) => p.bc), neu = merge((p) => p.newOnly);
+  const shared: { s: SharedClass; m: ModuleDiff }[] = plans.flatMap(({ m, plan }) => plan.shared.map((s) => ({ s, m })));
+  const inScope = plans.reduce((n, p) => n + p.plan.inScope, 0);
+  const unchanged = plans.reduce((n, p) => n + p.plan.unchanged, 0);
+  const sharedVersions = new Set(shared.flatMap(({ s }) => s.routes.map((x) => x.version))).size;
+  const verdict = multi
+    ? `${inScope} APIs in scope across ${withReport.length} modules: ${bau.length} BAU regression · ${bc.length} backward-compat · ${neu.length} new app only · ${unchanged} unchanged.`
+    : plans[0]?.plan.verdict ?? '';
+  const B = buckets(ver);
+  const logOf = (x: R) => logForRow(x.row, x.m.logByVer);
 
-  // The actionable rows (what to verify) across modules, highest-risk first.
-  type Row = { api: string; module: string; a: ApiDiff; log?: ApiLogResult };
-  const rows: Row[] = [];
-  for (const m of mods) {
-    const rep = m.report; if (!rep) continue;
-    const actionable = rep.snapshot
-      ? rep.apis.filter((a) => a.codeChanged)
-      : rep.apis.filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT');
-    for (const a of actionable) rows.push({ api: a.api, module: m.name, a, log: logAt(m.logByVer, a.targetVersion, a.api) });
-  }
-  const RANK = { High: 0, Medium: 1, Low: 2 } as const;
-  rows.sort((x, y) => RANK[riskOf(x.a)] - RANK[riskOf(y.a)]);
+  // Tested tally over the actionable rows (BAU + new-app; BC repeats BAU).
+  let passed = 0, failed = 0;
+  if (hasAnyLog) for (const x of [...bau, ...neu]) { const l = logOf(x); if (l?.tested) { if (l.status === 'SUCCESS') passed++; else failed++; } }
 
-  let passed = 0, failed = 0, notTested = 0;
-  let flowsTested = 0, flowsUntested = 0;
-  if (hasAnyLog) for (const row of rows) {
-    if (row.log?.tested) { if (row.log.status === 'SUCCESS') passed++; else failed++; }
-    else notTested++;
-    for (const b of (row.log?.backends || [])) {
-      if (b.bau) continue;
-      if (b.status === 'SUCCESS') flowsTested++;
-      else if (b.status === 'NOT_TESTED') flowsUntested++;
-    }
-  }
-  const verified = passed + failed;
-
-  // ---- Page 1: branded cover band + impact overview ----
-  r.coverBand('Release Impact — Change Summary',
-    [appLabel(app), country, `Release ${ver}`, appVersion ? `commit ${appVersion}` : ''].filter((c): c is string => !!c),
+  // ---- Cover band + verdict + the four counts ----
+  r.coverBand('Release Impact - Summary',
+    [appLabel(app), country, `Release ${ver}`, appVersion ? `commit ${appVersion}${commits ? ' - ' + commits : ''}` : ''].filter((c): c is string => !!c),
     ['Generated ' + generatedStamp(),
-     hasAnyLog ? passRateLine(passed, verified) : null,
+     hasAnyLog ? passRateLine(passed, passed + failed) : null,
      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null]);
-
-  // ---- Impact overview — New & Changed only (Unchanged is BAU, not shown) ----
-  r.bookmark('Impact overview');
-  r.banner('Impact overview', PAL.blue, `Release ${ver}${country ? ' · ' + country : ''} — what this release touches · ${rows.length} to verify.`);
+  r.bookmark('Summary');
+  r.para(ascii(verdict), M, CONTENT_W, 'bold', 11, PAL.ink, 15);
+  r.paragraph('');
   r.kpiBand([
-    { n: tot.changed, label: 'Changed', ramp: PAL.amber },
-    { n: tot.added, label: 'New', ramp: PAL.blue },
-    { n: tot.bc, label: 'BC required', ramp: PAL.purple },
-    { n: tot.high, label: 'High risk', ramp: PAL.red },
-  ]);
-  if (hasAnyLog) {
-    r.paragraph(`Test readiness — ${verified} of ${rows.length} verified: ${passed} passed, ${failed} failed, ${notTested} not tested.`);
-    r.paragraph(`Impacted flows — ${flowsTested} tested`
-      + (flowsUntested > 0
-          ? `, ${flowsUntested} still to run (close the loop before release).`
-          : ` (all covered).`));
-  }
-
-  // ---- Plain-English key — shown BEFORE the table so the labels are understood first ----
-  r.legend('What the labels mean', [
-    'New API — added this release; test end to end.',
-    'Changed — existed before and behaves differently now; regression-test.',
-    'Shared code changed — a common Java class was modified; older versions that use it must be re-tested too.',
-    'Request/response changed — the request or response payload fields changed.',
-    'Backend version changed — the backend service version this API calls was bumped.',
-    'Risk (High/Medium/Low) — test priority. Tested — from the uploaded run log.',
+    { n: bau.length, label: B[0].title, ramp: RAMP.bau },
+    { n: bc.length, label: 'Backward compat', ramp: RAMP.bc },
+    { n: neu.length, label: B[2].title, ramp: RAMP.new },
+    { n: shared.length ? `${shared.length} / ${sharedVersions}` : 0, label: shared.length ? 'Shared code: classes / versions' : B[3].title, ramp: RAMP.shared },
   ]);
 
-  // ---- What to verify — grouped by MODULE, each module showing its change-type breakdown ----
-  if (rows.length) {
-    r.bookmark('What to verify');
-    r.banner('What to verify', PAL.purple, 'The new & changed APIs this release needs verified, grouped by module. Full route/class detail is in the Detailed report.');
-    const cols = [
-      { header: 'API', w: 0.42, mono: true },
-      { header: 'What changed', w: 0.26 },
-      { header: 'Risk', w: 0.16 },
-      { header: 'Tested', w: 0.16 },
-    ];
-    const rowCells = (row: Row) => {
-      const wc = whatChanged(row.a);
-      const rk = riskOf(row.a);
-      const t = testedRamp(row.log);
-      return [
-        { text: row.api, mono: true, color: PAL.ink },
-        pillCell(wc.label, wc.ramp),
-        pillCell(rk, riskRamp(rk)),
-        hasAnyLog ? pillCell(t.label, t.ramp) : '—',
-      ];
-    };
-    // Group by module; within each, highest-risk first (rows are already risk-sorted). The module header
-    // carries the count breakdown (how many New / Shared code / Request-response / Backend version).
-    const byModule = new Map<string, Row[]>();
-    for (const row of rows) {
-      if (!byModule.has(row.module)) byModule.set(row.module, []);
-      byModule.get(row.module)!.push(row);
-    }
-    for (const [moduleName, mrows] of byModule) {
-      const bd = changeBreakdown(mrows);
-      r.para(`${moduleName}  —  ${mrows.length} to verify${bd ? '  ·  ' + bd : ''}`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
-      r.wrapTable(cols, mrows.map(rowCells));
-    }
-  }
+  const apiCell = (x: R): Cell => ({ text: x.row.a.api + (multi ? `  [${x.m.name}]` : ''), mono: true, color: PAL.ink });
+  const section = (b: Bucket, count: number, emptyText: string, body: () => void) => {
+    r.bookmark(b.title);
+    r.section(b.title, count, RAMP[b.key], ascii(`${b.question} - ${b.who}`));
+    if (count === 0) { r.para(ascii(emptyText), M, CONTENT_W, 'normal', 9.5, PAL.muted, 13); r.paragraph(''); return; }
+    body();
+  };
 
-  const footer = `TraceGuard — Release ${ver}${country ? ' · ' + country : ''}${app ? ' · ' + app : ''} — Summary`;
+  // ---- BAU regression (all High by rule: no Risk column; Who separates BAU-only from Both) ----
+  section(B[0], bau.length, 'None - no live route or shared class changed.', () => {
+    const cols = hasAnyLog
+      ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Change', w: 0.28 }, { header: 'Test focus', w: 0.24 }, { header: 'Who', w: 0.11 }, { header: 'Tested', w: 0.11 }]
+      : [{ header: 'API', w: 0.28, mono: true }, { header: 'Change', w: 0.32 }, { header: 'Test focus', w: 0.27 }, { header: 'Who', w: 0.13 }];
+    r.wrapTable(cols, bau.map((x) => {
+      const cells: Cell[] = [apiCell(x), x.row.what + (x.row.detail ? `\n${x.row.detail}` : ''), x.row.test.join('; '), pill(x.row.who, whoRamp(x.row.who))];
+      if (hasAnyLog) cells.push(testedCell(logOf(x)));
+      return cells;
+    }));
+  });
+
+  // ---- Backward compatibility ----
+  section(B[1], bc.length, 'None.', () => {
+    const cols = hasAnyLog
+      ? [{ header: 'API', w: 0.30, mono: true }, { header: 'Still called by', w: 0.20 }, { header: 'Test focus', w: 0.38 }, { header: 'Tested', w: 0.12 }]
+      : [{ header: 'API', w: 0.32, mono: true }, { header: 'Still called by', w: 0.22 }, { header: 'Test focus', w: 0.46 }];
+    r.wrapTable(cols, bc.map((x) => {
+      const cells: Cell[] = [apiCell(x), x.row.oldVersions.length ? x.row.oldVersions.join(', ') : 'current app', x.row.test.join('; ')];
+      if (hasAnyLog) cells.push(testedCell(logOf(x)));
+      return cells;
+    }));
+  });
+
+  // ---- New app only ----
+  section(B[2], neu.length, 'None.', () => {
+    const cols = hasAnyLog
+      ? [{ header: 'API', w: 0.28, mono: true }, { header: 'Change', w: 0.30 }, { header: 'Test focus', w: 0.22 }, { header: 'Risk', w: 0.10 }, { header: 'Tested', w: 0.10 }]
+      : [{ header: 'API', w: 0.30, mono: true }, { header: 'Change', w: 0.34 }, { header: 'Test focus', w: 0.24 }, { header: 'Risk', w: 0.12 }];
+    r.wrapTable(cols, neu.map((x) => {
+      const cells: Cell[] = [apiCell(x), x.row.what + (x.row.detail ? `\n${x.row.detail}` : ''), x.row.test.join('; '), pill(x.row.risk, riskRamp(x.row.risk))];
+      if (hasAnyLog) cells.push(testedCell(logOf(x)));
+      return cells;
+    }));
+  });
+
+  // ---- Shared code ----
+  section(B[3], shared.length, 'None - no shared class changed.', () => {
+    const cols = [{ header: 'Class', w: 0.26, mono: true }, { header: 'Changed by', w: 0.16 }, { header: 'Versions to test', w: 0.40 }, { header: 'APIs', w: 0.18, mono: true }];
+    r.wrapTable(cols, shared.map(({ s, m }) => [
+      { text: s.name + (s.removed ? ' - removed' : '') + (s.versions.length ? `\n${s.versions.join(', ')}` : '') + (multi ? `\n[${m.name}]` : ''), mono: true, color: PAL.ink },
+      s.authors || '-',
+      s.routes.slice(0, 6).map((x) => `${x.group}: ${x.route}${x.api ? ' -> ' + x.api : ''}`).join('\n') + (s.routes.length > 6 ? `\n+${s.routes.length - 6} more` : ''),
+      s.apis.slice(0, 4).join('\n') + (s.apis.length > 4 ? `\n+${s.apis.length - 4} more` : ''),
+    ]));
+  });
+
+  if (unchanged > 0) r.para(ascii(`${unchanged} unchanged API${unchanged === 1 ? '' : 's'} - carried forward, no action.`), M, CONTENT_W, 'normal', 9.5, PAL.muted, 13);
+
+  // ---- The four definitions ----
+  r.legend('What the labels mean', B.map((b) => ascii(`${b.title} - ${b.define}`)));
+
+  const footer = `TraceGuard - Release ${ver}${country ? ' - ' + country : ''}${app ? ' - ' + appLabel(app) : ''} - Summary`;
   r.save(`TraceGuard-Release-${ver}-Summary.pdf`, footer);
 }

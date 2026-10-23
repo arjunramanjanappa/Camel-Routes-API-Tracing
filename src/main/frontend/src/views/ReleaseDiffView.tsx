@@ -1143,7 +1143,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
           <CodeChangeSummary report={report} />
           <TemplateIssuesPanel report={report} />
           {logAttachBar()}
-          <ImpactSummary report={report} log={activeLog} />
+          <ImpactSummary report={report} log={activeLog}
+            logByVer={Object.fromEntries(Object.entries(logByVer).flatMap(([v, byMod]) => (byMod[activeId ?? ''] ? [[v, byMod[activeId ?? '']]] : [])))} />
         </div>
       )}
 

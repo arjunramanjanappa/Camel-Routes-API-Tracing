@@ -1,9 +1,10 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { appLabel } from './appName';
-import { versionLabel, groupItemsByFeature } from './feature';
+import { versionLabel } from './feature';
 import { backendPath } from './spl';
 import { buildTestPlan, buckets, planRowFor, bcTestsFor, verdictFor, SHARED_GROUP } from './testPlan';
+import { areaOf, type FeatureLabels } from './labels';
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
 // release". Unchanged APIs are still counted in the summary table, just not enumerated.
@@ -87,7 +88,7 @@ function testedTag(l?: ApiLogResult): { label: string; ramp: Ramp } | null {
 }
 
 /** Render the multi-module release-diff to one PDF: a per-module impact summary, then each module's changes. */
-export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }) {
+export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }, labels: FeatureLabels = {}) {
   const r = await ReportDoc.create();
   const first = mods.find((m) => m.report)?.report;
   const ver = first?.version || 'N/A';
@@ -257,10 +258,16 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
           const showVerHeads = byVer.length > 1;
           byVer.forEach((g) => {
             if (showVerHeads) r.para(`${versionLabel(g.ver)}  (${g.apis.length})`, M, CONTENT_W, 'bold', 10.5, PAL.ink, 15);
-            // Within a version, APIs grouped by business feature (payment, manage, ...) like the screen.
-            groupItemsByFeature(g.apis, (a) => a.api).forEach((fg) => {
-              r.para(`${fg.feature}  (${fg.items.length})`, M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
-              fg.items.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
+            // Within a version, APIs grouped by business AREA (labelled, e.g. "Funds Transfer & Payments") like the screen.
+            const byArea = new Map<string, { label: string; apis: ApiDiff[] }>();
+            for (const a of g.apis) {
+              const ar = areaOf(a.api, labels);
+              const e = byArea.get(ar.key) ?? { label: ar.label, apis: [] };
+              e.apis.push(a); byArea.set(ar.key, e);
+            }
+            [...byArea.values()].sort((x, y) => x.label.localeCompare(y.label)).forEach((fg) => {
+              r.para(`${fg.label}  (${fg.apis.length})`, M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
+              fg.apis.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
             });
           });
         }
@@ -481,5 +488,5 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
 
 function file(ver: string): string {
   const v = (ver || 'base').replace(/[^a-zA-Z0-9._-]+/g, '-');   // N/A -> N-A (no path chars)
-  return `release-impact-${v}-${stamp()}.pdf`;
+  return `TraceGuard-Release-${v}-Impact-Detailed.pdf`;
 }

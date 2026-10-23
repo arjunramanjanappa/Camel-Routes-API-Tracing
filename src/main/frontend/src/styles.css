@@ -1377,3 +1377,5 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .tp-feat-row td { background: rgb(var(--tg-surface-2)); padding: 6px 12px; border-bottom: 1px solid rgb(var(--tg-hair)); }
 .tp-feat-name { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgb(var(--tg-accent-ink)); }
 .tp-feat-cnt { margin-left: 8px; font-size: 10.5px; font-weight: 700; color: rgb(var(--tg-muted)); background: rgb(var(--tg-hair-2)); border-radius: 999px; padding: 0 7px; }
+.cfg-textarea { width: 100%; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; resize: vertical; }
+[data-theme="dark"] .cfg-textarea { background: #0e1729; border-color: #1c2942; color: #e8eef8; }

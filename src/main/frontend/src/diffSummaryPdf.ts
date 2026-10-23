@@ -1,14 +1,17 @@
 import type { ApiLogResult } from './types';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, ascii, type Ramp, type RGB } from './pdfReport';
 import { appLabel } from './appName';
-import { groupItemsByFeature } from './feature';
 import type { ModuleDiff } from './diffPdf';
 import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from './testPlan';
+import { buildAreas, type Area } from './areas';
+import type { FeatureLabels } from './labels';
 
 /**
- * The one-page manager Summary PDF — the Release Impact test plan on A4: the verdict, the four counts, then
- * each bucket as a short table (what changed / test focus / who / tested), and the four definitions as the
- * legend. Built from the same {@link buildTestPlan} model as the on-screen Summary, so the words match.
+ * The manager Summary PDF — the release as a release team talks about it: the verdict and the four test-plan
+ * counts, then one section per BUSINESS AREA ("Funds Transfer & Payments"): risk + reason, the APIs under their
+ * sub-features ("Quick Transfer") with the precise change and who tests it, the backward-compatibility position
+ * and a short testing focus. Shared code and the four definitions close the report. Built from the same
+ * {@link buildTestPlan} model as the on-screen Summary; area names come from the configurable feature labels.
  * The developer report is {@link exportDiffPdf}.
  */
 
@@ -23,7 +26,7 @@ function testedCell(l?: ApiLogResult): Cell {
   return pill(t.label, r);
 }
 
-export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }) {
+export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, logWindow?: { start?: string; end?: string }, labels: FeatureLabels = {}) {
   const r = await ReportDoc.create();
   const withReport = mods.filter((m) => m.report);
   const first = withReport[0]?.report;
@@ -34,12 +37,15 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
   const hasAnyLog = withReport.some((m) => m.logByVer && Object.keys(m.logByVer).length);
   const multi = withReport.length > 1;
 
-  // One plan per module, merged into the four buckets (module name kept for the API cell when > 1 module).
-  type R = { row: PlanRow; m: ModuleDiff };
+  // One plan per module, merged (module kept per row for the API cell and the per-module log lookup).
   const plans = withReport.map((m) => ({ m, plan: buildTestPlan(m.report!) }));
-  const merge = (pick: (p: ReturnType<typeof buildTestPlan>) => PlanRow[]): R[] =>
-    plans.flatMap(({ m, plan }) => pick(plan).map((row) => ({ row, m })));
-  const bau = merge((p) => p.bau), bc = merge((p) => p.bc), neu = merge((p) => p.newOnly);
+  const modOf = new Map<PlanRow, ModuleDiff>();
+  const bau: PlanRow[] = [], bc: PlanRow[] = [], neu: PlanRow[] = [];
+  for (const { m, plan } of plans) {
+    for (const row of plan.bau) { bau.push(row); modOf.set(row, m); }
+    for (const row of plan.bc) { bc.push(row); modOf.set(row, m); }
+    for (const row of plan.newOnly) { neu.push(row); modOf.set(row, m); }
+  }
   const shared: { s: SharedClass; m: ModuleDiff }[] = plans.flatMap(({ m, plan }) => plan.shared.map((s) => ({ s, m })));
   const inScope = plans.reduce((n, p) => n + p.plan.inScope, 0);
   const unchanged = plans.reduce((n, p) => n + p.plan.unchanged, 0);
@@ -48,11 +54,11 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
     ? `${inScope} APIs in scope across ${withReport.length} modules: ${bau.length} BAU regression · ${bc.length} backward-compat · ${neu.length} new app only · ${unchanged} unchanged.`
     : plans[0]?.plan.verdict ?? '';
   const B = buckets(ver);
-  const logOf = (x: R) => logForRow(x.row, x.m.logByVer);
+  const logOf = (row: PlanRow) => logForRow(row, modOf.get(row)?.logByVer);
 
   // Tested tally over the actionable rows (BAU + new-app; BC repeats BAU).
   let passed = 0, failed = 0;
-  if (hasAnyLog) for (const x of [...bau, ...neu]) { const l = logOf(x); if (l?.tested) { if (l.status === 'SUCCESS') passed++; else failed++; } }
+  if (hasAnyLog) for (const row of [...bau, ...neu]) { const l = logOf(row); if (l?.tested) { if (l.status === 'SUCCESS') passed++; else failed++; } }
 
   // ---- Cover band + verdict + the four counts ----
   r.coverBand('Release Impact - Summary',
@@ -70,73 +76,62 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
     { n: shared.length ? `${shared.length} / ${sharedVersions}` : 0, label: shared.length ? 'Shared code: classes / versions' : B[3].title, ramp: RAMP.shared },
   ]);
 
-  const apiCell = (x: R): Cell => ({ text: x.row.a.api + (multi ? `  [${x.m.name}]` : ''), mono: true, color: PAL.ink });
-  // Rows grouped by business feature (payment, manage, ...) like the screen; risk order kept within a feature.
-  const byFeature = (rows: R[], cols: { header: string; w: number; mono?: boolean }[], cells: (x: R) => Cell[]) => {
-    for (const fg of groupItemsByFeature(rows, (x) => x.row.a.api)) {
-      r.para(ascii(`${fg.feature}  (${fg.items.length})`), M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
-      r.wrapTable(cols, fg.items.map(cells));
+  // ---- By business area: risk + reason, APIs by sub-feature, backward compatibility, testing focus ----
+  const areas: Area[] = buildAreas([...bau, ...neu], labels);
+  const apiCell = (row: PlanRow): Cell => ({ text: row.a.api + (multi ? `  [${modOf.get(row)?.name ?? ''}]` : ''), mono: true, color: PAL.ink });
+  const cols = hasAnyLog
+    ? [{ header: 'API', w: 0.34, mono: true }, { header: 'Change', w: 0.32 }, { header: 'Who tests', w: 0.17 }, { header: 'Tested', w: 0.17 }]
+    : [{ header: 'API', w: 0.40, mono: true }, { header: 'Change', w: 0.38 }, { header: 'Who tests', w: 0.22 }];
+  const table = (rows: PlanRow[]) => r.wrapTable(cols, rows.map((row) => {
+    const cells: Cell[] = [apiCell(row), row.what + (row.detail ? `\n${row.detail}` : ''), pill(row.who, whoRamp(row.who))];
+    if (hasAnyLog) cells.push(testedCell(logOf(row)));
+    return cells;
+  }));
+  if (areas.length) {
+    r.bookmark('By business area');
+    r.banner('By business area', PAL.blue, ascii('Highest impact first. Each area: risk and why, the APIs under their sub-features with who tests them, the backward-compatibility position, and the testing focus.'));
+  }
+  areas.forEach((area, i) => {
+    r.bookmark(area.label);
+    const head = `${i + 1}. ${area.label}${i === 0 && areas.length > 1 ? '  -  highest impact' : ''}`;
+    r.section(ascii(head), area.rows.length, riskRamp(area.risk), ascii(`Risk: ${area.risk} - ${area.reason}`));
+    for (const sub of area.subs) {
+      r.para(ascii(`${sub.label}  (${sub.rows.length})`), M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
+      table(sub.rows);
     }
-  };
-  const section = (b: Bucket, count: number, emptyText: string, body: () => void) => {
-    r.bookmark(b.title);
-    r.section(b.title, count, RAMP[b.key], ascii(`${b.question} - ${b.who}`));
-    if (count === 0) { r.para(ascii(emptyText), M, CONTENT_W, 'normal', 9.5, PAL.muted, 13); r.paragraph(''); return; }
-    body();
-  };
-
-  // ---- BAU regression (all High by rule: no Risk column; Who separates BAU-only from Both) ----
-  section(B[0], bau.length, 'None - no live route or shared class changed.', () => {
-    const cols = hasAnyLog
-      ? [{ header: 'API', w: 0.26, mono: true }, { header: 'Change', w: 0.28 }, { header: 'Test focus', w: 0.24 }, { header: 'Who', w: 0.11 }, { header: 'Tested', w: 0.11 }]
-      : [{ header: 'API', w: 0.28, mono: true }, { header: 'Change', w: 0.32 }, { header: 'Test focus', w: 0.27 }, { header: 'Who', w: 0.13 }];
-    byFeature(bau, cols, (x) => {
-      const cells: Cell[] = [apiCell(x), x.row.what + (x.row.detail ? `\n${x.row.detail}` : ''), x.row.test.join('; '), pill(x.row.who, whoRamp(x.row.who))];
-      if (hasAnyLog) cells.push(testedCell(logOf(x)));
-      return cells;
-    });
-  });
-
-  // ---- Backward compatibility ----
-  section(B[1], bc.length, 'None.', () => {
-    const cols = hasAnyLog
-      ? [{ header: 'API', w: 0.30, mono: true }, { header: 'Still called by', w: 0.20 }, { header: 'Test focus', w: 0.38 }, { header: 'Tested', w: 0.12 }]
-      : [{ header: 'API', w: 0.32, mono: true }, { header: 'Still called by', w: 0.22 }, { header: 'Test focus', w: 0.46 }];
-    byFeature(bc, cols, (x) => {
-      const cells: Cell[] = [apiCell(x), x.row.oldVersions.length ? x.row.oldVersions.join(', ') : 'current app', x.row.test.join('; ')];
-      if (hasAnyLog) cells.push(testedCell(logOf(x)));
-      return cells;
-    });
-  });
-
-  // ---- New app only ----
-  section(B[2], neu.length, 'None.', () => {
-    const cols = hasAnyLog
-      ? [{ header: 'API', w: 0.28, mono: true }, { header: 'Change', w: 0.30 }, { header: 'Test focus', w: 0.22 }, { header: 'Risk', w: 0.10 }, { header: 'Tested', w: 0.10 }]
-      : [{ header: 'API', w: 0.30, mono: true }, { header: 'Change', w: 0.34 }, { header: 'Test focus', w: 0.24 }, { header: 'Risk', w: 0.12 }];
-    byFeature(neu, cols, (x) => {
-      const cells: Cell[] = [apiCell(x), x.row.what + (x.row.detail ? `\n${x.row.detail}` : ''), x.row.test.join('; '), pill(x.row.risk, riskRamp(x.row.risk))];
-      if (hasAnyLog) cells.push(testedCell(logOf(x)));
-      return cells;
-    });
+    if (area.direct.length) {
+      if (area.subs.length) r.para(ascii(`Other  (${area.direct.length})`), M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
+      table(area.direct);
+    }
+    const bcRows = area.rows.filter((x) => x.bc);
+    r.para(ascii(bcRows.length
+        ? `Backward compatibility: ${bcRows.length} API${bcRows.length === 1 ? '' : 's'} still called by ${area.bcVersions.length ? area.bcVersions.join(', ') : 'the current app'} - an old client against the new build must pass.`
+        : 'Backward compatibility: none - old app unaffected.'),
+      M, CONTENT_W, 'bold', 9, bcRows.length ? PAL.purple.text : PAL.green.text, 12);
+    if (area.focus.length) r.para(ascii('Testing focus: ' + area.focus.join('; ') + '.'), M, CONTENT_W, 'normal', 9, PAL.body, 12);
+    r.paragraph('');
   });
 
   // ---- Shared code ----
-  section(B[3], shared.length, 'None - no shared class changed.', () => {
-    const cols = [{ header: 'Class', w: 0.26, mono: true }, { header: 'Changed by', w: 0.16 }, { header: 'Versions to test', w: 0.40 }, { header: 'APIs', w: 0.18, mono: true }];
-    r.wrapTable(cols, shared.map(({ s, m }) => [
-      { text: s.name + (s.removed ? ' - removed' : '') + (s.versions.length ? `\n${s.versions.join(', ')}` : '') + (multi ? `\n[${m.name}]` : ''), mono: true, color: PAL.ink },
-      s.authors || '-',
-      s.routes.slice(0, 6).map((x) => `${x.group}: ${x.route}${x.api ? ' -> ' + x.api : ''}`).join('\n') + (s.routes.length > 6 ? `\n+${s.routes.length - 6} more` : ''),
-      s.apis.slice(0, 4).join('\n') + (s.apis.length > 4 ? `\n+${s.apis.length - 4} more` : ''),
-    ]));
-  });
+  r.bookmark(B[3].title);
+  r.section(B[3].title, shared.length, RAMP.shared, ascii(`${B[3].question} - ${B[3].who}`));
+  if (!shared.length) {
+    r.para('None - no shared class changed.', M, CONTENT_W, 'normal', 9.5, PAL.muted, 13); r.paragraph('');
+  } else {
+    r.wrapTable([{ header: 'Class', w: 0.26, mono: true }, { header: 'Changed by', w: 0.16 }, { header: 'Versions to test', w: 0.40 }, { header: 'APIs', w: 0.18, mono: true }],
+      shared.map(({ s, m }) => [
+        { text: s.name + (s.removed ? ' - removed' : '') + (s.versions.length ? `\n${s.versions.join(', ')}` : '') + (multi ? `\n[${m.name}]` : ''), mono: true, color: PAL.ink },
+        s.authors || '-',
+        s.routes.slice(0, 6).map((x) => `${x.group}: ${x.route}${x.api ? ' -> ' + x.api : ''}`).join('\n') + (s.routes.length > 6 ? `\n+${s.routes.length - 6} more` : ''),
+        s.apis.slice(0, 4).join('\n') + (s.apis.length > 4 ? `\n+${s.apis.length - 4} more` : ''),
+      ]));
+  }
 
   if (unchanged > 0) r.para(ascii(`${unchanged} unchanged API${unchanged === 1 ? '' : 's'} - carried forward, no action.`), M, CONTENT_W, 'normal', 9.5, PAL.muted, 13);
 
   // ---- The four definitions ----
   r.legend('What the labels mean', B.map((b) => ascii(`${b.title} - ${b.define}`)));
 
-  const footer = `TraceGuard - Release ${ver}${country ? ' - ' + country : ''}${app ? ' - ' + appLabel(app) : ''} - Summary`;
-  r.save(`TraceGuard-Release-${ver}-Summary.pdf`, footer);
+  const footer = `TraceGuard - Release ${ver}${country ? ' - ' + country : ''}${app ? ' - ' + appLabel(app) : ''} - Impact Summary`;
+  r.save(`TraceGuard-Release-${ver}-Impact-Summary.pdf`, footer);
 }

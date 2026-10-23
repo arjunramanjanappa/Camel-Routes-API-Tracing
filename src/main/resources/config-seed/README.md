@@ -91,3 +91,21 @@ On startup `ConfigSeeder` applies each seed:
 
 So testers keep their own rule add/deletes across package upgrades, and you can
 still push a corrected default in a later build.
+
+## `feature-labels.json` — business-area names for the Release Impact reports
+
+Seeds `~/.traceguard/feature-labels.json`. Unlike the two placeholders above, this file
+ships **real defaults** so reports read "Funds Transfer & Payments" instead of `payment`.
+Edit it in the app (**⚙ Config → Business-area labels**) or here before packaging; the
+3-way merge keeps user edits across upgrades.
+
+Key = the API path after `/services/<country>/`, lower-case, version segments (`v1`, `v2`)
+removed. A one-segment key names an **area**, a longer key a **sub-feature**; the longest
+matching prefix wins, and a path with no label falls back to its own segment.
+
+```json
+{
+  "payment": "Funds Transfer & Payments",
+  "payment/fundtransfer/quick": "Quick Transfer"
+}
+```

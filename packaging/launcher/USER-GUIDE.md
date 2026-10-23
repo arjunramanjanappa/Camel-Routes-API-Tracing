@@ -31,9 +31,14 @@ A console window opens, then your browser opens at **http://localhost:8080**.
 - **Splunk base URL** — only for **Release Test**'s result-download links (the address of
   your Splunk Web up to `/services/search/jobs/`). Not a secret, just a URL.
 
-Your **module lists** and **host rules** usually come **pre-loaded** with the app — you
-only add your own tokens. Everything you set is saved under your user profile
-(`~/.traceguard`) and remembered on every run.
+Your **module lists**, **host rules** and **business-area labels** usually come
+**pre-loaded** with the app — you only add your own tokens. Everything you set is saved
+under your user profile (`~/.traceguard`) and remembered on every run.
+
+**Business-area labels** (⚙ Config) are the names the Release Impact reports use for API
+areas and sub-features — e.g. `payment = Funds Transfer & Payments`,
+`payment/fundtransfer/quick = Quick Transfer`. One `path-key = Label` per line; a path with
+no label shows its own segment.
 
 **One requirement on your machine: `git`.** The **Release Impact** tab uses the `git`
 command to detect what a release changed. If `git` isn't installed, Release **Scope** and
@@ -95,8 +100,13 @@ See what a release changed versus the version before it.
   - **New app only** — versioned to the release; the old app never sees it (new-app team).
   - **Shared code** — one class, several route versions; test each version that runs it.
 - **Detailed** view (for developers and testers) shows the per-API cards with the full
-  route, class and payload diffs, risk and **BC** markers. Export **Summary** (one-page
-  test plan) and **Detailed** PDFs.
+  route, class and payload diffs, risk and **BC** markers.
+- **Summary PDF** — the release by **business area** ("Funds Transfer & Payments"), highest
+  impact first: risk and why, the APIs under their sub-features with who tests them, the
+  backward-compatibility position and the testing focus; shared code and the four
+  definitions close it. **Detailed PDF** — every change in full, grouped by version and
+  area. Files are named `TraceGuard-Release-<version>-Impact-Summary.pdf` /
+  `…-Impact-Detailed.pdf` (Scope and Test reports follow the same pattern).
 
 ---
 

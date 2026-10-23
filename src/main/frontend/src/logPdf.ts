@@ -1,5 +1,5 @@
 import type { ApiLogResult, BackendCallResult, BackendLogResult, LogAnalysisReport, LogStatus } from './types';
-import { ReportDoc, PAL, M, CONTENT_W, stamp, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
 import { appLabel } from './appName';
 import { backendPath } from './spl';
 
@@ -308,4 +308,4 @@ function backendEntry(r: ReportDoc, b: BackendLogResult) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `verification-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }
+function file(ver: string): string { return `TraceGuard-Release-${ver === 'BASE' ? 'base' : ver}-Test-Verification.pdf`; }

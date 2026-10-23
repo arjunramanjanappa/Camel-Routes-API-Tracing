@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uob.tracer.service.AppConfigService;
 import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.ConfigSeeder;
+import com.uob.tracer.service.FeatureLabelsService;
 import com.uob.tracer.service.LogRulesService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -63,10 +64,13 @@ class ConfigSeedingTest {
         AppConfigService modules = new AppConfigService(dir.toString(), "", mapper);
         CapabilityService capabilities = new CapabilityService(dir.toString());
 
-        new ConfigSeeder(rules, modules, capabilities, mapper);   // reads the classpath config-seed/* placeholders
+        new ConfigSeeder(rules, modules, capabilities, new FeatureLabelsService(dir.toString(), mapper), mapper);   // reads the classpath config-seed/* files
 
         assertThat(Files.exists(dir.resolve("log-rules.json"))).isFalse();
         assertThat(Files.exists(dir.resolve("app-modules.json"))).isFalse();
+        // The feature-labels seed ships REAL defaults (business-area names for the reports), so a fresh install gets it.
+        assertThat(Files.exists(dir.resolve("feature-labels.json"))).isTrue();
+        assertThat(new FeatureLabelsService(dir.toString(), mapper).readAll()).containsEntry("payment", "Funds Transfer & Payments").doesNotContainKey("_comment");
         // No bundled VAL .xlsx in config-seed → nothing seeded either.
         assertThat(Files.exists(dir.resolve("val-interface-spec.xlsx"))).isFalse();
         assertThat(Files.exists(dir.resolve("val-capability-matrix.xlsx"))).isFalse();

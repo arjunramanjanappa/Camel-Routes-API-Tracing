@@ -57,6 +57,25 @@ export async function saveSettings(patch: { bitbucketToken?: string; npmToken?: 
   return (await res.json()) as AppSettings;
 }
 
+/** Business-area labels for the Release Impact reports (path key → label), from ~/.traceguard/feature-labels.json. */
+export async function fetchFeatureLabels(): Promise<Record<string, string>> {
+  const res = await fetch('/internal/feature-labels');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as Record<string, string>;
+}
+
+/** Replace the whole label map; the server normalises keys and returns the saved map. */
+export async function saveFeatureLabels(map: Record<string, string>): Promise<Record<string, string>> {
+  const res = await fetch('/internal/feature-labels', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(map),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => null);
+    throw new Error((d && d.error) || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as Record<string, string>;
+}
+
 /** One host response-code rule (matched on a backend hosturl glob). */
 export interface LogRule { match: string; codeField: string; successCodes: string[]; skip: boolean; svcVersion?: string; anyCode?: boolean; }
 /** Per-app host response-code rules: ordered fallback code keys + per-hosturl rules. */

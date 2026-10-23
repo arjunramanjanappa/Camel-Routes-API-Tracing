@@ -1,4 +1,4 @@
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, stamp, generatedStamp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, generatedStamp } from './pdfReport';
 import { backendPath } from './spl';
 import type { CatalogResponse, TraceResponse } from './types';
 import { inScopeCount, NO_ROUTE, releaseScopeGroups, scopeGroups } from './catalog';
@@ -142,4 +142,4 @@ function baseRow(r: ReportDoc, t: TraceResponse) {
   r.y += 13;
 }
 
-function file(ver: string): string { return `release-scope-${(ver || 'all').replace(/[^a-zA-Z0-9._-]+/g, '-')}-${stamp()}.pdf`; }
+function file(ver: string): string { return `TraceGuard-Release-${(ver || 'all').replace(/[^a-zA-Z0-9._-]+/g, '-')}-Scope-Detailed.pdf`; }

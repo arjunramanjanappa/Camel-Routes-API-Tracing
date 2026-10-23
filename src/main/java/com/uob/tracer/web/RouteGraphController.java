@@ -8,6 +8,7 @@ import com.uob.tracer.service.AppConfigService;
 import com.uob.tracer.service.CapabilityService;
 import com.uob.tracer.service.LogAnalysisService;
 import com.uob.tracer.service.LogRulesService;
+import com.uob.tracer.service.FeatureLabelsService;
 import com.uob.tracer.service.RouteTraceService;
 import com.uob.tracer.service.SettingsService;
 import org.springframework.http.HttpHeaders;
@@ -47,16 +48,18 @@ public class RouteGraphController {
     private final SettingsService settings;
     private final LogRulesService logRules;
     private final CapabilityService capabilities;
+    private final FeatureLabelsService featureLabels;
 
     public RouteGraphController(RouteTraceService service, LogAnalysisService logService,
                                 AppConfigService appConfig, SettingsService settings, LogRulesService logRules,
-                                CapabilityService capabilities) {
+                                CapabilityService capabilities, FeatureLabelsService featureLabels) {
         this.settings = settings;
         this.service = service;
         this.logService = logService;
         this.appConfig = appConfig;
         this.logRules = logRules;
         this.capabilities = capabilities;
+        this.featureLabels = featureLabels;
     }
 
     /**
@@ -291,6 +294,21 @@ public class RouteGraphController {
     @PostMapping("/internal/log-rules")
     public Map<String, LogRulesService.AppRules> saveLogRules(@RequestBody Map<String, LogRulesService.AppRules> body) {
         return logRules.saveAll(body == null ? Map.of() : body);
+    }
+
+    /**
+     * Business-area labels ({@code feature-labels.json}) for the Release Impact reports — path key → label
+     * (e.g. {@code payment} → "Funds Transfer &amp; Payments", {@code payment/fundtransfer/quick} → "Quick Transfer").
+     */
+    @GetMapping("/internal/feature-labels")
+    public Map<String, String> featureLabels() {
+        return featureLabels.readAll();
+    }
+
+    /** Replace the whole label map (the Config editor saves everything at once); keys are normalised. */
+    @PostMapping("/internal/feature-labels")
+    public Map<String, String> saveFeatureLabels(@RequestBody Map<String, String> body) {
+        return featureLabels.saveAll(body == null ? Map.of() : body);
     }
 
     // --- VAL Capability Matrix: map impacted APIs → business capabilities (how to test) ---

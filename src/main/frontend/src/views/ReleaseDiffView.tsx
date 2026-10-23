@@ -2,7 +2,8 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Table2, FileText, FileStack, Paperclip, AlertTriangle, Code2, Target, ArrowLeft,
          ChevronRight, ChevronDown, ChevronUp, StickyNote, Pencil, Plus, Check, Flag,
          CircleDot, Triangle, Diamond, CircleHelp } from 'lucide-react';
-import { fetchVersionDiff, analyzeLogMultiVersions, exportCapabilitiesXlsx, type CapabilityScope } from '../api';
+import { fetchVersionDiff, analyzeLogMultiVersions, exportCapabilitiesXlsx, fetchFeatureLabels, type CapabilityScope } from '../api';
+import type { FeatureLabels } from '../labels';
 import { versionLabel } from '../feature';
 import type { ApiDiff, ApiLogResult, BauRouteEdit, DepSource, DiffStatus, ImpactedRoute, RouteStepDiff, VersionDiffReport } from '../types';
 import { exportDiffPdf } from '../diffPdf';
@@ -776,6 +777,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   // Optional app/commit version (e.g. 19.18.0) for Java code-change detection — the version token in commits.
   const [appVersion, setAppVersion] = useState(() => localStorage.getItem(appKey(app, 'appVersion')) ?? '');
   const [deps] = useState<DepSource[]>(() => loadDeps(appKey(app, 'deps')));
+  // Business-area labels (⚙ Config) for the Summary groupings and both PDFs; missing labels fall back to the path segment.
+  const [labels, setLabels] = useState<FeatureLabels>({});
+  useEffect(() => { let alive = true; fetchFeatureLabels().then((m) => { if (alive) setLabels(m); }).catch(() => {}); return () => { alive = false; }; }, []);
   const anyValid = modules.some(moduleValid);
   const [reports, setReports] = useState<ModuleResult<VersionDiffReport>[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -1039,9 +1043,9 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   }).filter((m) => m.error || (m.report && m.report.apis.length > 0));
 
   /** Detailed PDF — full route/class/test report for developers & testers. */
-  const exportPdf = () => { const mods = buildMods(); if (mods.length) exportDiffPdf(mods, app, logWindow ?? undefined).catch(() => {}); };
-  /** Summary PDF — 1–2 page RAG overview for release managers & delivery leads. */
-  const exportSummaryPdf = () => { const mods = buildMods(); if (mods.length) exportDiffSummaryPdf(mods, app, logWindow ?? undefined).catch(() => {}); };
+  const exportPdf = () => { const mods = buildMods(); if (mods.length) exportDiffPdf(mods, app, logWindow ?? undefined, labels).catch(() => {}); };
+  /** Summary PDF — the test plan by business area, for release managers & delivery leads. */
+  const exportSummaryPdf = () => { const mods = buildMods(); if (mods.length) exportDiffSummaryPdf(mods, app, logWindow ?? undefined, labels).catch(() => {}); };
 
   /** The BC-impacted APIs across all modules — a shared BAU class or a BAU route the OLD app runs was changed. */
   const bcApis = (): ApiDiff[] => reports.flatMap((r) => r.result?.apis ?? []).filter(needsBC);
@@ -1141,7 +1145,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
           <CodeChangeSummary report={report} />
           <TemplateIssuesPanel report={report} />
           {logAttachBar()}
-          <ImpactSummary report={report} log={activeLog}
+          <ImpactSummary report={report} log={activeLog} labels={labels}
             logByVer={Object.fromEntries(Object.entries(logByVer).flatMap(([v, byMod]) => (byMod[activeId ?? ''] ? [[v, byMod[activeId ?? '']]] : [])))} />
         </div>
       )}

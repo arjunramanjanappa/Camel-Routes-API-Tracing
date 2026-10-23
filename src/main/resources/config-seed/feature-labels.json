@@ -1,0 +1,8 @@
+{
+  "_comment": "Business-area labels for the Release Impact reports. Key = API path after /services/<country>/ with version segments (v1, v2) removed, lower-case. A 1-segment key names an AREA (payment); a longer key names a SUB-FEATURE (payment/fundtransfer/quick). Longest matching prefix wins; a path with no label falls back to its own segment. Edit in the app under Config > Business-area labels, or here before packaging.",
+  "payment": "Funds Transfer & Payments",
+  "payment/fund": "Fund Transfer",
+  "payment/fundtransfer/crossborder": "Cross-border Transfer",
+  "payment/fundtransfer/quick": "Quick Transfer",
+  "payment/fundtransfer/paynowtopromptpay": "PayNow to PromptPay"
+}

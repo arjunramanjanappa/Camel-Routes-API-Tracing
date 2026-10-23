@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, Settings, Check } from 'lucide-react';
 import { fetchSettings, saveSettings, type AppSettings } from '../api';
 import CapabilityConfig from './CapabilityConfig';
+import FeatureLabelsConfig from './FeatureLabelsConfig';
 
 /**
  * The machine-wide Config menu (⚙). Lets the user store their Bitbucket and npm access tokens once
@@ -117,6 +118,8 @@ export default function ConfigMenu({ onClose }: { onClose: () => void }) {
               </div>
 
               <CapabilityConfig />
+
+              <FeatureLabelsConfig />
 
 
               <div className="cfg-note">

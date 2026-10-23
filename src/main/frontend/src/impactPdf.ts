@@ -1,4 +1,4 @@
-import { ReportDoc, PAL, M, CONTENT_W, stamp } from './pdfReport';
+import { ReportDoc, PAL, M, CONTENT_W } from './pdfReport';
 import { backendPath } from './spl';
 
 export interface ImpactRow {
@@ -92,4 +92,4 @@ function apiRow(r: ReportDoc, row: ImpactRow, svc: Record<string, string>) {
   r.y += 6;
 }
 
-function file(ver: string): string { return `release-test-${ver === 'BASE' ? 'base' : ver}-${stamp()}.pdf`; }
+function file(ver: string): string { return `TraceGuard-Release-${ver === 'BASE' ? 'base' : ver}-Test-Impacted-APIs.pdf`; }

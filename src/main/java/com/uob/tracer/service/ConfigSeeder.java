@@ -14,7 +14,8 @@ import java.util.function.Predicate;
 
 /**
  * Configuration seeding for the standalone / .exe distribution. The build bundles a config seed —
- * {@code config-seed/log-rules.json} (host response-code rules) and {@code config-seed/app-modules.json}
+ * {@code config-seed/log-rules.json} (host response-code rules), {@code config-seed/feature-labels.json}
+ * (business-area labels for the Release Impact reports) and {@code config-seed/app-modules.json}
  * (per-app module mappings) — so a fresh install starts with the team's one-time setup, and a later package
  * can push corrected/updated defaults to existing users WITHOUT losing their edits.
  *
@@ -43,10 +44,12 @@ public class ConfigSeeder {
 
     private final ObjectMapper mapper;
 
-    public ConfigSeeder(LogRulesService logRules, AppConfigService appConfig, CapabilityService capabilities, ObjectMapper mapper) {
+    public ConfigSeeder(LogRulesService logRules, AppConfigService appConfig, CapabilityService capabilities,
+                        FeatureLabelsService featureLabels, ObjectMapper mapper) {
         this.mapper = mapper;
         apply("config-seed/log-rules.json", logRules.file(), logRules::seedIfAbsent, logRules::overwrite);
         apply("config-seed/app-modules.json", appConfig.file(), appConfig::seedIfAbsent, appConfig::overwrite);
+        apply("config-seed/feature-labels.json", featureLabels.file(), featureLabels::seedIfAbsent, featureLabels::overwrite);
         // The VAL reports are binary .xlsx — seed-if-absent only (no 3-way merge). Drop the team's files at
         // config-seed/val-interface-spec.xlsx / config-seed/val-capability-matrix.xlsx before packaging the exe;
         // a fresh install gets them, and the user can later replace via ⚙ Config → Replace.

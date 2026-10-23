@@ -119,14 +119,17 @@ function bauWhat(a: ApiDiff): { what: string; detail?: string } {
   const parts: string[] = [];
   const where: string[] = [];
   for (const e of a.bauRouteEdits || []) {
+    // Every list may arrive null from the backend — guard each one (a null here blanked the whole Summary).
+    const removedSteps = e.removedSteps || [], addedSteps = e.addedSteps || [];
+    const removedKeys = e.removedKeys || [], addedKeys = e.addedKeys || [], changedValues = e.changedValues || [];
     where.push(e.route + (e.changedBy?.length ? ' · ' + e.changedBy.join(', ') : ''));
     if (e.routeRemoved) { parts.push('Live route removed'); continue; }
-    e.removedSteps.forEach((s) => parts.push('Step removed: ' + stepLabel(s)));
-    e.addedSteps.forEach((s) => parts.push('Step added: ' + stepLabel(s)));
-    (e.changedValues || []).forEach((v) => parts.push(`${v.key}: ${v.before} → ${v.after}`));
-    e.removedKeys.forEach((k) => parts.push('Field removed: ' + k));
-    e.addedKeys.forEach((k) => parts.push('Field added: ' + k));
-    if (!e.removedSteps.length && !e.addedSteps.length && !(e.changedValues || []).length && !e.removedKeys.length && !e.addedKeys.length && (e.payloadDiff?.length || e.payloadFiles?.length)) {
+    removedSteps.forEach((s) => parts.push('Step removed: ' + stepLabel(s)));
+    addedSteps.forEach((s) => parts.push('Step added: ' + stepLabel(s)));
+    changedValues.forEach((v) => parts.push(`${v.key}: ${v.before} → ${v.after}`));
+    removedKeys.forEach((k) => parts.push('Field removed: ' + k));
+    addedKeys.forEach((k) => parts.push('Field added: ' + k));
+    if (!removedSteps.length && !addedSteps.length && !changedValues.length && !removedKeys.length && !addedKeys.length && (e.payloadDiff?.length || e.payloadFiles?.length)) {
       parts.push('Request template changed' + (e.payloadFiles?.[0] ? ': ' + shortTemplate(e.payloadFiles[0]) : ''));
     }
   }
@@ -136,7 +139,7 @@ function bauWhat(a: ApiDiff): { what: string; detail?: string } {
     const changed = names.filter((c) => !c.removed).map((c) => c.name);
     if (changed.length) parts.push('Shared class changed: ' + changed.slice(0, 2).join(', ') + more(changed.length - 2));
     if (removed.length) parts.push('Shared class removed: ' + removed.slice(0, 2).join(', ') + more(removed.length - 2));
-    const live = (a.impactedRoutes || []).filter((r) => r.category === 'BAU').map((r) => r.routePath[r.routePath.length - 1]);
+    const live = (a.impactedRoutes || []).filter((r) => r.category === 'BAU').map((r) => (r.routePath || [])[(r.routePath || []).length - 1] || "");
     if (live.length) where.push('live route ' + live.slice(0, 2).join(', ') + more(live.length - 2));
   }
   const what = parts.length ? parts.slice(0, 2).join(' · ') + more(parts.length - 2) : 'Live behaviour changed';
@@ -157,10 +160,10 @@ function bauTests(a: ApiDiff, live: string[]): string[] {
   const t: string[] = [`Run on the ${live[0] ? live[0] + ' ' : 'current '}app`];
   const edits = a.bauRouteEdits || [];
   if (edits.some((e) => e.routeRemoved)) t.push('Confirm callers survive the removed route');
-  else if (edits.some((e) => e.removedSteps.length || e.removedKeys.length)) t.push('Confirm nothing depends on the removed step/field');
+  else if (edits.some((e) => e.removedSteps?.length || e.removedKeys?.length)) t.push('Confirm nothing depends on the removed step/field');
   const v = edits.flatMap((e) => e.changedValues || [])[0];
   if (v) t.push(`Host accepts ${v.key}=${v.after}`);
-  else if (edits.some((e) => e.addedSteps.length || e.addedKeys.length || e.payloadDiff?.length)) t.push('Host accepts the changed request');
+  else if (edits.some((e) => e.addedSteps?.length || e.addedKeys?.length || e.payloadDiff?.length)) t.push('Host accepts the changed request');
   if (a.codeChanged) t.push('Response unchanged vs today');
   return t.slice(0, 3);
 }
@@ -181,8 +184,9 @@ function newWhat(a: ApiDiff, ver: string): { what: string; detail?: string } {
   if (parts.length) return { what: 'Request ' + parts.join(' · '), detail: a.targetRoute || undefined };
   const b = a.backendVersionChanges?.[0];
   if (b) return { what: `Backend svc ${b.fromVersion ?? '?'} → ${b.toVersion ?? '?'}` + more((a.backendVersionChanges?.length ?? 1) - 1), detail: shortBackend(b.backend) };
-  const added = a.routeDiffs.reduce((n, d) => n + d.added.length, 0) + a.addedRoutes.length;
-  const removed = a.routeDiffs.reduce((n, d) => n + d.removed.length, 0) + a.removedRoutes.length;
+  const diffs = a.routeDiffs || [];
+  const added = diffs.reduce((n, d) => n + (d.added?.length ?? 0), 0) + (a.addedRoutes?.length ?? 0);
+  const removed = diffs.reduce((n, d) => n + (d.removed?.length ?? 0), 0) + (a.removedRoutes?.length ?? 0);
   if (added || removed) return { what: `Route logic changed (${added ? '+' + added : ''}${added && removed ? ' ' : ''}${removed ? '−' + removed : ''} step${added + removed === 1 ? '' : 's'})`, detail: a.targetRoute || undefined };
   return { what: `Changed on ${ver}`, detail: a.targetRoute || undefined };
 }
@@ -197,7 +201,8 @@ function newTests(a: ApiDiff, ver: string): string[] {
 
 function hasNewAppWork(a: ApiDiff): boolean {
   return a.status === 'NEW' || !!a.payloadChange?.addedKeys?.length || !!a.payloadChange?.removedKeys?.length
-    || !!a.backendVersionChanges?.length || a.routeDiffs.some((d) => d.added.length || d.removed.length) || !!a.addedRoutes.length || !!a.removedRoutes.length;
+    || !!a.backendVersionChanges?.length || (a.routeDiffs || []).some((d) => d.added?.length || d.removed?.length)
+    || !!a.addedRoutes?.length || !!a.removedRoutes?.length;
 }
 
 const GROUP: Record<string, SharedRoute['group']> = { Current: 'This release', BAU: 'Live now', Future: 'Upcoming' };
@@ -214,7 +219,7 @@ function sharedClasses(apis: ApiDiff[]): SharedClass[] {
       for (const v of p.versions) if (!sc.versions.includes(v)) sc.versions.push(v);
       if (!sc.apis.includes(a.api)) sc.apis.push(a.api);
       for (const r of a.impactedRoutes || []) {
-        const route = r.routePath[r.routePath.length - 1] || '';
+        const route = (r.routePath || [])[(r.routePath || []).length - 1] || '';
         if (!route || sc.routes.some((x) => x.route === route)) continue;
         sc.routes.push({ group: r.api ? GROUP[r.category] : 'Untraced', route, api: r.api, version: versionOfPath(r.routePath) });
       }

@@ -25,7 +25,8 @@ export default function IgnoredClassesConfig() {
   const onSave = async () => {
     setBusy(true); setError(null); setSaved(false);
     try {
-      const next = await saveIgnoredClasses(text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#')));
+      // Newlines or commas separate patterns; the server splits commas too, so hand-edited JSON behaves the same.
+      const next = await saveIgnoredClasses(text.split(/[\r\n,]+/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#')));
       const t = next.join('\n'); setText(t); setInitial(t); setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -39,9 +40,9 @@ export default function IgnoredClassesConfig() {
     <div className="cfg-field">
       <label>Ignored classes <span className="muted">(Release Impact — shared classes whose change must not mark APIs as impacted)</span></label>
       <textarea className="cfg-textarea" rows={5} spellCheck={false} value={text} onChange={(e) => setText(e.target.value)}
-                placeholder={'commonAuditProcessor\n*Logger*\n**/common/*.java'} />
+                placeholder={'commonAuditProcessor, *Logger*, **/common/*.java'} />
       <div className="sub">
-        One pattern per line, case-insensitive: a <b>bean name</b> (<code>commonAuditProcessor</code>), a <b>class name</b> with wildcards
+        Comma-separated or one per line, case-insensitive: a <b>bean name</b> (<code>commonAuditProcessor</code>), a <b>class name</b> with wildcards
         (<code>*Logger*</code>) or a <b>path</b> (<code>**/common/*.java</code>). A change to a matching class never flags an API; the report
         still lists what was skipped. Applies on the next Compare.
       </div>

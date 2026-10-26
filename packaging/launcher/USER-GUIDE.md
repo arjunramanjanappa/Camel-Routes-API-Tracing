@@ -42,7 +42,7 @@ no label shows its own segment.
 
 **Ignored classes** (⚙ Config) are shared Java classes Release Impact must not count as a code
 change — a common logger / audit / utility class used by many routes would otherwise mark every API
-as impacted. One pattern per line: a bean name, a class name with wildcards (`*Logger*`) or a path
+as impacted. Comma-separated or one per line: a bean name, a class name with wildcards (`*Logger*`) or a path
 (`**/common/*.java`). Skipped changes are still listed on the report.
 
 **One requirement on your machine: `git`.** The **Release Impact** tab uses the `git`

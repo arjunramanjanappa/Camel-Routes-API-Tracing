@@ -78,16 +78,22 @@ public class IgnoredClassesService {
         }
     }
 
-    /** Trimmed, de-duplicated, blanks and {@code #} comment lines dropped; order kept. */
+    /** Trimmed, de-duplicated, comma-separated entries split, blanks and {@code #} comment lines dropped; order kept. */
     static List<String> normalise(List<String> in) {
         List<String> out = new ArrayList<>();
         if (in == null) {
             return out;
         }
         for (String p : in) {
-            String t = p == null ? "" : p.trim();
-            if (!t.isEmpty() && !t.startsWith("#") && !out.contains(t)) {
-                out.add(t);
+            if (p == null) {
+                continue;
+            }
+            // An entry may carry several comma-separated patterns (hand-edited JSON or a pasted list).
+            for (String part : p.split(",")) {
+                String t = part.trim();
+                if (!t.isEmpty() && !t.startsWith("#") && !out.contains(t)) {
+                    out.add(t);
+                }
             }
         }
         return out;

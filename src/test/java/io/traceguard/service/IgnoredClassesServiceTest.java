@@ -47,9 +47,9 @@ class IgnoredClassesServiceTest {
     void shouldRoundTripPatternsAndDropBlanksCommentsAndDuplicates(@TempDir Path dir) {
         IgnoredClassesService service = new IgnoredClassesService(dir.toString(), mapper);
 
-        List<String> saved = service.saveAll(List.of(" commonAuditProcessor ", "", "# a comment", "*Logger*", "commonAuditProcessor"));
+        List<String> saved = service.saveAll(List.of(" commonAuditProcessor ", "", "# a comment", "*Logger*, **/common/*.java", "commonAuditProcessor"));
 
-        assertThat(saved).containsExactly("commonAuditProcessor", "*Logger*");
+        assertThat(saved).containsExactly("commonAuditProcessor", "*Logger*", "**/common/*.java");   // comma entry split, duplicate dropped
         assertThat(new IgnoredClassesService(dir.toString(), mapper).readAll()).isEqualTo(saved);
     }
 

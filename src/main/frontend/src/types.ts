@@ -262,6 +262,8 @@ export interface VersionDiffReport {
   needsReview?: string[];
   /** Validation findings on impacted .ftl request-body templates (FTL syntax / rendered-JSON structure). */
   templateIssues?: TemplateIssue[];
+  /** Shared-class changes skipped by the ignore list (Config -> Ignored classes), listed for transparency. */
+  ignoredClassChanges?: string[];
 }
 
 /** A validation finding on an impacted .ftl template. kind: 'SYNTAX' (won't parse) or 'STRUCTURE' (bad JSON). */

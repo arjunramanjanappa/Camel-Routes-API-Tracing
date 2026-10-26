@@ -109,3 +109,12 @@ matching prefix wins, and a path with no label falls back to its own segment.
   "payment/fundtransfer/quick": "Quick Transfer"
 }
 ```
+
+## `ignored-classes.json` — shared classes Release Impact must not count as a code change
+
+Seeds `~/.traceguard/ignored-classes.json` (`{"patterns": [...]}`). A common logger / audit / utility
+class used by many routes would otherwise mark every API as impacted whenever it changes. Patterns are
+case-insensitive globs matched against the **bean name** (`commonAuditProcessor`), the **class name**
+(`*Logger*`) or the **repo path** (`**/common/*.java`). The committed file is a comment-only placeholder
+(seeds nothing); users edit the list in **⚙ Config → Ignored classes**. Skipped changes are still listed
+on the report ("N class changes ignored by config").

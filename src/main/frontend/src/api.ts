@@ -76,6 +76,27 @@ export async function saveFeatureLabels(map: Record<string, string>): Promise<Re
   return (await res.json()) as Record<string, string>;
 }
 
+/** Release Impact ignore list: shared classes whose change must not mark APIs as impacted (~/.traceguard/ignored-classes.json). */
+export async function fetchIgnoredClasses(): Promise<string[]> {
+  const res = await fetch('/internal/ignored-classes');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const d = (await res.json()) as { patterns?: string[] };
+  return d.patterns ?? [];
+}
+
+/** Replace the whole ignore list; the server normalises it and returns the saved list. */
+export async function saveIgnoredClasses(patterns: string[]): Promise<string[]> {
+  const res = await fetch('/internal/ignored-classes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patterns }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => null);
+    throw new Error((d && d.error) || `HTTP ${res.status}`);
+  }
+  const d = (await res.json()) as { patterns?: string[] };
+  return d.patterns ?? [];
+}
+
 /** One host response-code rule (matched on a backend hosturl glob). */
 export interface LogRule { match: string; codeField: string; successCodes: string[]; skip: boolean; svcVersion?: string; anyCode?: boolean; }
 /** Per-app host response-code rules: ordered fallback code keys + per-hosturl rules. */

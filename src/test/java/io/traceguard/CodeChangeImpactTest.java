@@ -731,6 +731,34 @@ class CodeChangeImpactTest {
         assertThat(report.getUnchangedCount()).isEqualTo(1);
     }
 
+    @Test
+    void anIgnoredSharedClassFlagsNothingButIsListedOnTheReport(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The release changes statusProcessor — a class the shared R7.14 route runs. Normally High + promoted (see the
+        // first test); with the class on the ignore list nothing is flagged, and the report says what was skipped.
+        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 2));
+        commit(dir, "[JIRA-2][SG][19.18.0] tweak status scoring");
+
+        RouteTraceService service = new RouteTraceService(dir.toString());
+        io.traceguard.service.IgnoredClassesService ignore =
+                new io.traceguard.service.IgnoredClassesService(dir.resolve("home").toString(), new com.fasterxml.jackson.databind.ObjectMapper());
+        ignore.saveAll(List.of("*Status*"));
+        service.setIgnoredClasses(ignore);
+
+        VersionDiffReport report = service.versionDiff(
+                new TraceRequest(null, "9.18", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+
+        assertThat(report.getApis()).allMatch(a -> !a.codeChanged());
+        assertThat(report.getCodeChangedCount()).isZero();
+        assertThat(report.getChangedCount()).isZero();                       // no promotion either
+        assertThat(report.getIgnoredClassChanges()).hasSize(1);
+        assertThat(report.getIgnoredClassChanges().get(0)).contains("statusProcessor").contains("*Status*");
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

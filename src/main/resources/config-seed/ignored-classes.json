@@ -1,0 +1,3 @@
+{
+  "_comment": "Release Impact: shared classes to IGNORE in code-change detection (a common logger/audit/utility used by many routes would otherwise mark every API as impacted). To ship team defaults add a \"patterns\" array of case-insensitive globs matched against the bean name, the class name or the repo path, e.g. {\"patterns\": [\"commonAuditProcessor\", \"*Logger*\", \"**/common/*.java\"]}. This comment-only placeholder seeds nothing; users edit the list in the app under Config > Ignored classes."
+}

@@ -102,6 +102,13 @@ public class RouteTraceService {
     private final ThreadLocal<Map<String, List<String>>> blameCache = new ThreadLocal<>();
     // Release code-change detection for the Release Impact tab: which files an app-version release changed.
     private final GitChangeService gitChange = new GitChangeService();
+    // The Release Impact ignore list (shared classes to skip); optional so the local/test constructor works without it.
+    private volatile IgnoredClassesService ignoredClasses;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIgnoredClasses(IgnoredClassesService ignoredClasses) {
+        this.ignoredClasses = ignoredClasses;
+    }
     // Resolves a "Bitbucket branch" source to a local checkout; unused in local-path mode.
     private final SourceResolver sourceResolver;
 
@@ -749,6 +756,9 @@ public class RouteTraceService {
         // route only when the method it calls changed — see computeChangedMethods.
         Path repo = roots.primary();
         Map<String, Set<String>> changedMethodsByFile = new HashMap<>();
+        // Shared classes the ignore list excludes from the check (common loggers/utilities used by many routes).
+        List<String> ignorePatterns = ignoredClasses == null ? List.of() : ignoredClasses.readAll();
+        LinkedHashSet<String> ignored = new LinkedHashSet<>();
         int codeChangedCount = 0;
         int newToChanged = 0;         // NEW APIs promoted to the Changed group because they change shared code
         int unchangedToChanged = 0;   // BAU/Unchanged APIs promoted because their own route's shared class changed
@@ -776,6 +786,11 @@ public class RouteTraceService {
                         // removes every method, so it impacts callers regardless of which ?method= they use.
                         String removed = matchDeleted(beanName, rc.deletedFiles());
                         if (removed != null) {
+                            String ignoredBy = IgnoredClassesService.matching(ignorePatterns, beanName, removed);
+                            if (ignoredBy != null) {
+                                ignored.add(beanName + " (" + fileName(removed) + ") - REMOVED, pattern " + ignoredBy);
+                                continue;
+                            }
                             List<ImpactedRoute> hits = collapseImpactedRoutes(
                                     routeIdsFor(beanUsage.get(beanName), null), release, ownership);
                             if (!hits.isEmpty()) {
@@ -790,6 +805,11 @@ public class RouteTraceService {
                     String hit = matchChanged(classFile, changed);
                     if (hit == null) {
                         continue;
+                    }
+                    String ignoredBy = IgnoredClassesService.matching(ignorePatterns, beanName, hit);
+                    if (ignoredBy != null) {
+                        ignored.add(beanName + " (" + fileName(hit) + ") - pattern " + ignoredBy);
+                        continue;   // a configured shared class: its change never flags an API
                     }
                     // Camel executes only the method this route calls: the class change touches THIS route only if
                     // that method changed. No ?method= (whole bean) or an undetermined diff → flag as before.
@@ -830,6 +850,7 @@ public class RouteTraceService {
             }
         }
         report.setCodeChangedCount(codeChangedCount);
+        report.getIgnoredClassChanges().addAll(ignored);
         // New/Unchanged APIs that change shared code count under Changed (where testers look for regressions).
         int promoted = newToChanged + unchangedToChanged;
         if (promoted > 0) {

@@ -42,6 +42,9 @@ public class VersionDiffReport {
     private final List<TemplateIssue> templateIssues = new ArrayList<>();
     /** Imports/routes that could not be resolved and need a human to review (see TraceResponse). */
     private final List<String> needsReview = new ArrayList<>();
+    /** Shared-class changes the ignore list (ignored-classes.json) told the analysis to skip - listed so a reviewer
+     *  sees what was left out, e.g. "commonAuditProcessor (CommonAuditProcessor.java) - pattern *Audit*". */
+    private final List<String> ignoredClassChanges = new ArrayList<>();
 
     public String getVersion() { return version; }
     public void setVersion(String version) { this.version = version; }
@@ -92,4 +95,5 @@ public class VersionDiffReport {
     public List<TemplateIssue> getTemplateIssues() { return templateIssues; }
     public List<String> getWarnings() { return warnings; }
     public List<String> getNeedsReview() { return needsReview; }
+    public List<String> getIgnoredClassChanges() { return ignoredClassChanges; }
 }

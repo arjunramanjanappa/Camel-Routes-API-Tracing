@@ -40,6 +40,11 @@ areas and sub-features — e.g. `payment = Funds Transfer & Payments`,
 `payment/fundtransfer/quick = Quick Transfer`. One `path-key = Label` per line; a path with
 no label shows its own segment.
 
+**Ignored classes** (⚙ Config) are shared Java classes Release Impact must not count as a code
+change — a common logger / audit / utility class used by many routes would otherwise mark every API
+as impacted. One pattern per line: a bean name, a class name with wildcards (`*Logger*`) or a path
+(`**/common/*.java`). Skipped changes are still listed on the report.
+
 **One requirement on your machine: `git`.** The **Release Impact** tab uses the `git`
 command to detect what a release changed. If `git` isn't installed, Release **Scope** and
 **Test** still work fully — only Release Impact's change detection is skipped. (Install any

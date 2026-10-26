@@ -9,6 +9,7 @@ import io.traceguard.service.CapabilityService;
 import io.traceguard.service.LogAnalysisService;
 import io.traceguard.service.LogRulesService;
 import io.traceguard.service.FeatureLabelsService;
+import io.traceguard.service.IgnoredClassesService;
 import io.traceguard.service.RouteTraceService;
 import io.traceguard.service.SettingsService;
 import org.springframework.http.HttpHeaders;
@@ -49,10 +50,11 @@ public class RouteGraphController {
     private final LogRulesService logRules;
     private final CapabilityService capabilities;
     private final FeatureLabelsService featureLabels;
+    private final IgnoredClassesService ignoredClasses;
 
     public RouteGraphController(RouteTraceService service, LogAnalysisService logService,
                                 AppConfigService appConfig, SettingsService settings, LogRulesService logRules,
-                                CapabilityService capabilities, FeatureLabelsService featureLabels) {
+                                CapabilityService capabilities, FeatureLabelsService featureLabels, IgnoredClassesService ignoredClasses) {
         this.settings = settings;
         this.service = service;
         this.logService = logService;
@@ -60,6 +62,7 @@ public class RouteGraphController {
         this.logRules = logRules;
         this.capabilities = capabilities;
         this.featureLabels = featureLabels;
+        this.ignoredClasses = ignoredClasses;
     }
 
     /**
@@ -309,6 +312,18 @@ public class RouteGraphController {
     @PostMapping("/internal/feature-labels")
     public Map<String, String> saveFeatureLabels(@RequestBody Map<String, String> body) {
         return featureLabels.saveAll(body == null ? Map.of() : body);
+    }
+
+    /** Release Impact ignore list ({@code ignored-classes.json}): shared classes whose change must not flag an API. */
+    @GetMapping("/internal/ignored-classes")
+    public Map<String, List<String>> ignoredClasses() {
+        return Map.of("patterns", ignoredClasses.readAll());
+    }
+
+    /** Replace the whole ignore list (the Config editor saves everything at once). */
+    @PostMapping("/internal/ignored-classes")
+    public Map<String, List<String>> saveIgnoredClasses(@RequestBody Map<String, List<String>> body) {
+        return Map.of("patterns", ignoredClasses.saveAll(body == null ? List.of() : body.getOrDefault("patterns", List.of())));
     }
 
     // --- VAL Capability Matrix: map impacted APIs → business capabilities (how to test) ---

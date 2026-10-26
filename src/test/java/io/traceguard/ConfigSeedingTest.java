@@ -5,6 +5,7 @@ import io.traceguard.service.AppConfigService;
 import io.traceguard.service.CapabilityService;
 import io.traceguard.service.ConfigSeeder;
 import io.traceguard.service.FeatureLabelsService;
+import io.traceguard.service.IgnoredClassesService;
 import io.traceguard.service.LogRulesService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,11 +65,12 @@ class ConfigSeedingTest {
         AppConfigService modules = new AppConfigService(dir.toString(), "", mapper);
         CapabilityService capabilities = new CapabilityService(dir.toString());
 
-        new ConfigSeeder(rules, modules, capabilities, new FeatureLabelsService(dir.toString(), mapper), mapper);   // reads the classpath config-seed/* files
+        new ConfigSeeder(rules, modules, capabilities, new FeatureLabelsService(dir.toString(), mapper), new IgnoredClassesService(dir.toString(), mapper), mapper);   // reads the classpath config-seed/* files
 
         assertThat(Files.exists(dir.resolve("log-rules.json"))).isFalse();
         assertThat(Files.exists(dir.resolve("app-modules.json"))).isFalse();
         // The feature-labels seed ships REAL defaults (business-area names for the reports), so a fresh install gets it.
+        assertThat(Files.exists(dir.resolve("ignored-classes.json"))).isFalse();   // placeholder seed (empty list) seeds nothing
         assertThat(Files.exists(dir.resolve("feature-labels.json"))).isTrue();
         assertThat(new FeatureLabelsService(dir.toString(), mapper).readAll()).containsEntry("payment", "Funds Transfer & Payments").doesNotContainKey("_comment");
         // No bundled VAL .xlsx in config-seed → nothing seeded either.

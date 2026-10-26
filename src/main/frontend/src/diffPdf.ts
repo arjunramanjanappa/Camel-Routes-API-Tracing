@@ -223,6 +223,9 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
           : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a shared Java class change.`,
           M, CONTENT_W, 'normal', 9, PAL.body, 12);
       }
+      if (rep.ignoredClassChanges?.length) {
+        r.para(`Ignored by config (shared classes excluded from the check): ${rep.ignoredClassChanges.join('; ')}.`, M, CONTENT_W, 'normal', 8.5, PAL.muted, 11);
+      }
       // Test-log coverage line (only when a log was merged for this module).
       if (m.logByVer) {
         const toTest = [...grouped.CHANGED, ...grouped.NEW];

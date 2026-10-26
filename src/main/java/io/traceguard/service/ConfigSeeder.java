@@ -45,11 +45,12 @@ public class ConfigSeeder {
     private final ObjectMapper mapper;
 
     public ConfigSeeder(LogRulesService logRules, AppConfigService appConfig, CapabilityService capabilities,
-                        FeatureLabelsService featureLabels, ObjectMapper mapper) {
+                        FeatureLabelsService featureLabels, IgnoredClassesService ignoredClasses, ObjectMapper mapper) {
         this.mapper = mapper;
         apply("config-seed/log-rules.json", logRules.file(), logRules::seedIfAbsent, logRules::overwrite);
         apply("config-seed/app-modules.json", appConfig.file(), appConfig::seedIfAbsent, appConfig::overwrite);
         apply("config-seed/feature-labels.json", featureLabels.file(), featureLabels::seedIfAbsent, featureLabels::overwrite);
+        apply("config-seed/ignored-classes.json", ignoredClasses.file(), ignoredClasses::seedIfAbsent, ignoredClasses::overwrite);
         // The VAL reports are binary .xlsx — seed-if-absent only (no 3-way merge). Drop the team's files at
         // config-seed/val-interface-spec.xlsx / config-seed/val-capability-matrix.xlsx before packaging the exe;
         // a fresh install gets them, and the user can later replace via ⚙ Config → Replace.

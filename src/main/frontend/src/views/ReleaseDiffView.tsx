@@ -399,6 +399,11 @@ function CodeChangeSummary({ report }: { report: VersionDiffReport }) {
             {' · '}{report.matchedCommits ?? 0} commit{(report.matchedCommits ?? 0) === 1 ? '' : 's'} tagged
             {' · '}{n} API{n === 1 ? '' : 's'} with shared code changed
             {bauMod > 0 && ` · ${bauMod} live route${bauMod === 1 ? '' : 's'} edited`}
+            {(report.ignoredClassChanges?.length ?? 0) > 0 && (
+              <span title={'Ignored by ⚙ Config → Ignored classes:\n' + report.ignoredClassChanges!.join('\n')}>
+                {' · '}{report.ignoredClassChanges!.length} class change{report.ignoredClassChanges!.length === 1 ? '' : 's'} ignored by config
+              </span>
+            )}
           </span>
         )}
       </div>

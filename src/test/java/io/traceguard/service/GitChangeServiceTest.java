@@ -229,9 +229,9 @@ class GitChangeServiceTest {
     }
 
     @Test
-    void previousFileCommitFollowsTheFileHistoryNotTheGraphParent(@TempDir Path dir) throws Exception {
-        // The baseline for a release commit's diff must be the file's PREVIOUS version, not the commit-graph parent
-        // — an intervening commit that doesn't touch the file is the graph parent but not the file's prior version.
+    void shouldHoldTheFilesPreviousVersionAtTheGraphParentWhenAnUnrelatedCommitSitsBetween(@TempDir Path dir) throws Exception {
+        // The baseline for a release commit's diff is its graph parent (no git call): even when the parent commit
+        // never touched the file, the file at the parent IS the file's previous version — so no history walk is needed.
         assumeTrue(gitAvailable(), "git CLI not available");
         initRepo(dir);
         Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\" }\n");
@@ -244,8 +244,70 @@ class GitChangeServiceTest {
         String aV2 = head(dir);
 
         GitChangeService svc = new GitChangeService();
-        // Its graph parent is the 'unrelated file' commit; its FILE-history previous is a v1.
-        assertThat(svc.previousFileCommit(dir, aV2, "a.ftl")).isEqualTo(aV1);
+
+        assertThat(svc.fileAtRef(dir, GitChangeService.parentRef(aV2), "a.ftl"))
+                .isEqualTo(svc.fileAtRef(dir, aV1, "a.ftl"))
+                .containsExactly("{ \"x\": \"1\" }");
+        assertThat(svc.diffLines(dir, GitChangeService.parentRef(aV2), aV2, "a.ftl"))
+                .containsExactly("-{ \"x\": \"1\" }", "+{ \"x\": \"1\", \"y\": \"2\" }");
+    }
+
+    @Test
+    void shouldAnswerARepeatedCommitHashLookupFromMemoryWithoutRunningGitAgain(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\" }\n");
+        commit(dir, "[JIRA-1][SG][19.8.0] a v1");
+        String hash = head(dir);
+        GitChangeService svc = new GitChangeService();
+        svc.statsAndReset();
+
+        List<String> first = svc.fileAtRef(dir, hash, "a.ftl");
+        List<String> second = svc.fileAtRef(dir, hash, "a.ftl");
+        List<String> missing1 = svc.fileAtRef(dir, hash, "absent.ftl");
+        List<String> missing2 = svc.fileAtRef(dir, hash, "absent.ftl");
+        GitChangeService.Stats stats = svc.statsAndReset();
+
+        assertThat(second).isEqualTo(first).containsExactly("{ \"x\": \"1\" }");
+        assertThat(missing1).isNull();
+        assertThat(missing2).isNull();                 // a "file absent at that commit" answer is remembered too
+        assertThat(stats.calls()).isEqualTo(2);        // one process per distinct question
+        assertThat(stats.memoHits()).isEqualTo(2);
+        assertThat(svc.statsAndReset().calls()).isZero();   // reset starts the count again
+    }
+
+    @Test
+    void shouldNeverMemoiseAMovingRef(@TempDir Path dir) throws Exception {
+        // HEAD moves with every commit: a second look-up must run git again and see the new content.
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("a.ftl"), "v1\n");
+        commit(dir, "[JIRA-1][SG][19.8.0] a v1");
+        GitChangeService svc = new GitChangeService();
+        List<String> atFirst = svc.fileAtRef(dir, "HEAD", "a.ftl");
+        Files.writeString(dir.resolve("a.ftl"), "v2\n");
+        commit(dir, "[JIRA-2][SG][19.8.0] a v2");
+        svc.statsAndReset();
+
+        List<String> atSecond = svc.fileAtRef(dir, "HEAD", "a.ftl");
+
+        assertThat(atFirst).containsExactly("v1");
+        assertThat(atSecond).containsExactly("v2");
+        assertThat(svc.statsAndReset().memoHits()).isZero();
+    }
+
+    @Test
+    void shouldTreatOnlyFullCommitHashesWithOptionalParentSuffixAsImmutable() {
+        String hash = "0123456789abcdef0123456789abcdef01234567";
+        assertThat(GitChangeService.immutable(hash)).isTrue();
+        assertThat(GitChangeService.immutable(hash + "^", hash + "~2")).isTrue();
+        assertThat(GitChangeService.immutable((String) null, hash)).isTrue();   // "no from-ref" is fine
+        assertThat(GitChangeService.immutable("HEAD")).isFalse();
+        assertThat(GitChangeService.immutable(hash, "HEAD")).isFalse();
+        assertThat(GitChangeService.immutable("0123456")).isFalse();            // an abbreviation can become ambiguous
+        assertThat(GitChangeService.immutable("main")).isFalse();
+        assertThat(GitChangeService.parentRef(hash)).isEqualTo(hash + "^");
+        assertThat(GitChangeService.parentRef(null)).isNull();
     }
 
     @Test

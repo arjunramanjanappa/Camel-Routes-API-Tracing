@@ -21,6 +21,19 @@ import java.util.concurrent.TimeUnit;
  */
 public class GitBlameService {
 
+    // Blame is deliberately never cached (the repo keeps receiving check-ins and attribution must stay live), but
+    // it IS counted, so a slow Compare can be explained from the log.
+    private final java.util.concurrent.atomic.AtomicLong calls = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong nanos = new java.util.concurrent.atomic.AtomicLong();
+
+    /** Blame activity since the last reset: processes run and the time spent in them. */
+    public record Stats(long calls, long millis) {
+    }
+
+    public Stats statsAndReset() {
+        return new Stats(calls.getAndSet(0), TimeUnit.NANOSECONDS.toMillis(nanos.getAndSet(0)));
+    }
+
     /** Distinct commit-author names for lines {@code [startLine, endLine]} of {@code file}, or empty. */
     public List<String> authors(Path file, int startLine, int endLine) {
         if (file == null || startLine < 1 || endLine < startLine) {
@@ -30,6 +43,16 @@ public class GitBlameService {
         if (dir == null) {
             return List.of();
         }
+        long t0 = System.nanoTime();
+        try {
+            return blame(dir, file, startLine, endLine);
+        } finally {
+            calls.incrementAndGet();
+            nanos.addAndGet(System.nanoTime() - t0);
+        }
+    }
+
+    private static List<String> blame(Path dir, Path file, int startLine, int endLine) {
         try {
             // -w ignores whitespace churn, -C follows moved/copied code, so reformatting
             // commits don't steal attribution. --line-porcelain prints an "author <name>"

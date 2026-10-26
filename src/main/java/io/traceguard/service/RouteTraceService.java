@@ -95,6 +95,9 @@ public class RouteTraceService {
     // the warm caches when nothing changed (the common case: repeated searches, tab switches,
     // log-analysis reusing the index), rebuilding only when the tree actually changed on disk.
     private final java.util.Map<String, Long> sourceFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(RouteTraceService.class);
+    // git calls in a Compare are independent processes: a handful run side by side while the analysis stays sequential.
+    private static final int GIT_PREFETCH_THREADS = Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors()));
     private final GitBlameService gitBlame = new GitBlameService();
     // Within-report git-blame dedup: identical (file|start|end) blames are memoised for the duration of ONE
     // computeVersionDiff, so a route shared across several APIs' diffs isn't blamed once per API. Scoped per report
@@ -345,9 +348,12 @@ public class RouteTraceService {
         Roots roots;
         try {
             roots = resolveRoots(request);
+            // The ignore list is part of the key: editing it in Config and pressing Compare again must recompute,
+            // not hand back the report made with the old list.
             key = roots.key()
                     + "|" + nz(request.country()) + "|" + nz(request.version())
-                    + "|" + nz(request.appVersion());
+                    + "|" + nz(request.appVersion())
+                    + "|ignore=" + String.join(",", ignoredClasses == null ? List.of() : ignoredClasses.readAll());
         } catch (RuntimeException e) {
             return computeVersionDiff(request);   // no source dir → preserve the original error path
         }
@@ -357,10 +363,49 @@ public class RouteTraceService {
 
     private VersionDiffReport computeVersionDiff(TraceRequest request) {
         blameCache.set(new java.util.HashMap<>());   // memoise duplicate blames within this one report
+        long t0 = System.nanoTime();
+        gitChange.statsAndReset();
+        gitBlame.statsAndReset();
         try {
             return doComputeVersionDiff(request);
         } finally {
             blameCache.remove();
+            // One line per Compare so a slow run can be explained from the console: how much was git, how much blame.
+            GitChangeService.Stats git = gitChange.statsAndReset();
+            GitBlameService.Stats blame = gitBlame.statsAndReset();
+            LOG.info("Release Impact compare {} {}: {} s total; git {} calls {} s ({} answered from memory); blame {} calls {} s",
+                    nz(request.version()), nz(request.appVersion()),
+                    (System.nanoTime() - t0) / 1_000_000_000L,
+                    git.calls(), git.millis() / 1000, git.memoHits(),
+                    blame.calls(), blame.millis() / 1000);
+        }
+    }
+
+    /** Run independent git look-ups side by side (each is its own process); the results land in the memo, so the
+     *  sequential analysis that follows finds them there. Failures are swallowed — the analysis re-asks itself. */
+    private static void prefetch(List<Runnable> tasks) {
+        if (tasks.size() < 2) {
+            tasks.forEach(Runnable::run);
+            return;
+        }
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(GIT_PREFETCH_THREADS);
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (Runnable t : tasks) {
+                futures.add(pool.submit(t));
+            }
+            for (java.util.concurrent.Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    LOG.debug("git prefetch task failed; the analysis will retry it inline", e.getCause());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        } finally {
+            pool.shutdownNow();
         }
     }
 
@@ -759,6 +804,26 @@ public class RouteTraceService {
         // Shared classes the ignore list excludes from the check (common loggers/utilities used by many routes).
         List<String> ignorePatterns = ignoredClasses == null ? List.of() : ignoredClasses.readAll();
         LinkedHashSet<String> ignored = new LinkedHashSet<>();
+        // Warm the git memo for every changed, referenced, non-ignored class side by side (diff + both contents),
+        // so the per-API loop below never waits on git one class at a time.
+        if (repo != null) {
+            List<Runnable> warm = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            for (var e : beans.entrySet()) {
+                String hit = matchChanged(e.getValue(), changed);
+                if (hit == null || !seen.add(hit) || IgnoredClassesService.matching(ignorePatterns, e.getKey(), hit) != null) {
+                    continue;
+                }
+                String before = rc.beforeRefFor(hit);
+                String after = rc.afterRefFor(hit);
+                warm.add(() -> gitChange.changedLineRanges(repo, before, after, hit));
+                warm.add(() -> gitChange.fileAtRef(repo, after, hit));
+                if (before != null && !before.isBlank()) {
+                    warm.add(() -> gitChange.fileAtRef(repo, before, hit));
+                }
+            }
+            prefetch(warm);
+        }
         int codeChangedCount = 0;
         int newToChanged = 0;         // NEW APIs promoted to the Changed group because they change shared code
         int unchangedToChanged = 0;   // BAU/Unchanged APIs promoted because their own route's shared class changed
@@ -897,7 +962,7 @@ public class RouteTraceService {
         // referenced by several commits or routes.
         Map<String, String> rawByRef = new LinkedHashMap<>();                          // ref::path → file content
         Map<String, Map<String, List<String>>> bodiesByRef = new LinkedHashMap<>();    // ref::path → route bodies
-        Map<String, String> prevByCommit = new LinkedHashMap<>();                      // commit::path → prev file commit
+        prefetchReleaseFiles(repo, registry, rc);
         // A template's payload diff depends only on the file, not the route — compute it once even when several BAU
         // routes send the same template (git diff is the expensive part; this avoids re-running it per route).
         Map<String, List<String>> payloadDiffByTemplate = new LinkedHashMap<>();       // template path → its diff lines
@@ -942,7 +1007,7 @@ public class RouteTraceService {
                 String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
                 if (gitPath != null) {
                     RouteXmlDiff.Diff d = releaseBodyDiff(repo, gitPath, routeId,
-                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef, prevByCommit);
+                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef);
                     // NET-effect gate: if the route reads the same just before the release as after the release's
                     // LAST commit on its file, every in-between edit was reverted ("put back like BAU") — nothing
                     // ships to the old app, so nothing to re-test, however many release commits touched it.
@@ -983,8 +1048,7 @@ public class RouteTraceService {
                     }
                     List<String> lines = new ArrayList<>();
                     for (String c : rc.fileReleaseCommits().getOrDefault(gp, List.of())) {
-                        String prev = prevFileRef(repo, c, gp, prevByCommit);
-                        for (String line : gitChange.diffLines(repo, prev.isEmpty() ? null : prev, c, gp, true)) {
+                        for (String line : gitChange.diffLines(repo, GitChangeService.parentRef(c), c, gp, true)) {
                             if (!lines.contains(line)) {
                                 lines.add(line);   // union the real changed lines across the release's commits
                             }
@@ -1143,13 +1207,13 @@ public class RouteTraceService {
      */
     private RouteXmlDiff.Diff releaseBodyDiff(Path repo, String gitPath, String routeId, List<String> commitsChrono,
                                               Map<String, Map<String, List<String>>> bodiesByRef,
-                                              Map<String, String> rawByRef, Map<String, String> prevByCommit) {
+                                              Map<String, String> rawByRef) {
         List<String> added = new ArrayList<>();
         List<String> removed = new ArrayList<>();
         for (String c : commitsChrono) {
-            String prev = prevFileRef(repo, c, gitPath, prevByCommit);
-            List<String> beforeBody = prev.isEmpty() ? null
-                    : bodiesAt(repo, prev, gitPath, bodiesByRef, rawByRef).get(routeId);
+            // The commit's parent holds the file as it was just before this commit (a root commit has none: the file
+            // is then absent before, so the commit is not an in-place edit).
+            List<String> beforeBody = bodiesAt(repo, GitChangeService.parentRef(c), gitPath, bodiesByRef, rawByRef).get(routeId);
             List<String> afterBody = bodiesAt(repo, c, gitPath, bodiesByRef, rawByRef).get(routeId);
             if (beforeBody == null || afterBody == null) {
                 continue;   // the route wasn't present on both sides of THIS commit — not an in-place edit by it
@@ -1169,13 +1233,53 @@ public class RouteTraceService {
         return new RouteXmlDiff.Diff(added, removed);
     }
 
-    /** The previous commit in the file's own history before {@code commit} (cached); empty when it's the file's
-     *  first commit. Used as the diff baseline so a release commit is compared to the file's prior version. */
-    private String prevFileRef(Path repo, String commit, String gitPath, Map<String, String> prevByCommit) {
-        return prevByCommit.computeIfAbsent(commit + "::" + gitPath, k -> {
-            String p = gitChange.previousFileCommit(repo, commit, gitPath);
-            return p == null ? "" : p;
-        });
+    /**
+     * Warm the git memo, side by side, with everything the BAU in-place analysis will ask for: each release-touched
+     * route XML and template at both ends of its release span and on both sides of each release commit, plus each
+     * template's per-commit diff. The sequential analysis then reads from memory instead of spawning one git
+     * process at a time (hundreds of them on a release with many touched files).
+     */
+    private void prefetchReleaseFiles(Path repo, RouteRegistry registry, GitChangeService.ReleaseChanges rc) {
+        if (repo == null) {
+            return;
+        }
+        // Templates a route in scope actually sends — only those are diffed per commit.
+        Set<String> templates = new LinkedHashSet<>();
+        for (RouteModel rm : registry.all()) {
+            if (registry.isAmbient(rm)) {
+                continue;
+            }
+            for (String uri : templateRefs(rm)) {
+                String tGit = changedTemplate(templateUriPath(uri), rc.changedFiles());
+                if (tGit != null) {
+                    templates.add(tGit);
+                }
+            }
+        }
+        List<Runnable> warm = new ArrayList<>();
+        for (String gp : rc.changedFiles()) {
+            boolean xml = gp.toLowerCase(java.util.Locale.ROOT).endsWith(".xml");
+            boolean template = templates.contains(gp);
+            if (!xml && !template) {
+                continue;
+            }
+            Set<String> refs = new LinkedHashSet<>();
+            refs.add(rc.beforeRefFor(gp));
+            refs.add(rc.afterRefFor(gp));
+            for (String c : rc.fileReleaseCommits().getOrDefault(gp, List.of())) {
+                refs.add(c);
+                refs.add(GitChangeService.parentRef(c));
+                if (template) {
+                    warm.add(() -> gitChange.diffLines(repo, GitChangeService.parentRef(c), c, gp, true));
+                }
+            }
+            for (String ref : refs) {
+                if (ref != null) {
+                    warm.add(() -> gitChange.fileAtRef(repo, ref, gp));
+                }
+            }
+        }
+        prefetch(warm);
     }
 
     /**

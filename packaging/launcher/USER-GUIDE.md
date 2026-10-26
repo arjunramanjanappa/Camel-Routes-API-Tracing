@@ -126,6 +126,11 @@ See what a release changed versus the version before it.
 - **Release Impact shows nothing under code/BAU** — check `git` is installed and on your
   PATH, and that the release's commits are tagged with the version token
   (e.g. `[jira][country][19.18.0]`).
+- **Release Impact Compare is slow** — the console prints one line per Compare
+  (`Release Impact compare … git N calls … blame N calls …`) showing where the time went.
+  Git answers for the release's commits are remembered while the app runs, so a second
+  Compare of the same release (after editing the ignore list, say) is much faster; any
+  single git call over 5 s is also logged. Send that line along when reporting a slow run.
 - **Your config is safe across updates** — tokens, modules and rules live in
   `~/.traceguard`, not in the app folder, so a new version can replace the folder without
   losing your settings.

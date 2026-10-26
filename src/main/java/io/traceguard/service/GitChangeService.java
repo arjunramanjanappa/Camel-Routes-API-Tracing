@@ -9,10 +9,16 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Finds the files a release changed, where a "release" is identified by the app/commit version token(s) in
@@ -24,8 +30,44 @@ import java.util.regex.Pattern;
  *
  * <p>Whitespace-only changes are ignored ({@code -w}); the net effect from before the release to HEAD is
  * used, so reverts within the release don't count. Renames are followed ({@code -M}).
+ *
+ * <p>Every git call is a separate process (slow on Windows, slower on a scanned corporate PC), so results that
+ * can never change — a file's content at a COMMIT HASH, the diff between two commit hashes — are memoised for
+ * the life of the service: a second Compare of the same release (after editing the ignore list, say) re-runs
+ * almost no git. Anything that can move ({@code HEAD}, the commit log, the working tree) is never memoised.
+ * {@link #statsAndReset()} reports the call count and time so a slow Compare can be explained from the log.
  */
 public class GitChangeService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GitChangeService.class);
+    /** A full commit hash, optionally with a parent suffix ({@code ^}, {@code ~2}) — content at it is immutable. */
+    private static final Pattern IMMUTABLE_REF = Pattern.compile("[0-9a-f]{40}(\\^+|~\\d+)?");
+    private static final int MEMO_MAX = 4000;
+    private static final long SLOW_CALL_NANOS = TimeUnit.SECONDS.toNanos(5);
+
+    private final Map<String, Optional<List<String>>> memo = new ConcurrentHashMap<>();
+    private final AtomicLong calls = new AtomicLong();
+    private final AtomicLong memoHits = new AtomicLong();
+    private final AtomicLong nanos = new AtomicLong();
+
+    /** Git activity since the last reset: processes run, answers served from the memo, time spent in git. */
+    public record Stats(long calls, long memoHits, long millis) {
+    }
+
+    /** Snapshot the counters and start again — called once per Compare so the log line covers that Compare only. */
+    public Stats statsAndReset() {
+        return new Stats(calls.getAndSet(0), memoHits.getAndSet(0), TimeUnit.NANOSECONDS.toMillis(nanos.getAndSet(0)));
+    }
+
+    /** True when every ref names a commit hash (so git's answer for it can never change). Null = "no ref" is fine. */
+    static boolean immutable(String... refs) {
+        for (String r : refs) {
+            if (r != null && !IMMUTABLE_REF.matcher(r.trim()).matches()) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /**
      * Files (repo-relative, forward-slashed) the release changed, how many commits matched, the distinct
@@ -249,25 +291,18 @@ public class GitChangeService {
         if (repoDir == null || ref == null || relPath == null || relPath.isBlank()) {
             return null;
         }
-        return run(repoDir, 15, "show", ref + ":" + relPath.replace('\\', '/'));
+        return run(repoDir, 15, immutable(ref), "show", ref + ":" + relPath.replace('\\', '/'));
     }
 
     /**
-     * The commit immediately BEFORE {@code commit} in the git history OF {@code relPath} — the previous entry in
-     * {@code git log -- <file>}, i.e. the file's prior version. This is NOT the same as the commit-graph parent
-     * ({@code commit^}): with merges or commits that don't touch the file in between, the graph parent can point at
-     * a tree where the file looks different. Diffing a release commit against THIS gives exactly the change that
-     * commit made to the file. Null when {@code commit} is the file's first commit (it created the file).
+     * The ref holding {@code relPath} as it was just BEFORE {@code commit}: its graph parent ({@code commit^}).
+     * The release's commits are non-merge commits, so the parent's tree is exactly the state the commit changed —
+     * even when the parent itself never touched the file, the file at the parent equals the file's previous
+     * version in its own history. No git call is needed (the old {@code git log -- file} walk per commit was the
+     * slowest part of a Compare on a long-history repo).
      */
-    public String previousFileCommit(Path repoDir, String commit, String relPath) {
-        if (repoDir == null || commit == null || relPath == null || relPath.isBlank()) {
-            return null;
-        }
-        // git log <commit> -- <file> lists the file's history newest-first starting at commit; skip commit itself,
-        // take the next = the previous version's commit.
-        List<String> out = run(repoDir, 15, "log", "--format=%H", "--skip=1", "-1", commit, "--",
-                relPath.replace('\\', '/'));
-        return out != null && !out.isEmpty() && !out.get(0).isBlank() ? out.get(0).trim() : null;
+    public static String parentRef(String commit) {
+        return commit == null || commit.isBlank() ? null : commit.trim() + "^";
     }
 
     /**
@@ -294,9 +329,7 @@ public class GitChangeService {
         // difference at end of line (common on Windows — otherwise EVERY line reads as changed and the whole file
         // shows). Together, a pure reformat/reindent/line-ending change produces no change lines at all.
         String unified = withContext ? "-U3" : "-U0";
-        List<String> out = (fromRef == null || fromRef.isBlank())
-                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", unified, "--format=", toRef, "--", path)
-                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", unified, fromRef, toRef, "--", path);
+        List<String> out = unifiedDiff(repoDir, fromRef, toRef, path, unified);
         if (out == null) {
             return List.of();
         }
@@ -339,9 +372,7 @@ public class GitChangeService {
             return null;
         }
         String path = relPath.replace('\\', '/');
-        List<String> out = (fromRef == null || fromRef.isBlank())
-                ? run(repoDir, 15, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "-U0", "--format=", toRef, "--", path)
-                : run(repoDir, 15, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", "-U0", fromRef, toRef, "--", path);
+        List<String> out = unifiedDiff(repoDir, fromRef, toRef, path, "-U0");
         if (out == null) {
             return null;
         }
@@ -423,7 +454,51 @@ public class GitChangeService {
         return p.trim().replace('\\', '/');
     }
 
+    /** The whitespace-insensitive unified diff of one file between two refs ({@code fromRef} null = the commit
+     *  that created it, shown against nothing). Memoised when both refs are commit hashes. Null when git failed. */
+    private List<String> unifiedDiff(Path repoDir, String fromRef, String toRef, String path, String unified) {
+        boolean memoable = immutable(fromRef, toRef);
+        return (fromRef == null || fromRef.isBlank())
+                ? run(repoDir, 15, memoable, "show", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", unified, "--format=", toRef, "--", path)
+                : run(repoDir, 15, memoable, "diff", "-w", "--ignore-blank-lines", "--ignore-cr-at-eol", "--no-color", unified, fromRef, toRef, "--", path);
+    }
+
     private List<String> run(Path dir, int timeoutSec, String... gitArgs) {
+        return run(dir, timeoutSec, false, gitArgs);
+    }
+
+    /**
+     * Run git and return stdout lines (null = failed / timed out). {@code memoable} = the answer can never change
+     * (every ref is a commit hash), so it is kept and served from memory next time — within this Compare and the
+     * next one. The memo is bounded: it is simply emptied when it grows past {@link #MEMO_MAX} entries.
+     */
+    private List<String> run(Path dir, int timeoutSec, boolean memoable, String... gitArgs) {
+        String key = memoable ? dir.toAbsolutePath() + "\u0000" + String.join("\u0000", gitArgs) : null;
+        if (key != null) {
+            Optional<List<String>> hit = memo.get(key);
+            if (hit != null) {
+                memoHits.incrementAndGet();
+                return hit.orElse(null);
+            }
+        }
+        long t0 = System.nanoTime();
+        List<String> out = exec(dir, timeoutSec, gitArgs);
+        long took = System.nanoTime() - t0;
+        calls.incrementAndGet();
+        nanos.addAndGet(took);
+        if (took > SLOW_CALL_NANOS) {
+            LOG.warn("Slow git call ({} s): git {}", TimeUnit.NANOSECONDS.toSeconds(took), String.join(" ", gitArgs));
+        }
+        if (key != null) {
+            if (memo.size() >= MEMO_MAX) {
+                memo.clear();
+            }
+            memo.put(key, Optional.ofNullable(out));
+        }
+        return out;
+    }
+
+    private static List<String> exec(Path dir, int timeoutSec, String... gitArgs) {
         try {
             List<String> cmd = new ArrayList<>(List.of("git", "-C", dir.toString()));
             cmd.addAll(List.of(gitArgs));

@@ -13,7 +13,7 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * N/A on Release Impact is not a diff — there is no prior release to compare. It is a snapshot of the
+ * N/A on Release Impact is not a diff â€” there is no prior release to compare. It is a snapshot of the
  * latest (else base) route each in-scope API resolves to: a versioned API shows its highest R&lt;ver&gt;_
  * route, a base-only API shows BASE. Nothing is marked changed/new/unchanged.
  */
@@ -55,14 +55,14 @@ class ReleaseImpactSnapshotTest {
         assertThat(r.isSnapshot()).isTrue();
         assertThat(r.getChangedCount()).isZero();
         assertThat(r.getNewCount()).isZero();
-        assertThat(r.getUnchangedCount()).isZero();
+        assertThat(r.getUnchangedCount()).isEqualTo(2);   // no commit version -> nothing changed, every API unchanged
         assertThat(r.getSnapshotCount()).isEqualTo(2);
-        assertThat(r.getApis()).allMatch(a -> a.status().equals(ApiDiff.SNAPSHOT));
+        assertThat(r.getApis()).allMatch(a -> a.status().equals(ApiDiff.UNCHANGED));
 
-        // Versioned API → its highest route + version.
+        // Versioned API â†’ its highest route + version.
         assertThat(api(r, "/foo").targetRoute()).isEqualTo("R9.3_foo");
         assertThat(api(r, "/foo").targetVersion()).isEqualTo("9.3");
-        // Base-only API → the base route, labelled BASE.
+        // Base-only API â†’ the base route, labelled BASE.
         assertThat(api(r, "/bar").targetRoute()).isEqualTo("bar");
         assertThat(api(r, "/bar").targetVersion()).isEqualTo("BASE");
     }

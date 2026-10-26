@@ -18,7 +18,7 @@ import type { FeatureLabels } from './labels';
 type Cell = string | { pill: { label: string; fill: RGB; text: RGB; stripe: RGB } } | { text: string; mono?: boolean; color?: RGB };
 const pill = (label: string, r: Ramp): Cell => ({ pill: { label: ascii(label), fill: r.fill, text: r.text, stripe: r.bar } });
 const RAMP: Record<Bucket['key'], Ramp> = { bau: PAL.red, bc: PAL.purple, new: PAL.green, shared: PAL.blue };
-const whoRamp = (who: PlanRow['who']): Ramp => (who === 'BAU team' ? PAL.red : who === 'New-app team' ? PAL.green : PAL.purple);
+const whoRamp = (who: PlanRow['who']): Ramp => (who === 'BAU team' ? PAL.red : who === 'New-app team' ? PAL.green : who === 'All clients' ? PAL.blue : PAL.purple);
 const riskRamp = (r: PlanRow['risk']): Ramp => (r === 'High' ? PAL.red : r === 'Medium' ? PAL.amber : PAL.green);
 function testedCell(l?: ApiLogResult): Cell {
   const t = testedState(l);
@@ -53,7 +53,9 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
   const verdict = multi
     ? `${inScope} APIs in scope across ${withReport.length} modules: ${bau.length} BAU regression · ${bc.length} backward-compat · ${neu.length} new app only · ${unchanged} unchanged.`
     : plans[0]?.plan.verdict ?? '';
-  const B = buckets(ver);
+  const single = plans.length > 0 && plans.every((p) => p.plan.snapshot);
+  const verLabel = single ? plans[0].plan.version : ver;
+  const B = buckets(verLabel, single);
   const logOf = (row: PlanRow) => logForRow(row, modOf.get(row)?.logByVer);
 
   // Tested tally over the actionable rows (BAU + new-app; BC repeats BAU).
@@ -62,7 +64,7 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
 
   // ---- Cover band + verdict + the four counts ----
   r.coverBand('Release Impact - Summary',
-    [appLabel(app), country, `Release ${ver}`, appVersion ? `commit ${appVersion}${commits ? ' - ' + commits : ''}` : ''].filter((c): c is string => !!c),
+    [appLabel(app), country, single ? verLabel : `Release ${ver}`, appVersion && !single ? `commit ${appVersion}${commits ? ' - ' + commits : ''}` : ''].filter((c): c is string => !!c),
     ['Generated ' + generatedStamp(),
      hasAnyLog ? passRateLine(passed, passed + failed) : null,
      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null]);

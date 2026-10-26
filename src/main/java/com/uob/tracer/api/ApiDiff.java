@@ -101,6 +101,22 @@ public record ApiDiff(String api, String operation,
                 codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
     }
 
+    /** A copy of this diff with a different status — used when a single-version (N/A) snapshot learns from the
+     *  release commits whether an API is NEW, CHANGED or UNCHANGED. */
+    public ApiDiff withStatus(String status) {
+        return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
+                routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+    }
+
+    /** A copy of this diff with the routes the release ADDED to its flow (single-version snapshot: an added
+     *  entry route makes the API new; an added sub-route makes it changed). */
+    public ApiDiff withAddedRoutes(List<String> addedRoutes) {
+        return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
+                routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+    }
+
     /** A copy of this diff with its computed test-priority. */
     public ApiDiff withRisk(String risk) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,

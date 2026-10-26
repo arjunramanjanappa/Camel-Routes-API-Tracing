@@ -22,7 +22,7 @@ export default function ImpactSummary({ report, log, logByVer, labels = {} }: {
 }) {
   const plan = buildTestPlan(report);
   const hasLog = !!log || !!(logByVer && Object.keys(logByVer).length);
-  const [B_BAU, B_BC, B_NEW, B_SHARED] = buckets(plan.version);
+  const [B_BAU, B_BC, B_NEW, B_SHARED] = buckets(plan.version, plan.snapshot);
   const tested = (r: PlanRow) => (hasLog ? <Tested l={logForRow(r, logByVer, log)} /> : null);
   const sharedVersions = new Set(plan.shared.flatMap((s) => s.routes.map((x) => x.version))).size;
 
@@ -140,7 +140,7 @@ function Focus({ items }: { items: string[] }) {
 }
 
 function Who({ who }: { who: PlanRow['who'] }) {
-  const cls = who === 'BAU team' ? 'bau' : who === 'New-app team' ? 'new' : 'both';
+  const cls = who === 'BAU team' ? 'bau' : who === 'New-app team' ? 'new' : who === 'All clients' ? 'all' : 'both';
   return <span className={'tp-who ' + cls}>{who}</span>;
 }
 

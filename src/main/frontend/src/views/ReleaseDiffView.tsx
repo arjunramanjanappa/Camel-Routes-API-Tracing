@@ -199,10 +199,10 @@ function riskReasons(a: ApiDiff): string[] {
 /** One plain-English line summarising a card: risk + the single most important reason. */
 // The verdict line does NOT repeat the risk word — the risk pill (e.g. "Medium risk") already shows it, so
 // prefixing "Medium · …" here would just duplicate it on the card.
-function verdictLine(d: ApiDiff): string {
+function verdictLine(d: ApiDiff, single = false): string {
   // Same words as the Summary test plan: "<bucket> · <precise change>".
-  if (effectiveStatus(d) === 'UNCHANGED') return 'Unchanged · version bumped, identical flow';
-  return verdictFor(planRowFor(d, d.targetVersion || ''));
+  if (effectiveStatus(d) === 'UNCHANGED') return d.lowerRoute ? 'Unchanged · version bumped, identical flow' : 'Unchanged · not touched by the release';
+  return verdictFor(planRowFor(d, d.targetVersion || '', single), single);
 }
 
 /**
@@ -540,20 +540,24 @@ function BauEditRow({ e }: { e: BauRouteEdit }) {
   );
 }
 
-function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi, routeLog, remark, onRemark }: {
+function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpenApi, routeLog, remark, onRemark, single = false }: {
   d: ApiDiff; open: boolean; onToggle: () => void;
   onViewFlow: () => void; onCopy: () => void; copied: boolean; log?: ApiLogResult;
   onOpenApi?: (api: string) => void; routeLog?: (r: ImpactedRoute) => ApiLogResult | undefined;
   remark?: string; onRemark?: (text: string) => void;
+  /** Single-version module (no old app alongside): every change is live for every client. */
+  single?: boolean;
 }) {
   const svc = d.backendVersionChanges || [];
   const tested = testedMeta(log);
   // The test-plan row for this API — same words as the Summary (bucket, change, test focus, who).
-  const plan = planRowFor(d, d.targetVersion || '');
+  const plan = planRowFor(d, d.targetVersion || '', single);
   const toTest = effectiveStatus(d) !== 'UNCHANGED';
-  const whoCls = plan.who === 'BAU team' ? 'bau' : plan.who === 'New-app team' ? 'new' : 'both';
+  const whoCls = plan.who === 'BAU team' ? 'bau' : plan.who === 'New-app team' ? 'new' : plan.who === 'All clients' ? 'all' : 'both';
   const whoTitle = plan.who === 'BAU team' ? 'Live behaviour changes — regression-test the current app'
-    : plan.who === 'New-app team' ? 'Versioned to the release — only the new app sees this' : 'Live impact plus new-app work — both teams test';
+    : plan.who === 'New-app team' ? 'Versioned to the release — only the new app sees this'
+    : plan.who === 'All clients' ? 'Single-version module — every client gets this once released'
+    : 'Live impact plus new-app work — both teams test';
   const [editingRemark, setEditingRemark] = useState(false);
   const [remarkDraft, setRemarkDraft] = useState(remark ?? '');
   const [expanded, setExpanded] = useState(false);   // collapsed to a scannable row by default; details on click
@@ -585,7 +589,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
       {/* Always-visible one-line verdict — click to expand OR collapse the full detail. The hint always shows
           a clear affordance so that, once expanded, there is an obvious way back. */}
       <button type="button" className="card-summary" onClick={() => setExpanded(!expanded)}>
-        <span className="card-summary-text">{verdictLine(d)}</span>
+        <span className="card-summary-text">{verdictLine(d, single)}</span>
         <span className="card-summary-hint">{expanded ? <>collapse <ChevronUp size={12} aria-hidden="true" /></> : <>details <ChevronRight size={12} aria-hidden="true" /></>}</span>
       </button>
 
@@ -599,6 +603,9 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
             )}</>
         ) : fallback ? (
           <><span className="tag route lower">{d.targetRoute}</span><span className="muted"> · {d.note}</span></>
+        ) : !d.lowerRoute ? (
+          // Single-version module: one route, no earlier version to compare against — the release commits decide.
+          <><span className="tag route">{d.targetRoute}</span>{d.status === 'UNCHANGED' && <span className="muted"> · not touched by the release</span>}</>
         ) : (
           <>
             <span className="tag route">{d.targetRoute}</span>
@@ -615,7 +622,7 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
           <span className="card-focus-label"><Target size={13} aria-hidden="true" /> Test focus · {plan.who}</span>
           <ul className="tp-focus">
             {plan.test.map((t, i) => <li key={'t' + i}>{t}</li>)}
-            {plan.bucket === 'bau' && bcTestsFor(d).map((t, i) => <li key={'bc' + i}><span className="card-focus-bc">BC</span> {t}</li>)}
+            {plan.bucket === 'bau' && bcTestsFor(d, single).map((t, i) => <li key={'bc' + i}><span className="card-focus-bc">BC</span> {t}</li>)}
           </ul>
         </div>
       )}
@@ -952,7 +959,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
   const statsOf = (r: ModuleResult<VersionDiffReport>): ModuleStat[] => {
     const rep = r.result;
     if (!rep) return [];
-    if (rep.snapshot) return [{ label: 'latest', value: rep.snapshotCount ?? rep.apis.length, tone: 'info' }];
     return [
       { label: 'changed', value: rep.changedCount, tone: 'warn' },
       { label: 'new', value: rep.newCount, tone: 'good' },
@@ -983,13 +989,6 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
       // (BAU-route-modified APIs are pulled into their own group ahead of everything else at render time.)
       .slice().sort((a, b) => RISK_RANK[riskOf(a)] - RISK_RANK[riskOf(b)]);
   }, [report, activeGroup, query, filters, activeLog]);
-
-  // N/A snapshot: every API resolved to its latest/base route — a flat list, not the diff nav.
-  const snapshotVisible = useMemo(() => {
-    if (!report?.snapshot) return [];
-    const q = query.trim().toLowerCase();
-    return report.apis.filter((a) => !q || searchHaystack(a).includes(q));
-  }, [report, query]);
 
   const expandableKeys = useMemo(
     () => visible.filter((d) => needsBC(d) && (d.routeDiffs?.length ?? 0) > 0).map(cardKey), [visible]);
@@ -1141,7 +1140,8 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
 
       {!loading && report && viewMode === 'summary' && (
         <div className="impact-body" style={{ display: 'block', padding: '0 18px 20px' }}>
-          <h2 style={{ margin: '4px 0 6px' }}>Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</h2>
+          <h2 style={{ margin: '4px 0 6px' }}>{report.snapshot ? `Commit ${report.appVersion || 'latest'}` : `Release ${report.version || 'N/A'}`}{report.country ? ` · ${report.country}` : ''}</h2>
+          {report.snapshot && <InfoBanner>Single-version module (no versioned routes): what changed is what the commits tagged <b>{report.appVersion || '—'}</b> did. Every change is live for every client once released.</InfoBanner>}
           <CodeChangeSummary report={report} />
           <TemplateIssuesPanel report={report} />
           {logAttachBar()}
@@ -1150,70 +1150,10 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
         </div>
       )}
 
-      {!loading && report && report.snapshot && viewMode === 'detailed' && (
+      {!loading && report && viewMode === 'detailed' && (
         <div className="impact-body diff-layout">
           <div className="diff-nav">
-            <div className="diff-nav-head">Release {report.version || 'N/A'}{report.country ? ` · ${report.country}` : ''}</div>
-            <div className="diff-nav-item active">
-              <span className="diff-nav-label">Latest routes</span>
-              <span className="diff-nav-count">{report.snapshotCount ?? report.apis.length}</span>
-            </div>
-          </div>
-          <div className="diff-main">
-            <NeedsReviewBox items={report.needsReview ?? []} />
-            {(() => {
-              const review = new Set(report.needsReview ?? []);
-              const other = report.warnings.filter((w) => !review.has(w));
-              return other.length > 0 ? (
-                <div className="warnbox">{other.map((w, i) => <div key={i}><AlertTriangle size={13} aria-hidden="true" /> {w}</div>)}</div>
-              ) : null;
-            })()}
-            <InfoBanner>Showing each API at its latest version{report.country ? ` for ${report.country}` : ''} (or its default when it has no versions). This is a current snapshot for review — there is no earlier release to compare it against.</InfoBanner>
-            <CodeChangeSummary report={report} />
-            <div className="diff-main-head row between">
-              <h2 style={{ margin: 0 }}>Latest routes <span className="muted">{snapshotVisible.length}</span></h2>
-              <input className="diff-search" placeholder="🔍 filter by path, route or operation"
-                     value={query} onChange={(e) => setQuery(e.target.value)} />
-            </div>
-            {snapshotVisible.length === 0 ? (
-              <div className="impact-empty">
-                <div className="impact-empty-title">{report.apis.length === 0 ? 'No APIs in scope' : 'No matches'}</div>
-                <div className="sub">{report.apis.length === 0 ? 'No APIs found in this scope.' : `Nothing matches “${query.trim()}”.`}</div>
-              </div>
-            ) : (
-              <div className="diff-list">
-                {snapshotVisible.map((a) => (
-                  <div className={'diff-card snapshot' + (a.codeChanged ? ' code' : '')} key={a.api + '|' + a.operation}>
-                    <div className="diff-card-head row between">
-                      <div className="diff-card-id"><code>{a.api}</code><span className="muted op">{a.operation}</span></div>
-                      <span className="row" style={{ gap: 6 }}>
-                        {a.codeChanged && report.appVersion && (
-                          <span className="diff-badge code" title="A shared Java class in this API's flow was changed by the app-version release">changed in {(a.changedVersions && a.changedVersions.length ? a.changedVersions.join(', ') : report.appVersion)}</span>
-                        )}
-                        <span className="diff-badge" title="the version this API is currently on">
-                          {a.targetVersion === 'BASE' ? 'Base' : 'Release ' + a.targetVersion}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="diff-verdict">
-                      <span className="tag route">{a.targetRoute}</span>
-                    </div>
-                    <CodeChangeBlock d={a} />
-                    <div className="diff-actions">
-                      <button className="linkbtn" onClick={() => setFlowApi({ api: a.api, version: report.version || undefined })}>View flow <ChevronRight size={13} aria-hidden="true" /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!loading && report && !report.snapshot && viewMode === 'detailed' && (
-        <div className="impact-body diff-layout">
-          <div className="diff-nav">
-            <div className="diff-nav-head">Release {report.version || 'BASE'}{report.country ? ` · ${report.country}` : ''}</div>
+            <div className="diff-nav-head">{report.snapshot ? `Commit ${report.appVersion || 'latest'}` : `Release ${report.version || 'BASE'}`}{report.country ? ` · ${report.country}` : ''}</div>
             {ALL_STATUSES.map((s) => (
               <button key={s} className={'diff-nav-item ' + s.toLowerCase() + (activeGroup === s ? ' active' : '')}
                       aria-pressed={activeGroup === s} onClick={() => setActiveGroup(s)}>
@@ -1236,6 +1176,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
             })()}
 
             <ReadinessStrip report={report} log={activeLog} />
+            {report.snapshot && <InfoBanner>Single-version module (no versioned routes): changes are what the commits tagged <b>{report.appVersion || '—'}</b> did — route edits, added/removed routes, payload templates, shared classes. Every change is live for every client once released.</InfoBanner>}
             {logAttachBar()}
             <CodeChangeSummary report={report} />
             <TemplateIssuesPanel report={report} />
@@ -1304,7 +1245,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                   const card = (d: ApiDiff) => (
                     <ApiDiffCard key={cardKey(d)} d={d} log={testedFor(d.api, d.targetVersion)}
                                  routeLog={hasLog ? (ir) => testedFor(ir.api, routeVersion(ir)) : undefined}
-                                 remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)}
+                                 remark={remarks[remarkKey(d)]} onRemark={(t) => setRemark(remarkKey(d), t)} single={!!report.snapshot}
                                  open={expanded.has(cardKey(d))} onToggle={() => toggleOne(cardKey(d))}
                                  onViewFlow={() => setFlowApi({ api: d.api, version: d.targetVersion || report.version || undefined })}
                                  onOpenApi={(api) => setFlowApi({ api, version: report.version || undefined })}
@@ -1323,7 +1264,7 @@ export default function ReleaseDiffView({ app, colorMode = 'light', viewMode = '
                         const owners = [...new Set(bau.flatMap((a) => (a.bauRouteEdits || []).flatMap((e) => e.changedBy || [])))];
                         return (
                           <Fragment key="__bau">
-                            <div className="diff-ver-head bau"><span><Flag size={13} aria-hidden="true" /> BAU regression · live routes edited</span><span className="diff-ver-cnt">{bau.length}</span></div>
+                            <div className="diff-ver-head bau"><span><Flag size={13} aria-hidden="true" /> {report.snapshot ? 'Changed · routes edited by the release' : 'BAU regression · live routes edited'}</span><span className="diff-ver-cnt">{bau.length}</span></div>
                             {owners.length > 0 && <div className="bau-owners" title="Commit author(s) of the live-route edits — who to ask">Who to ask: {owners.join(', ')}</div>}
                             {bau.map(card)}
                           </Fragment>

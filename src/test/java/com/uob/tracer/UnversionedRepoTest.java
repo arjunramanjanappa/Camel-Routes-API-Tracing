@@ -16,10 +16,10 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A repo that is NOT versioned — its routes never carry an {@code R<version>_} prefix, so every API
+ * A repo that is NOT versioned â€” its routes never carry an {@code R<version>_} prefix, so every API
  * always uses its base route. Handled by the {@code N/A} ("latest per API, else base") client-version
  * token: with no versioned route, latest is never found and resolution falls through to the base route,
- * across all three tabs. Versioned repos are unaffected — {@code N/A} there picks each API's newest.
+ * across all three tabs. Versioned repos are unaffected â€” {@code N/A} there picks each API's newest.
  */
 class UnversionedRepoTest {
 
@@ -35,7 +35,7 @@ class UnversionedRepoTest {
                 + "<setProperty name=\"api\"><simple>" + backend + "</simple></setProperty></route>";
     }
 
-    /** Base routes only — no R<version>_ prefix anywhere. */
+    /** Base routes only â€” no R<version>_ prefix anywhere. */
     private static String unversionedRoutes() {
         return "<beans:beans xmlns:beans=\"http://www.springframework.org/schema/beans\">"
                 + "<routeContext id=\"base\">"
@@ -102,16 +102,16 @@ class UnversionedRepoTest {
     void diffWithNaReturnsABaseRouteSnapshotNotADiff(@TempDir Path dir) throws Exception {
         RouteTraceService service = unversionedRepo(dir);
 
-        // N/A on Release Impact is a snapshot, not a diff — every API resolves to its base route (BASE),
+        // N/A on Release Impact is a snapshot, not a diff â€” every API resolves to its base route (BASE),
         // nothing is changed/new/unchanged (there is no prior release to compare on an unversioned repo).
         VersionDiffReport diff = service.versionDiff(new TraceRequest(null, "N/A", null, null, "SG"));
         assertThat(diff.isSnapshot()).isTrue();
         assertThat(diff.getChangedCount()).isZero();
         assertThat(diff.getNewCount()).isZero();
-        assertThat(diff.getUnchangedCount()).isZero();
+        assertThat(diff.getUnchangedCount()).isEqualTo(diff.getApis().size());   // no commit version -> every API unchanged
         assertThat(diff.getApis()).isNotEmpty();
         assertThat(diff.getApis()).allSatisfy(a -> {
-            assertThat(a.status()).isEqualTo(ApiDiff.SNAPSHOT);
+            assertThat(a.status()).isEqualTo(ApiDiff.UNCHANGED);
             assertThat(a.targetVersion()).isEqualTo("BASE");
         });
     }

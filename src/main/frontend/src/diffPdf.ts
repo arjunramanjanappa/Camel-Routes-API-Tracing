@@ -99,7 +99,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   let dpPassed = 0, dpVerified = 0;
   if (hasAnyLog) for (const m of mods) {
     const rep = m.report; if (!rep) continue;
-    const toTest = rep.apis.filter((a) => rep.snapshot ? !!a.codeChanged : (a.status === 'CHANGED' || a.status === 'NEW' || !!a.codeChanged));
+    const toTest = rep.apis.filter((a) => a.status === 'CHANGED' || a.status === 'NEW' || !!a.codeChanged);
     for (const a of toTest) { const l = logAt(m.logByVer, a.targetVersion, a.api); if (l?.tested) { dpVerified++; if (l.status === 'SUCCESS') dpPassed++; } }
   }
 
@@ -149,10 +149,10 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
       ? ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Code', 'Unchanged']
       : ['Module (pom artifactId)', 'Version', 'Changed', 'New', 'Unchanged'],
     rows.map((x) => appVersion
-      ? [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.snapshot ? 'N/A' : ver),
-         x.snapshot ? '—' : x.changed, x.snapshot ? '—' : x.added, x.code, x.snapshot ? x.snap : x.unchanged]
-      : [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.snapshot ? 'N/A' : ver),
-         x.snapshot ? '—' : x.changed, x.snapshot ? '—' : x.added, x.snapshot ? x.snap : x.unchanged]),
+      ? [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.snapshot ? 'commit ' + (appVersion || '-') : ver),
+         x.changed, x.added, x.code, x.unchanged]
+      : [x.name + (x.error ? '  (failed)' : ''), x.error ? '—' : (x.snapshot ? 'commit ' + (appVersion || '-') : ver),
+         x.changed, x.added, x.unchanged]),
     appVersion
       ? ['Total', '', tot.changed, tot.added, tot.code, tot.unchanged]
       : ['Total', '', tot.changed, tot.added, tot.unchanged],
@@ -201,17 +201,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
     r.bookmark('Module — ' + m.name);
     if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
     const rep = m.report; if (!rep) continue;
-    if (rep.snapshot) {
-      r.section('Module — ' + m.name + '  (N/A)', rep.apis.length, PAL.amber,
-        'Unversioned — the latest route each API is on (no prior release to compare).');
-      if (rep.appVersion) {
-        r.para(rep.codeChangeUnavailable
-          ? `App version ${rep.appVersion}: source is not a git work tree — Java code-change detection skipped.`
-          : `App version ${rep.appVersion}: ${rep.matchedCommits ?? 0} commit(s) tagged, ${rep.codeChangedCount ?? 0} API(s) with a shared Java class change.`,
-          M, CONTENT_W, 'normal', 9, PAL.body, 12);
-      }
-      rep.apis.forEach((a, idx) => { if (idx > 0) r.separator(); snapshotRow(r, a); });
-    } else {
+    {
       // Group by EFFECTIVE status: a NEW API that changed shared BAU code is listed under Changed (mirrors the
       // backend's New->Changed promotion), because that Java change means BAU APIs using the class need testing.
       const grouped: Record<'CHANGED' | 'NEW', ApiDiff[]> = { CHANGED: [], NEW: [] };
@@ -267,7 +257,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
             }
             [...byArea.values()].sort((x, y) => x.label.localeCompare(y.label)).forEach((fg) => {
               r.para(`${fg.label}  (${fg.apis.length})`, M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
-              fg.apis.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`]); });
+              fg.apis.forEach((a, idx) => { if (idx > 0) r.separator(); apiBlock(r, a, status, m.logByVer, m.remarks?.[`${a.api}|${a.operation}`], !!rep.snapshot); });
             });
           });
         }
@@ -305,21 +295,6 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
   }
 
   r.save(file(ver), footer);
-}
-
-/** One row of a latest-routes snapshot (an unversioned/N/A module). */
-function snapshotRow(r: ReportDoc, a: ApiDiff) {
-  r.ensure(30);
-  const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
-  r.text(a.operation, M + pathW + 8, 'normal', 9, PAL.muted);
-  const base = a.targetVersion === 'BASE';
-  const label = base ? 'N/A' : 'Release ' + a.targetVersion;
-  const vw = r.width(label, 'bold', 8) + 12;
-  r.pill(label, PAGE.w - M - vw, base ? PAL.amber.fill : PAL.blue.fill, base ? PAL.amber.text : PAL.blue.text, 8);
-  r.y += 16;
-  r.para(`Route: ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
-  codeChangeLines(r, a);
-  r.y += 6;
 }
 
 /** Render the app-version code-change causes for one API (shared by diff + snapshot rows). */
@@ -391,7 +366,7 @@ function bauRouteEditLines(r: ReportDoc, a: ApiDiff) {
   });
 }
 
-function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Record<string, Record<string, ApiLogResult>>, remark?: string) {
+function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Record<string, Record<string, ApiLogResult>>, remark?: string, single = false) {
   const log = logAt(logByVer, a.targetVersion, a.api);
   r.ensure(40);
   const pathW = r.text(a.api, M, 'bold', 11, PAL.ink);
@@ -409,9 +384,9 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   r.y += 16;
 
   // Verdict + test focus, in the Summary's words (bucket, precise change, what to run, who runs it).
-  const plan = planRowFor(a, a.targetVersion || '');
-  r.para(verdictFor(plan).replace(' · ', ' - '), M, CONTENT_W, 'bold', 9.5, plan.bucket === 'bau' ? PAL.red.text : PAL.green.text, 13);
-  const focus = [...plan.test, ...(plan.bucket === 'bau' ? bcTestsFor(a).map((t) => 'BC: ' + t) : [])];
+  const plan = planRowFor(a, a.targetVersion || '', single);
+  r.para(verdictFor(plan, single).replace(' · ', ' - '), M, CONTENT_W, 'bold', 9.5, plan.bucket === 'bau' ? PAL.red.text : PAL.green.text, 13);
+  const focus = [...plan.test, ...(plan.bucket === 'bau' ? bcTestsFor(a, single).map((t) => 'BC: ' + t) : [])];
   r.para(`Test focus (${plan.who}): ${focus.join('; ')}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
 
   if (status === 'NEW') {
@@ -423,7 +398,7 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   } else if (a.note) {
     r.para(a.note, M, CONTENT_W, 'normal', 9, PAL.body, 12);
   } else {
-    r.para(`Resolves to ${a.targetRoute}, compared against ${a.lowerRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+    r.para(a.lowerRoute ? `Resolves to ${a.targetRoute}, compared against ${a.lowerRoute}.` : `Route ${a.targetRoute}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
   }
 
   // Merged test-log evidence for this API (executed / passed / failed), when a log was uploaded.

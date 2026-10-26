@@ -14,7 +14,8 @@ import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './typ
  */
 
 export type Risk = 'High' | 'Medium' | 'Low';
-export type Audience = 'BAU team' | 'New-app team' | 'Both teams';
+/** Who the change reaches / who tests it. 'All clients' = a single-version module: every client gets it at once. */
+export type Audience = 'BAU team' | 'New-app team' | 'Both teams' | 'All clients';
 export const RISK_RANK: Record<Risk, number> = { High: 0, Medium: 1, Low: 2 };
 
 export interface PlanRow {
@@ -168,8 +169,8 @@ function bauTests(a: ApiDiff, live: string[]): string[] {
   return t.slice(0, 3);
 }
 
-function bcTests(a: ApiDiff): string[] {
-  const t = ['Old client → new build passes'];
+function bcTests(a: ApiDiff, single = false): string[] {
+  const t = [single ? 'Oldest supported client → new build passes' : 'Old client → new build passes'];
   if (bauRouteRemoval(a)) t.push('Works without the removed step/field');
   else t.push('Response contract unchanged');
   return t;
@@ -229,33 +230,54 @@ function sharedClasses(apis: ApiDiff[]): SharedClass[] {
   return Array.from(byName.values());
 }
 
-/** Build the plan for one report. */
+/**
+ * Build the plan for one report. A single-version module (no R<version>_ routes — the backend reports it as a
+ * snapshot analysed against the release commits) has no old app running alongside: every change is live for every
+ * client once released, so its rows read "Changed / New / Shared code" instead of the blue-green buckets.
+ */
 export function buildTestPlan(report: VersionDiffReport): TestPlan {
-  const ver = (report.version && report.version.trim()) || report.appVersion || 'N/A';
   const snapshot = !!report.snapshot;
+  const ver = snapshot
+    ? (report.appVersion ? 'commit ' + report.appVersion : 'latest')
+    : ((report.version && report.version.trim()) || report.appVersion || 'N/A');
   const inScope = report.snapshotCount ?? report.apis.length;
-  const toVerify = (snapshot
-    ? report.apis.filter((a) => isBauImpact(a))
-    : report.apis.filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT'))
+  const toVerify = report.apis
+    .filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT')
     .sort((x, y) => RISK_RANK[riskOf(x)] - RISK_RANK[riskOf(y)] || x.api.localeCompare(y.api));
 
   const bau: PlanRow[] = [];
   const newOnly: PlanRow[] = [];
   for (const a of toVerify) {
-    const row = planRowFor(a, ver);
+    const row = planRowFor(a, ver, snapshot);
     (row.bucket === 'bau' ? bau : newOnly).push(row);
   }
-  const bc: PlanRow[] = bau.map((r) => ({ ...r, test: bcTests(r.a), what: r.oldVersions.length ? 'Still called by ' + r.oldVersions.join(', ') : 'Still called by the current app' }));
+  const bc: PlanRow[] = bau.map((r) => ({ ...r, test: bcTests(r.a, snapshot),
+    what: snapshot ? 'Every client version' : (r.oldVersions.length ? 'Still called by ' + r.oldVersions.join(', ') : 'Still called by the current app') }));
   const shared = sharedClasses(report.apis);
-  const unchanged = snapshot ? 0 : (report.unchangedCount ?? 0);
+  const unchanged = report.unchangedCount ?? 0;
   const verdict = snapshot
-    ? `${inScope} APIs at latest version: ${bau.length} with live behaviour change · ${shared.length} shared class${shared.length === 1 ? '' : 'es'} changed.`
+    ? `${inScope} APIs · ${ver}: ${bau.length} changed · ${newOnly.length} new · ${shared.length} shared class${shared.length === 1 ? '' : 'es'} changed · ${unchanged} unchanged. Every change is live for every client.`
     : `${inScope} APIs in scope: ${bau.length} BAU regression · ${bc.length} backward-compat · ${newOnly.length} new app only · ${unchanged} unchanged.`;
   return { version: ver, snapshot, inScope, unchanged, bau, bc, newOnly, shared, verdict };
 }
 
-/** The plan row for ONE API — the Detailed card and Detailed PDF use this so every view says the same thing. */
-export function planRowFor(a: ApiDiff, ver: string): PlanRow {
+/**
+ * The plan row for ONE API — the Detailed card and Detailed PDF use this so every view says the same thing.
+ * `single` = a single-version module: a changed API is live for every client (no "new app only"), a NEW one is a
+ * route the release added.
+ */
+export function planRowFor(a: ApiDiff, ver: string, single = false): PlanRow {
+  if (single) {
+    if (a.status === 'NEW') {
+      return { a, bucket: 'new', what: 'New API', detail: a.targetRoute ? a.targetRoute + (a.authors?.length ? ' · ' + a.authors.join(', ') : '') : undefined,
+        test: ['End to end on the new build'], who: 'All clients', risk: riskOf(a), bc: false, oldVersions: [], logVersion: a.targetVersion };
+    }
+    const { what, detail } = isBauImpact(a) ? bauWhat(a)
+      : { what: a.addedRoutes?.length ? 'Route added: ' + a.addedRoutes.slice(0, 2).join(', ') + more(a.addedRoutes.length - 2) : 'Changed by the release', detail: a.targetRoute || undefined };
+    const t = ['Regression-test on the new build'];
+    for (const x of bauTests(a, []).slice(1)) if (!t.includes(x)) t.push(x);
+    return { a, bucket: 'bau', what, detail, test: t.slice(0, 3), who: 'All clients', risk: riskOf(a), bc: true, oldVersions: [], logVersion: a.targetVersion };
+  }
   if (isBauImpact(a)) {
     const live = liveVersions(a);
     const { what, detail } = bauWhat(a);
@@ -266,10 +288,11 @@ export function planRowFor(a: ApiDiff, ver: string): PlanRow {
   return { a, bucket: 'new', what, detail, test: newTests(a, ver), who: 'New-app team', risk: riskOf(a), bc: false, oldVersions: [], logVersion: a.targetVersion };
 }
 /** The backward-compatibility checks for a BAU-impact API (old client against the new build). */
-export function bcTestsFor(a: ApiDiff): string[] { return isBauImpact(a) ? bcTests(a) : []; }
+export function bcTestsFor(a: ApiDiff, single = false): string[] { return isBauImpact(a) || (single && a.status === 'CHANGED') ? bcTests(a, single) : []; }
 /** One-line verdict for a card / PDF block: bucket + the precise change. */
-export function verdictFor(row: PlanRow): string {
-  return (row.bucket === 'bau' ? 'BAU regression' : 'New app only') + ' · ' + row.what;
+export function verdictFor(row: PlanRow, single = false): string {
+  const head = single ? (row.bucket === 'bau' ? 'Changed' : 'New') : (row.bucket === 'bau' ? 'BAU regression' : 'New app only');
+  return head + ' · ' + row.what;
 }
 /** Shared-code re-test groups, in reader's words (Current/BAU/Future are the backend's category names). */
 export const SHARED_GROUP: Record<'Current' | 'BAU' | 'Future' | 'Unknown', { label: string; desc: string }> = {
@@ -281,7 +304,16 @@ export const SHARED_GROUP: Record<'Current' | 'BAU' | 'Future' | 'Unknown', { la
 
 // ---- one vocabulary ----
 export interface Bucket { key: 'bau' | 'bc' | 'new' | 'shared'; title: string; question: string; who: string; define: string }
-export function buckets(ver: string): Bucket[] {
+export function buckets(ver: string, single = false): Bucket[] {
+  if (single) {
+    // Single-version module: no old app runs alongside, so every change reaches every client at once.
+    return [
+      { key: 'bau', title: 'Changed', question: `Edited by the release (${ver}) — live for every client once released`, who: 'All clients', define: 'A route or code the release edited. Every client gets it at once — regression-test on the new build.' },
+      { key: 'bc', title: 'Backward compatibility', question: 'Every client version hits the new build', who: 'All clients', define: 'There is no old app to keep an older route: the oldest supported client must pass against the new build.' },
+      { key: 'new', title: 'New', question: `Added by the release (${ver})`, who: 'All clients', define: 'A new route/API the release added — test end to end on the new build.' },
+      { key: 'shared', title: 'Shared code', question: 'A changed class and the routes that run it', who: 'All clients', define: 'A Java class several routes run was changed. Test every route listed.' },
+    ];
+  }
   return [
     { key: 'bau', title: 'BAU regression', question: 'Live behaviour changes — test the current app', who: 'BAU team', define: 'Live behaviour changes: a production route or code it runs was edited. Regression-test the current app.' },
     { key: 'bc', title: 'Backward compatibility', question: 'Old app versions still call what changed', who: 'BAU team', define: 'Old app versions still call what changed. An old client against the new build must pass.' },

@@ -669,6 +669,68 @@ class CodeChangeImpactTest {
         assertThat(apiByRoute(report, "getResidence").codeChanged()).isFalse();
     }
 
+    // --- Single-version module (no R<version>_ routes): the release commits decide NEW / CHANGED / UNCHANGED,
+    //     instead of the old "latest routes" snapshot that only knew about shared-class changes. ---
+
+    private static final String SINGLE_ROUTES = """
+            <beans:beans xmlns:beans="http://www.springframework.org/schema/beans">
+              <routeContext id="c">
+                <route id="getStatusRoute"><from uri="direct:getStatus"/><to uri="bean:statusProcessor"/></route>
+                <route id="getBalanceRoute"><from uri="direct:getBalance"/><to uri="bean:balanceProcessor"/></route>
+              </routeContext>
+            </beans:beans>
+            """;
+
+    @Test
+    void aSingleVersionRepoReportsWhatTheReleaseCommitsChanged(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        Files.writeString(dir.resolve("routes.xml"), SINGLE_ROUTES);
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @PostMapping("/getStatus") public Object getStatus(Object b){ return null; }
+                    @PostMapping("/getBalance") public Object getBalance(Object b){ return null; }
+                }
+                """);
+        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 1));
+        Files.writeString(dir.resolve("BalanceProcessor.java"), beanClass("BalanceProcessor", "balanceProcessor", 1));
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+
+        // The release edits getStatusRoute in place (adds an audit step) and ADDS a brand-new API/route; getBalance is untouched.
+        Files.writeString(dir.resolve("routes.xml"), SINGLE_ROUTES
+                .replace("<to uri=\"bean:statusProcessor\"/>", "<to uri=\"bean:statusProcessor\"/><to uri=\"bean:auditProcessor\"/>")
+                .replace("</routeContext>", "    <route id=\"getProfileRoute\"><from uri=\"direct:getProfile\"/><to uri=\"bean:profileProcessor\"/></route>\n  </routeContext>"));
+        Files.writeString(dir.resolve("Endpoints.java"), """
+                import org.springframework.web.bind.annotation.*;
+                @RestController
+                public class Endpoints {
+                    @PostMapping("/getStatus") public Object getStatus(Object b){ return null; }
+                    @PostMapping("/getBalance") public Object getBalance(Object b){ return null; }
+                    @PostMapping("/getProfile") public Object getProfile(Object b){ return null; }
+                }
+                """);
+        Files.writeString(dir.resolve("ProfileProcessor.java"), beanClass("ProfileProcessor", "profileProcessor", 1));
+        commit(dir, "[JIRA-2][SG][19.18.0] add audit step to getStatus, add getProfile");
+
+        // Unversioned repo → analysed as a snapshot; the commit version drives the change detection.
+        VersionDiffReport report = new RouteTraceService(dir.toString()).versionDiff(
+                new TraceRequest(null, "N/A", null, dir.toString(), null, null, null, List.of(), null, "19.18.0"));
+
+        assertThat(report.isSnapshot()).isTrue();
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.status()).isEqualTo(ApiDiff.CHANGED);
+        assertThat(status.bauRouteEdits()).anyMatch(e -> e.route().equals("getStatusRoute")
+                && e.addedSteps().stream().anyMatch(s -> s.contains("bean:auditProcessor")));
+        ApiDiff profile = apiByRoute(report, "getProfile");
+        assertThat(profile.status()).as("getProfile: " + profile).isEqualTo(ApiDiff.NEW);
+        assertThat(apiByRoute(report, "getBalance").status()).isEqualTo(ApiDiff.UNCHANGED);
+        assertThat(report.getChangedCount()).isEqualTo(1);
+        assertThat(report.getNewCount()).isEqualTo(1);
+        assertThat(report.getUnchangedCount()).isEqualTo(1);
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

@@ -1383,3 +1383,4 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .stale-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 7px 14px; font-size: 13px; font-weight: 600; background: rgb(var(--tg-warn-soft)); color: rgb(var(--tg-warn)); border-bottom: 1px solid rgb(var(--tg-warn) / .35); }
 .stale-bar button { padding: 4px 12px; border-radius: 999px; border: 1px solid rgb(var(--tg-warn) / .5); background: rgb(var(--tg-surface)); color: rgb(var(--tg-warn)); font-weight: 700; font-size: 12px; cursor: pointer; }
 .stale-bar button:hover { background: rgb(var(--tg-warn)); color: #fff; }
+.tp-who.all { color: rgb(var(--tg-accent-ink)); }

@@ -540,9 +540,61 @@ public class RouteTraceService {
             applyCodeChanges(report, roots, registry, prepared.index().beans(), routeOwnership(prepared, registry, ops),
                     flowByApi, request.appVersion(), null);
         }
+        // Single-version / N/A: the release's commits decide each API's status, exactly like a versioned repo
+        // reads its version compare — NEW when the release added its entry route, CHANGED when a route it runs
+        // was edited in place, a shared class changed or a sub-route was added, else UNCHANGED. Every change is
+        // live for every client once released (no old app keeps an older route).
+        int changed = 0;
+        int added = 0;
+        int codeCleared = 0;
+        List<ApiDiff> rows = report.getApis();
+        for (int i = 0; i < rows.size(); i++) {
+            ApiDiff a = rows.get(i);
+            List<String> addedRoutes = a.addedRoutes() == null ? List.of() : a.addedRoutes();
+            // The resolved route NAME ("getProfile") vs the route ID the release added ("getProfileRoute"):
+            // compare with the framework's "<name>Route" suffix stripped on both sides.
+            String entry = routeKey(a.targetRoute());
+            boolean entryAdded = entry != null && addedRoutes.stream().anyMatch(r -> entry.equals(routeKey(r)));
+            String status;
+            if (entryAdded) {
+                status = ApiDiff.NEW;
+                added++;
+                // A class only the ADDED routes run is new code shipped with the new API, not a shared change —
+                // the snapshot's "every route is pre-existing" rule can't tell, so correct it here.
+                if (a.codeChanged() && (a.impactedRoutes() == null || a.impactedRoutes().stream().allMatch(r ->
+                        addedRoutes.stream().anyMatch(x -> routeKey(x).equals(routeKey(lastOf(r.routePath()))))))) {
+                    a = a.withCodeChange(false, List.of(), List.of(), List.of());
+                    codeCleared++;
+                }
+            } else if (a.codeChanged() || bauRouteModified(a) || !addedRoutes.isEmpty()) {
+                status = ApiDiff.CHANGED;
+                changed++;
+            } else {
+                status = ApiDiff.UNCHANGED;
+            }
+            rows.set(i, a.withStatus(status));
+        }
+        report.setChangedCount(changed);
+        report.setNewCount(added);
+        report.setUnchangedCount(rows.size() - changed - added);
+        if (codeCleared > 0) {
+            report.setCodeChangedCount(Math.max(0, report.getCodeChangedCount() - codeCleared));
+        }
         finalizeRisk(report);
         applyReview(report.getWarnings(), report.getNeedsReview(), harvested);
         return report;
+    }
+
+    /** A route id / resolved route name with the framework's trailing "Route" stripped, for comparing the two. */
+    private static String routeKey(String route) {
+        if (route == null) {
+            return null;
+        }
+        return route.endsWith("Route") ? route.substring(0, route.length() - "Route".length()) : route;
+    }
+
+    private static String lastOf(List<String> path) {
+        return path == null || path.isEmpty() ? "" : path.get(path.size() - 1);
     }
 
     /**
@@ -809,9 +861,11 @@ public class RouteTraceService {
     private void applyBauRouteEdits(VersionDiffReport report, Roots roots, RouteRegistry registry,
                                     GitChangeService.ReleaseChanges rc, String release,
                                     Map<String, RouteOwner> ownership) {
-        if (release == null || rc.baselineRef() == null || rc.changedFiles().isEmpty()) {
-            return;   // N/A snapshot, or no baseline / nothing changed — nothing to diff in place
+        if (rc.baselineRef() == null || rc.changedFiles().isEmpty()) {
+            return;   // no baseline / nothing changed — nothing to diff in place
         }
+        // release == null is the single-version / N/A snapshot: there is no version split, so EVERY in-scope
+        // route is live for every client and is checked (the version filters below are skipped).
         Map<String, RouteXmlDiff.RouteLocation> locations = routeLocationsCached(roots);
         Path repo = roots.primary();
 
@@ -847,7 +901,7 @@ public class RouteTraceService {
             // BAU = a route BELOW the release, or an un-versioned/base route. The release's own (== release) and
             // any future (> release) route is not BAU — editing those doesn't touch the old app.
             String v = routeVersionOf(routeId);
-            if (v != null && compareVersions(v, release) >= 0) {
+            if (release != null && v != null && compareVersions(v, release) >= 0) {
                 continue;
             }
             RouteOwner owner = bauOwner(routeId, ownership, baseOwner);
@@ -957,6 +1011,10 @@ public class RouteTraceService {
         //    new dispatch no longer reaches it. Backward-incompatible removal → High + backward-compat.
         Set<String> flaggedRoutes = new LinkedHashSet<>();
         byApi.values().forEach(list -> list.forEach(ed -> flaggedRoutes.add(ed.route())));
+        // Single-version snapshot only: routes present AFTER the release but not before were ADDED by it (an added
+        // entry route = a new API; an added sub-route = a changed API). Versioned diffs get this from the version
+        // compare instead.
+        Map<String, List<String>> addedByApi = new LinkedHashMap<>();
         for (String gitFile : rc.changedFiles()) {
             if (!gitFile.toLowerCase(java.util.Locale.ROOT).endsWith(".xml")) {
                 continue;
@@ -974,7 +1032,7 @@ public class RouteTraceService {
                     continue;   // still present (an in-place edit, handled above) or already flagged
                 }
                 String rv = routeVersionOf(rid);
-                if (rv != null && compareVersions(rv, release) >= 0) {
+                if (release != null && rv != null && compareVersions(rv, release) >= 0) {
                     continue;   // the release's own / a future route — removing it doesn't touch the old app
                 }
                 RouteOwner owner = bauOwner(rid, ownership, baseOwner);
@@ -985,6 +1043,26 @@ public class RouteTraceService {
                 byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                         .add(new BauRouteEdit(rid, owner.path(), List.of(), before.get(rid),
                                 List.of(), List.of(), List.of(), List.of(), true, List.of(), List.of(), List.of()));
+            }
+            if (release == null) {
+                for (String rid : after.keySet()) {
+                    if (before.containsKey(rid)) {
+                        continue;   // existed before the release — an edit at most, handled above
+                    }
+                    RouteOwner owner = bauOwner(rid, ownership, baseOwner);
+                    if (owner != null) {
+                        addedByApi.computeIfAbsent(owner.api(), k -> new ArrayList<>()).add(rid);
+                    }
+                }
+            }
+        }
+        if (!addedByApi.isEmpty()) {
+            List<ApiDiff> all = report.getApis();
+            for (int i = 0; i < all.size(); i++) {
+                List<String> added = addedByApi.get(all.get(i).api());
+                if (added != null) {
+                    all.set(i, all.get(i).withAddedRoutes(added));
+                }
             }
         }
 

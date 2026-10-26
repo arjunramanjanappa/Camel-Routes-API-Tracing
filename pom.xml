@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.uob</groupId>
+    <groupId>io.traceguard</groupId>
     <artifactId>traceguard</artifactId>
     <version>1.0.0</version>
     <name>TraceGuard</name>
@@ -405,7 +405,7 @@
                                             <!-- uncompressed runtime; keep native commands so runtime/bin/java exists for the CDS dump -->
                                             <arg value="--jlink-options"/>   <arg value="--strip-debug --no-man-pages --no-header-files --compress=zip-0"/>
                                             <arg value="--app-version"/>     <arg value="${project.version}"/>
-                                            <arg value="--vendor"/>          <arg value="UOB"/>
+                                            <arg value="--vendor"/>          <arg value="TraceGuard"/>
                                             <arg value="--win-console"/>
                                             <arg value="--dest"/>            <arg value="${out}"/>
                                         </exec>

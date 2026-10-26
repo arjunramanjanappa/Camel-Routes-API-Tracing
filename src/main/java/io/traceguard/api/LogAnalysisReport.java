@@ -1,0 +1,39 @@
+package io.traceguard.api;
+
+import java.util.List;
+
+/**
+ * Result of analysing an uploaded log / Splunk export against the traced APIs.
+ *
+ * @param uploadType    detected input kind: RAW_LOG or SPLUNK
+ * @param clientVersion the client release the analysis was scoped to
+ * @param country       bootstrap scope, if any
+ * @param linesScanned  total lines read from the file
+ * @param matchedLines  lines that matched a MightyMessage/MightyHostMessage pattern
+ * @param transactions  distinct correlation ids reconstructed
+ * @param unparsedLines marker lines that could not be parsed (surfaced for investigation)
+ * @param apis          per-API (front-end / MightyMessage) correlation results
+ * @param backends      per-backend (MightyHostMessage) results, when backends were analysed
+ * @param warnings      non-fatal notes (e.g. detection fell back, fields missing)
+ * @param logStart      earliest raw timestamp seen in the analysed log (null when none parseable)
+ * @param logEnd        latest raw timestamp seen in the analysed log (null when none parseable)
+ * @param logSpanSeconds seconds between logStart and logEnd — the window the log actually covers; -1 if unknown
+ * @param passThreshold the front-end pass-rate threshold this report was judged against, as a fraction
+ *                      (e.g. 0.95); lets the UI/report state the exact percentage a Failed verdict fell below
+ */
+public record LogAnalysisReport(
+        String uploadType,
+        String clientVersion,
+        String country,
+        int linesScanned,
+        int matchedLines,
+        int transactions,
+        int unparsedLines,
+        List<ApiLogResult> apis,
+        List<BackendLogResult> backends,
+        List<String> warnings,
+        String logStart,
+        String logEnd,
+        long logSpanSeconds,
+        double passThreshold) {
+}

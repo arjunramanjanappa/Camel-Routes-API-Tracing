@@ -34,6 +34,6 @@ bitbucket:
 
 logging:
   level:
-    com.uob.tracer: INFO
+    io.traceguard: INFO
     # Each XML file is parsed in a throwaway CamelContext; silence its lifecycle chatter.
     org.apache.camel: WARN

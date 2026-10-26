@@ -719,7 +719,7 @@ of the country closure — they're shared/core infrastructure, not country-speci
 ## Layout
 
 ```
-src/main/java/com/uob/tracer/
+src/main/java/io/traceguard/
   api/        DTOs — TraceRequest/Response, GraphNode/Edge, RouteGraph,
               ImpactIndex/ApiImpact (+ backendVersions), LogAnalysisReport/
               ApiLogResult/BackendCallResult/BackendLogResult, LogStatus,

@@ -1,4 +1,4 @@
-import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
+import type { ApiDiff, ApiLogResult, DiffStatus, JiraRef, VersionDiffReport } from './types';
 
 /**
  * The Release Impact "test plan" model — the Summary view and the Summary PDF are both rendered from this, so
@@ -240,7 +240,7 @@ export function buildTestPlan(report: VersionDiffReport): TestPlan {
   const ver = snapshot
     ? (report.appVersion ? 'commit ' + report.appVersion : 'latest')
     : ((report.version && report.version.trim()) || report.appVersion || 'N/A');
-  const inScope = report.snapshotCount ?? report.apis.length;
+  const inScope = (snapshot ? report.snapshotCount : null) || report.apis.length;   // a versioned compare counts its APIs; 0 is never "in scope"
   const toVerify = report.apis
     .filter((a) => effectiveStatus(a) !== 'UNCHANGED' && a.status !== 'SNAPSHOT')
     .sort((x, y) => RISK_RANK[riskOf(x)] - RISK_RANK[riskOf(y)] || x.api.localeCompare(y.api));
@@ -289,6 +289,62 @@ export function planRowFor(a: ApiDiff, ver: string, single = false): PlanRow {
 }
 /** The backward-compatibility checks for a BAU-impact API (old client against the new build). */
 export function bcTestsFor(a: ApiDiff, single = false): string[] { return isBauImpact(a) || (single && a.status === 'CHANGED') ? bcTests(a, single) : []; }
+// ---- Which App + Jira attribution: the Summary view and Summary PDF columns ----
+export type AppTag = 'BAU app' | 'New app' | 'Both apps' | 'All clients';
+/** The app(s) a row's change reaches, in the Summary's words. */
+export function appOf(row: PlanRow): AppTag {
+  return row.who === 'BAU team' ? 'BAU app' : row.who === 'New-app team' ? 'New app' : row.who === 'All clients' ? 'All clients' : 'Both apps';
+}
+export function jiraOf(a: ApiDiff): JiraRef[] { return a.jira || []; }
+/** `SGMB-4588 · Swapna, Deepak` (a ticket-less entry reads `no Jira · …`). */
+export function jiraLine(j: JiraRef): string { return (j.ticket || 'no Jira') + (j.developers.length ? ' · ' + j.developers.join(', ') : ''); }
+
+export interface JiraRow { ticket: string | null; developers: string[]; messages: string[]; apis: string[]; apps: AppTag[] }
+/** One row per ticket across the given plan rows: developers, messages and APIs merged; most APIs first, no-Jira last. */
+export function jiraSummary(rows: PlanRow[]): JiraRow[] {
+  const byTicket = new Map<string, JiraRow>();
+  for (const r of rows) {
+    for (const j of jiraOf(r.a)) {
+      const key = j.ticket || '';
+      let row = byTicket.get(key);
+      if (!row) { row = { ticket: j.ticket, developers: [], messages: [], apis: [], apps: [] }; byTicket.set(key, row); }
+      for (const d of j.developers) if (!row.developers.some((x) => x.toLowerCase() === d.toLowerCase())) row.developers.push(d);
+      for (const m of j.messages) if (!row.messages.some((x) => x.toLowerCase() === m.toLowerCase())) row.messages.push(m);
+      if (!row.apis.includes(r.a.api)) row.apis.push(r.a.api);
+      const app = appOf(r);
+      if (!row.apps.includes(app)) row.apps.push(app);
+    }
+  }
+  return Array.from(byTicket.values()).sort((x, y) => (x.ticket ? 0 : 1) - (y.ticket ? 0 : 1) || y.apis.length - x.apis.length || (x.ticket || '').localeCompare(y.ticket || ''));
+}
+/** The app a ticket reaches: both when its APIs span BAU and new. */
+export function jiraApp(row: JiraRow): AppTag {
+  if (row.apps.includes('All clients')) return 'All clients';
+  if (row.apps.includes('Both apps') || (row.apps.includes('BAU app') && row.apps.includes('New app'))) return 'Both apps';
+  return row.apps[0] || 'BAU app';
+}
+/** Area header line: each developer with the number of tickets they committed under, then the tickets. */
+export function changedBy(rows: PlanRow[]): { developers: { name: string; tickets: number }[]; tickets: string[] } {
+  const perDev = new Map<string, Set<string>>();
+  const tickets: string[] = [];
+  for (const r of rows) {
+    for (const j of jiraOf(r.a)) {
+      const key = j.ticket || 'no Jira';
+      if (!tickets.includes(key)) tickets.push(key);
+      for (const d of j.developers) {
+        const k = d.toLowerCase();
+        const existing = Array.from(perDev.keys()).find((x) => x.toLowerCase() === k);
+        const set = perDev.get(existing ?? d) ?? new Set<string>();
+        set.add(key);
+        perDev.set(existing ?? d, set);
+      }
+    }
+  }
+  const developers = Array.from(perDev.entries()).map(([name, set]) => ({ name, tickets: set.size }))
+    .sort((x, y) => y.tickets - x.tickets || x.name.localeCompare(y.name));
+  return { developers, tickets };
+}
+
 /** One-line verdict for a card / PDF block: bucket + the precise change. */
 export function verdictFor(row: PlanRow, single = false): string {
   const head = single ? (row.bucket === 'bau' ? 'Changed' : 'New') : (row.bucket === 'bau' ? 'BAU regression' : 'New app only');

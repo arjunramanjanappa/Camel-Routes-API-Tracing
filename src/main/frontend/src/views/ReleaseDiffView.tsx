@@ -10,7 +10,7 @@ import { exportDiffPdf } from '../diffPdf';
 import { exportDiffSummaryPdf } from '../diffSummaryPdf';
 import { backendPath } from '../spl';
 import ImpactSummary from '../components/ImpactSummary';
-import { planRowFor, bcTestsFor, verdictFor, buckets as planBuckets, SHARED_GROUP } from '../testPlan';
+import { planRowFor, bcTestsFor, verdictFor, SHARED_GROUP } from '../testPlan';
 import Loader from '../components/Loader';
 import ApiFlowModal from '../components/ApiFlowModal';
 import { sourceParams } from '../components/SourceFields';
@@ -366,12 +366,6 @@ function ReadinessStrip({ report, log }: { report: VersionDiffReport; log?: Reco
         {log && <span className="rd-chip flows-ok" title="Impacted change flows the log shows exercised"><b>{f.tested}</b> flows tested</span>}
         {log && f.untested > 0 && <span className="rd-chip flows-gap" title="Impacted change flows no transaction covered — still to run"><b>{f.untested}</b> flows not tested</span>}
       </div>
-      <details className="tp-legend">
-        <summary>What the labels mean</summary>
-        <dl>{planBuckets((report.version && report.version.trim()) || report.appVersion || 'the release').map((b) => (
-          <div key={b.key} className={'tp-g ' + b.key}><dt>{b.title}</dt><dd>{b.define}</dd></div>
-        ))}</dl>
-      </details>
       {log && f.untested > 0 && (
         <div className="closeloop" role="note">
           <span className="closeloop-icon" aria-hidden="true"><Target size={15} /></span>
@@ -597,6 +591,18 @@ function ApiDiffCard({ d, open, onToggle, onViewFlow, onCopy, copied, log, onOpe
         <span className="card-summary-text">{verdictLine(d, single)}</span>
         <span className="card-summary-hint">{expanded ? <>collapse <ChevronUp size={12} aria-hidden="true" /></> : <>details <ChevronRight size={12} aria-hidden="true" /></>}</span>
       </button>
+      {/* Jira Details — the release commits behind this API: ticket · developers — message (same data as the Summary). */}
+      {d.jira && d.jira.length > 0 && (
+        <div className="card-jira">
+          {d.jira.map((j, i) => (
+            <div key={i} className="card-jira-item">
+              <code className="tp-jira">{j.ticket || 'no Jira'}</code>
+              {j.developers.length > 0 && <> · <b>{j.developers.join(', ')}</b></>}
+              {j.messages.length > 0 && <span className="muted"> — {j.messages.join(' · ')}</span>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {expanded && (
       <>

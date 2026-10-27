@@ -759,6 +759,55 @@ class CodeChangeImpactTest {
         assertThat(report.getIgnoredClassChanges().get(0)).contains("statusProcessor").contains("*Status*");
     }
 
+    @Test
+    void shouldConsolidateTheReleaseCommitsOfAnEditedBauRouteIntoOneJiraEntryPerTicket(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+        // Two developers edit the same BAU route under one ticket, plus a third commit with no ticket token.
+        git(dir, "config", "user.name", "Deepak");
+        Files.writeString(dir.resolve("routes.xml"), ROUTES.replace("<to uri=\"bean:statusProcessor\"/>", ""));
+        commit(dir, "[SGMB-4588][SG][19.18.0] drop statusProcessor step");
+        git(dir, "config", "user.name", "Swapna");
+        Files.writeString(dir.resolve("routes.xml"), ROUTES.replace("<to uri=\"bean:statusProcessor\"/>", "<log message=\"status\"/>"));
+        commit(dir, "[SGMB-4588][SG][19.18.0] log instead of statusProcessor");
+        Files.writeString(dir.resolve("routes.xml"), ROUTES.replace("<to uri=\"bean:statusProcessor\"/>", "<log message=\"status checked\"/>"));
+        commit(dir, "[SG][19.18.0] hotfix log wording");
+
+        VersionDiffReport report = run918(dir);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.bauRouteEdits()).isNotEmpty();
+        assertThat(status.jira()).hasSize(2);
+        assertThat(status.jira().get(0).ticket()).isEqualTo("SGMB-4588");
+        assertThat(status.jira().get(0).developers()).containsExactlyInAnyOrder("Deepak", "Swapna");
+        assertThat(status.jira().get(0).messages()).containsExactlyInAnyOrder("drop statusProcessor step", "log instead of statusProcessor");
+        assertThat(status.jira().get(1).ticket()).isNull();                       // the no-ticket commit, listed last
+        assertThat(status.jira().get(1).developers()).containsExactly("Swapna");
+        assertThat(status.jira().get(1).messages()).containsExactly("hotfix log wording");
+    }
+
+    @Test
+    void shouldAttributeASharedClassChangeToItsReleaseCommitTicket(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        writeBaseline(dir);
+        initRepo(dir);
+        commit(dir, "[JIRA-1][SG][19.14.0] baseline");
+        git(dir, "config", "user.name", "Rakesh");
+        Files.writeString(dir.resolve("StatusProcessor.java"), beanClass("StatusProcessor", "statusProcessor", 2));
+        commit(dir, "[SGMB-4512][SG][19.18.0] tweak status scoring");
+
+        VersionDiffReport report = run918(dir);
+
+        ApiDiff status = apiByRoute(report, "getStatus");
+        assertThat(status.codeChanged()).isTrue();
+        assertThat(status.jira()).hasSize(1);
+        assertThat(status.jira().get(0).ticket()).isEqualTo("SGMB-4512");
+        assertThat(status.jira().get(0).developers()).containsExactly("Rakesh");
+        assertThat(status.jira().get(0).messages()).containsExactly("tweak status scoring");
+    }
+
     // --- git test helpers ---
 
     private static boolean gitAvailable() {

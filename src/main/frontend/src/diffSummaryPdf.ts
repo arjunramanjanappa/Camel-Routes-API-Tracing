@@ -2,23 +2,22 @@ import type { ApiLogResult } from './types';
 import { ReportDoc, PAL, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, ascii, type Ramp, type RGB } from './pdfReport';
 import { appLabel } from './appName';
 import type { ModuleDiff } from './diffPdf';
-import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from './testPlan';
-import { buildAreas, type Area } from './areas';
+import { buildTestPlan, buckets, logForRow, testedState, appOf, jiraOf, jiraLine, jiraSummary, jiraApp, changedBy,
+  type AppTag, type Bucket, type PlanRow, type SharedClass } from './testPlan';
+import { buildAreas, changeTag, type Area } from './areas';
 import type { FeatureLabels } from './labels';
 
 /**
- * The manager Summary PDF — the release as a release team talks about it: the verdict and the four test-plan
- * counts, then one section per BUSINESS AREA ("Funds Transfer & Payments"): risk + reason, the APIs under their
- * sub-features ("Quick Transfer") with the precise change and who tests it, the backward-compatibility position
- * and a short testing focus. Shared code and the four definitions close the report. Built from the same
- * {@link buildTestPlan} model as the on-screen Summary; area names come from the configurable feature labels.
- * The developer report is {@link exportDiffPdf}.
+ * The manager Summary PDF: the verdict and the four counts, then each business area (highest impact first) with
+ * its sub-features and one row per API — API · Which App · Change · Jira Details · Commit Message — each Jira
+ * ticket on its own sub-row. Shared code and the release's Jira tickets close it. Same model and order as the
+ * on-screen Summary ({@link buildTestPlan}, {@link buildAreas}). The developer report is {@link exportDiffPdf}.
  */
 
 type Cell = string | { pill: { label: string; fill: RGB; text: RGB; stripe: RGB } } | { text: string; mono?: boolean; color?: RGB };
 const pill = (label: string, r: Ramp): Cell => ({ pill: { label: ascii(label), fill: r.fill, text: r.text, stripe: r.bar } });
 const RAMP: Record<Bucket['key'], Ramp> = { bau: PAL.red, bc: PAL.purple, new: PAL.green, shared: PAL.blue };
-const whoRamp = (who: PlanRow['who']): Ramp => (who === 'BAU team' ? PAL.red : who === 'New-app team' ? PAL.green : who === 'All clients' ? PAL.blue : PAL.purple);
+const appRamp = (app: AppTag): Ramp => (app === 'BAU app' ? PAL.red : app === 'New app' ? PAL.green : app === 'All clients' ? PAL.blue : PAL.purple);
 const riskRamp = (r: PlanRow['risk']): Ramp => (r === 'High' ? PAL.red : r === 'Medium' ? PAL.amber : PAL.green);
 function testedCell(l?: ApiLogResult): Cell {
   const t = testedState(l);
@@ -57,14 +56,20 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
   const verLabel = single ? plans[0].plan.version : ver;
   const B = buckets(verLabel, single);
   const logOf = (row: PlanRow) => logForRow(row, modOf.get(row)?.logByVer);
+  const rows = [...bau, ...neu];
+  const jira = jiraSummary(rows);
+  const hasJira = jira.length > 0;
+  const developers = new Set(jira.flatMap((j) => j.developers.map((d) => d.toLowerCase()))).size;
 
   // Tested tally over the actionable rows (BAU + new-app; BC repeats BAU).
   let passed = 0, failed = 0;
-  if (hasAnyLog) for (const row of [...bau, ...neu]) { const l = logOf(row); if (l?.tested) { if (l.status === 'SUCCESS') passed++; else failed++; } }
+  if (hasAnyLog) for (const row of rows) { const l = logOf(row); if (l?.tested) { if (l.status === 'SUCCESS') passed++; else failed++; } }
 
   // ---- Cover band + verdict + the four counts ----
   r.coverBand('Release Impact - Summary',
-    [appLabel(app), country, single ? verLabel : `Release ${ver}`, appVersion && !single ? `commit ${appVersion}${commits ? ' - ' + commits : ''}` : ''].filter((c): c is string => !!c),
+    [appLabel(app), country, single ? verLabel : `Release ${ver}`,
+     appVersion && !single ? `commit ${appVersion}${commits ? ' - ' + commits : ''}` : '',
+     hasJira ? `${jira.length} Jira - ${developers} developer${developers === 1 ? '' : 's'}` : ''].filter((c): c is string => !!c),
     ['Generated ' + generatedStamp(),
      hasAnyLog ? passRateLine(passed, passed + failed) : null,
      hasAnyLog ? logWindowLine(logWindow?.start, logWindow?.end) : null]);
@@ -78,25 +83,39 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
     { n: shared.length ? `${shared.length} / ${sharedVersions}` : 0, label: shared.length ? 'Shared code: classes / versions' : B[3].title, ramp: RAMP.shared },
   ]);
 
-  // ---- By business area: risk + reason, APIs by sub-feature, backward compatibility, testing focus ----
-  const areas: Area[] = buildAreas([...bau, ...neu], labels);
+  // ---- By business area: API · Which App · Change · Jira Details · Commit Message ----
+  const areas: Area[] = buildAreas(rows, labels);
   const apiCell = (row: PlanRow): Cell => ({ text: row.a.api + (multi ? `  [${modOf.get(row)?.name ?? ''}]` : ''), mono: true, color: PAL.ink });
-  const cols = hasAnyLog
-    ? [{ header: 'API', w: 0.34, mono: true }, { header: 'Change', w: 0.32 }, { header: 'Who tests', w: 0.17 }, { header: 'Tested', w: 0.17 }]
-    : [{ header: 'API', w: 0.40, mono: true }, { header: 'Change', w: 0.38 }, { header: 'Who tests', w: 0.22 }];
-  const table = (rows: PlanRow[]) => r.wrapTable(cols, rows.map((row) => {
-    const cells: Cell[] = [apiCell(row), row.what + (row.detail ? `\n${row.detail}` : ''), pill(row.who, whoRamp(row.who))];
-    if (hasAnyLog) cells.push(testedCell(logOf(row)));
-    return cells;
+  const jiraCell = (j: { ticket: string | null; developers: string[] }): Cell => ({ text: jiraLine(j as never), color: PAL.ink });
+  const cols = [
+    { header: 'API', w: hasJira ? (hasAnyLog ? 0.26 : 0.30) : (hasAnyLog ? 0.46 : 0.56), mono: true },
+    { header: 'Which App', w: hasJira ? 0.11 : 0.16 },
+    { header: 'Change', w: hasJira ? (hasAnyLog ? 0.16 : 0.18) : (hasAnyLog ? 0.24 : 0.28) },
+    ...(hasJira ? [{ header: 'Jira Details', w: hasAnyLog ? 0.17 : 0.18 }, { header: 'Commit Message', w: hasAnyLog ? 0.20 : 0.23 }] : []),
+    ...(hasAnyLog ? [{ header: 'Tested', w: 0.10 }] : []),
+  ];
+  const table = (list: PlanRow[]) => r.wrapTable(cols, list.flatMap((row) => {
+    const refs = hasJira ? jiraOf(row.a) : [];
+    const head: Cell[] = [apiCell(row), pill(appOf(row), appRamp(appOf(row))), changeTag(row)];
+    if (hasJira) head.push(refs[0] ? jiraCell(refs[0]) : '-', refs[0] ? refs[0].messages.join('\n') : '-');
+    if (hasAnyLog) head.push(testedCell(logOf(row)));
+    const rest: Cell[][] = refs.slice(1).map((j) => {
+      const c: Cell[] = ['', '', '', jiraCell(j), j.messages.join('\n')];
+      if (hasAnyLog) c.push('');
+      return c;
+    });
+    return [head, ...rest];
   }));
-  if (areas.length) {
-    r.bookmark('By business area');
-    r.banner('By business area', PAL.blue, ascii('Highest impact first. Each area: risk and why, the APIs under their sub-features with who tests them, the backward-compatibility position, and the testing focus.'));
-  }
   areas.forEach((area, i) => {
     r.bookmark(area.label);
-    const head = `${i + 1}. ${area.label}${i === 0 && areas.length > 1 ? '  -  highest impact' : ''}`;
-    r.section(ascii(head), area.rows.length, riskRamp(area.risk), ascii(`Risk: ${area.risk} - ${area.reason}`));
+    r.section(ascii(`${i + 1}. ${area.label}`), area.rows.length, riskRamp(area.risk), ascii(`Risk: ${area.risk}`));
+    if (hasJira) {
+      const owners = changedBy(area.rows);
+      if (owners.developers.length) {
+        r.para(ascii('Changed by: ' + owners.developers.map((d) => `${d.name} (${d.tickets})`).join(' - ') + '    ' + owners.tickets.join(', ')),
+          M, CONTENT_W, 'normal', 9, PAL.body, 12);
+      }
+    }
     for (const sub of area.subs) {
       r.para(ascii(`${sub.label}  (${sub.rows.length})`), M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
       table(sub.rows);
@@ -105,18 +124,11 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
       if (area.subs.length) r.para(ascii(`Other  (${area.direct.length})`), M, CONTENT_W, 'bold', 9.5, PAL.accent, 13);
       table(area.direct);
     }
-    const bcRows = area.rows.filter((x) => x.bc);
-    r.para(ascii(bcRows.length
-        ? `Backward compatibility: ${bcRows.length} API${bcRows.length === 1 ? '' : 's'} still called by ${area.bcVersions.length ? area.bcVersions.join(', ') : 'the current app'} - an old client against the new build must pass.`
-        : 'Backward compatibility: none - old app unaffected.'),
-      M, CONTENT_W, 'bold', 9, bcRows.length ? PAL.purple.text : PAL.green.text, 12);
-    if (area.focus.length) r.para(ascii('Testing focus: ' + area.focus.join('; ') + '.'), M, CONTENT_W, 'normal', 9, PAL.body, 12);
-    r.paragraph('');
   });
 
   // ---- Shared code ----
   r.bookmark(B[3].title);
-  r.section(B[3].title, shared.length, RAMP.shared, ascii(`${B[3].question} - ${B[3].who}`));
+  r.section(B[3].title, shared.length, RAMP.shared, '');
   if (!shared.length) {
     r.para('None - no shared class changed.', M, CONTENT_W, 'normal', 9.5, PAL.muted, 13); r.paragraph('');
   } else {
@@ -129,10 +141,15 @@ export async function exportDiffSummaryPdf(mods: ModuleDiff[], app?: string, log
       ]));
   }
 
-  if (unchanged > 0) r.para(ascii(`${unchanged} unchanged API${unchanged === 1 ? '' : 's'} - carried forward, no action.`), M, CONTENT_W, 'normal', 9.5, PAL.muted, 13);
+  // ---- Jira in this release: one row per ticket ----
+  if (hasJira) {
+    r.bookmark('Jira in this release');
+    r.section('Jira in this release', jira.length, PAL.blue, '');
+    r.wrapTable([{ header: 'Jira Details', w: 0.28 }, { header: 'Which App', w: 0.14 }, { header: 'Commit Message', w: 0.46 }, { header: 'APIs', w: 0.12 }],
+      jira.map((j) => [jiraCell(j), pill(jiraApp(j), appRamp(jiraApp(j))), j.messages.join('\n') || '-', String(j.apis.length)]));
+  }
 
-  // ---- The four definitions ----
-  r.legend('What the labels mean', B.map((b) => ascii(`${b.title} - ${b.define}`)));
+  if (unchanged > 0) r.para(ascii(`${unchanged} unchanged API${unchanged === 1 ? '' : 's'} - carried forward, no action.`), M, CONTENT_W, 'normal', 9.5, PAL.muted, 13);
 
   const footer = `TraceGuard - Release ${ver}${country ? ' - ' + country : ''}${app ? ' - ' + appLabel(app) : ''} - Impact Summary`;
   r.save(`TraceGuard-Release-${ver}-Impact-Summary.pdf`, footer);

@@ -9,6 +9,7 @@ import io.traceguard.api.GraphEdge;
 import io.traceguard.api.GraphNode;
 import io.traceguard.api.ImpactedRoute;
 import io.traceguard.api.ImpactIndex;
+import io.traceguard.api.JiraRef;
 import io.traceguard.api.PayloadChange;
 import io.traceguard.api.PayloadValueChange;
 import io.traceguard.api.RouteGraph;
@@ -102,7 +103,7 @@ public class RouteTraceService {
     // Within-report git-blame dedup: identical (file|start|end) blames are memoised for the duration of ONE
     // computeVersionDiff, so a route shared across several APIs' diffs isn't blamed once per API. Scoped per report
     // (set/cleared around computeVersionDiff), so blame stays fresh across reports — no persistent/warm blame cache.
-    private final ThreadLocal<Map<String, List<String>>> blameCache = new ThreadLocal<>();
+    private final ThreadLocal<Map<String, List<GitBlameService.BlameCommit>>> blameCache = new ThreadLocal<>();
     // Release code-change detection for the Release Impact tab: which files an app-version release changed.
     private final GitChangeService gitChange = new GitChangeService();
     // The Release Impact ignore list (shared classes to skip); optional so the local/test constructor works without it.
@@ -804,6 +805,9 @@ public class RouteTraceService {
         // Shared classes the ignore list excludes from the check (common loggers/utilities used by many routes).
         List<String> ignorePatterns = ignoredClasses == null ? List.of() : ignoredClasses.readAll();
         LinkedHashSet<String> ignored = new LinkedHashSet<>();
+        // The release commits behind each API's change (shared classes here, BAU route/template edits below),
+        // consolidated into Jira tickets at the end — see attachJira.
+        Map<String, List<GitChangeService.CommitRef>> refsByApi = new LinkedHashMap<>();
         // Warm the git memo for every changed, referenced, non-ignored class side by side (diff + both contents),
         // so the per-API loop below never waits on git one class at a time.
         if (repo != null) {
@@ -863,6 +867,8 @@ public class RouteTraceService {
                                 changedVersions.addAll(vers);
                                 changedClasses.add(classLabel(beanName, removed, vers, rc.fileAuthors().get(removed)) + "  — REMOVED");
                                 impacted.addAll(hits);
+                                refsByApi.computeIfAbsent(d.api(), k -> new ArrayList<>())
+                                        .addAll(rc.fileCommitRefs().getOrDefault(removed, List.of()));
                             }
                         }
                         continue;
@@ -896,6 +902,8 @@ public class RouteTraceService {
                     changedVersions.addAll(vers);
                     changedClasses.add(classLabel(beanName, classFile, vers, rc.fileAuthors().get(hit)));
                     impacted.addAll(hits);
+                    refsByApi.computeIfAbsent(d.api(), k -> new ArrayList<>())
+                            .addAll(rc.fileCommitRefs().getOrDefault(hit, List.of()));
                 }
             }
             if (changedClasses.isEmpty()) {
@@ -927,7 +935,8 @@ public class RouteTraceService {
         // On top of shared-class changes: detect in-place edits the release made to BAU routes THEMSELVES (a step
         // removed/added in a pre-existing/lower route the old app still runs). The version diff can't see these —
         // it compares the new route to the old route, never a route to its own pre-release self.
-        applyBauRouteEdits(report, roots, registry, rc, release, ownership);
+        applyBauRouteEdits(report, roots, registry, rc, release, ownership, refsByApi);
+        attachJira(report, rc, refsByApi, routeLocationsCached(roots), flowByApi);
     }
 
     /**
@@ -946,7 +955,8 @@ public class RouteTraceService {
      */
     private void applyBauRouteEdits(VersionDiffReport report, Roots roots, RouteRegistry registry,
                                     GitChangeService.ReleaseChanges rc, String release,
-                                    Map<String, RouteOwner> ownership) {
+                                    Map<String, RouteOwner> ownership,
+                                    Map<String, List<GitChangeService.CommitRef>> refsByApi) {
         if (rc.baselineRef() == null || rc.changedFiles().isEmpty()) {
             return;   // no baseline / nothing changed — nothing to diff in place
         }
@@ -1002,12 +1012,13 @@ public class RouteTraceService {
             List<String> addedSteps = List.of();
             List<String> removedSteps = List.of();
             String bodyGitPath = null;   // the route's XML file, when the release changed its body (for authorship)
+            List<String> bodyCommits = new ArrayList<>();   // the release commits that changed THIS route's body
             RouteXmlDiff.RouteLocation loc = locations.get(routeId);
             if (loc != null) {
                 String gitPath = matchChanged(loc.file().toString(), rc.changedFiles());
                 if (gitPath != null) {
                     RouteXmlDiff.Diff d = releaseBodyDiff(repo, gitPath, routeId,
-                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef);
+                            rc.fileReleaseCommits().getOrDefault(gitPath, List.of()), bodiesByRef, rawByRef, bodyCommits);
                     // NET-effect gate: if the route reads the same just before the release as after the release's
                     // LAST commit on its file, every in-between edit was reverted ("put back like BAU") — nothing
                     // ships to the old app, so nothing to re-test, however many release commits touched it.
@@ -1075,15 +1086,22 @@ public class RouteTraceService {
             // WHO made this BAU change = the author(s) of the release (19.14.0) commit(s) that changed THIS route's
             // XML and/or the template(s) it sends — the person to ask, since it altered a live PROD route. Falls
             // back to git-blame of the route's current lines only if commit authorship is somehow unavailable.
-            LinkedHashSet<String> commitAuthors = new LinkedHashSet<>();
+            List<GitChangeService.CommitRef> own = new ArrayList<>();
             if (bodyGitPath != null) {
-                commitAuthors.addAll(rc.fileAuthors().getOrDefault(bodyGitPath, List.of()));
+                own.addAll(refsOf(rc, bodyGitPath, bodyCommits));   // only the commits that changed THIS route
             }
             for (String pf : payloadFiles) {
-                commitAuthors.addAll(rc.fileAuthors().getOrDefault(pf, List.of()));
+                own.addAll(rc.fileCommitRefs().getOrDefault(pf, List.of()));   // a template is the whole file
+            }
+            LinkedHashSet<String> commitAuthors = new LinkedHashSet<>();
+            for (GitChangeService.CommitRef r : own) {
+                if (!r.author().isEmpty()) {
+                    commitAuthors.add(r.author());
+                }
             }
             List<String> changedBy = !commitAuthors.isEmpty() ? new ArrayList<>(commitAuthors)
                     : (loc != null ? blameAuthors(loc) : List.of());
+            refsByApi.computeIfAbsent(owner.api(), k -> new ArrayList<>()).addAll(own);
             byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                     .add(new BauRouteEdit(routeId, owner.path(), addedSteps, removedSteps, List.of(), List.of(),
                             List.of(), changedBy, false, new ArrayList<>(payloadFiles), payloadDiff, payloadDiffContext));
@@ -1125,6 +1143,9 @@ public class RouteTraceService {
                     continue;   // not part of any in-scope API family
                 }
                 flaggedRoutes.add(rid);
+                refsByApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
+                        .addAll(refsOf(rc, gitFile, removalCommits(repo, gitFile, rid,
+                                rc.fileReleaseCommits().getOrDefault(gitFile, List.of()), bodiesByRef, rawByRef)));
                 byApi.computeIfAbsent(owner.api(), k -> new ArrayList<>())
                         .add(new BauRouteEdit(rid, owner.path(), List.of(), before.get(rid),
                                 List.of(), List.of(), List.of(), List.of(), true, List.of(), List.of(), List.of()));
@@ -1208,6 +1229,14 @@ public class RouteTraceService {
     private RouteXmlDiff.Diff releaseBodyDiff(Path repo, String gitPath, String routeId, List<String> commitsChrono,
                                               Map<String, Map<String, List<String>>> bodiesByRef,
                                               Map<String, String> rawByRef) {
+        return releaseBodyDiff(repo, gitPath, routeId, commitsChrono, bodiesByRef, rawByRef, new ArrayList<>());
+    }
+
+    /** As above; {@code touching} receives the commits whose replay actually changed THIS route's body — so a
+     *  commit that edited the same file for a different route is never credited to this one. */
+    private RouteXmlDiff.Diff releaseBodyDiff(Path repo, String gitPath, String routeId, List<String> commitsChrono,
+                                              Map<String, Map<String, List<String>>> bodiesByRef,
+                                              Map<String, String> rawByRef, List<String> touching) {
         List<String> added = new ArrayList<>();
         List<String> removed = new ArrayList<>();
         for (String c : commitsChrono) {
@@ -1219,6 +1248,9 @@ public class RouteTraceService {
                 continue;   // the route wasn't present on both sides of THIS commit — not an in-place edit by it
             }
             RouteXmlDiff.Diff d = RouteXmlDiff.diff(beforeBody, afterBody);
+            if (!d.isEmpty()) {
+                touching.add(c);
+            }
             for (String l : d.added()) {
                 if (!removed.remove(l)) {
                     added.add(l);
@@ -1231,6 +1263,36 @@ public class RouteTraceService {
             }
         }
         return new RouteXmlDiff.Diff(added, removed);
+    }
+
+    /** The file's release commits restricted to {@code hashes} (every one of them when {@code hashes} is empty). */
+    private static List<GitChangeService.CommitRef> refsOf(GitChangeService.ReleaseChanges rc, String gitPath, List<String> hashes) {
+        List<GitChangeService.CommitRef> all = rc.fileCommitRefs().getOrDefault(gitPath, List.of());
+        if (hashes.isEmpty()) {
+            return all;
+        }
+        List<GitChangeService.CommitRef> out = new ArrayList<>();
+        for (GitChangeService.CommitRef r : all) {
+            if (hashes.contains(r.hash())) {
+                out.add(r);
+            }
+        }
+        return out;
+    }
+
+    /** The release commit(s) in which {@code routeId} disappeared from {@code gitPath}: present at the commit's
+     *  parent, absent at the commit. Empty when none can be told (the caller then credits the whole file). */
+    private List<String> removalCommits(Path repo, String gitPath, String routeId, List<String> commitsChrono,
+                                        Map<String, Map<String, List<String>>> bodiesByRef, Map<String, String> rawByRef) {
+        List<String> out = new ArrayList<>();
+        for (String c : commitsChrono) {
+            boolean before = bodiesAt(repo, GitChangeService.parentRef(c), gitPath, bodiesByRef, rawByRef).containsKey(routeId);
+            boolean after = bodiesAt(repo, c, gitPath, bodiesByRef, rawByRef).containsKey(routeId);
+            if (before && !after) {
+                out.add(c);
+            }
+        }
+        return out;
     }
 
     /**
@@ -2161,15 +2223,97 @@ public class RouteTraceService {
     /** git-blame authors of a route's lines, or empty when the location/repo is unknown. Deduped within a report
      *  (a route shared across several APIs' diffs is blamed once) — see {@link #blameCache}. */
     private List<String> blameAuthors(RouteXmlDiff.RouteLocation loc) {
+        Set<String> authors = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (GitBlameService.BlameCommit c : blameCommits(loc)) {
+            if (!c.author().isEmpty()) {
+                authors.add(c.author());
+            }
+        }
+        return new ArrayList<>(authors);
+    }
+
+    /** The commits behind a route's current lines (git blame), memoised within one report like the authors. */
+    private List<GitBlameService.BlameCommit> blameCommits(RouteXmlDiff.RouteLocation loc) {
         if (loc == null) {
             return List.of();
         }
-        Map<String, List<String>> cache = blameCache.get();
+        Map<String, List<GitBlameService.BlameCommit>> cache = blameCache.get();
         if (cache == null) {   // called outside a report (shouldn't happen on the versionDiff path) — no memo
-            return gitBlame.authors(loc.file(), loc.startLine(), loc.endLine());
+            return gitBlame.commits(loc.file(), loc.startLine(), loc.endLine());
         }
         return cache.computeIfAbsent(loc.file() + "|" + loc.startLine() + "|" + loc.endLine(),
-                k -> gitBlame.authors(loc.file(), loc.startLine(), loc.endLine()));
+                k -> gitBlame.commits(loc.file(), loc.startLine(), loc.endLine()));
+    }
+
+    /**
+     * Attach the release's Jira tickets to every API: the commits on its edited BAU routes, templates and shared
+     * classes (collected while those were detected) plus, for a version bump or a new route, the release commits
+     * that authored the new route's lines (git blame, limited to this release's own commits). Consolidated to one
+     * entry per ticket with its developers and distinct messages.
+     */
+    private void attachJira(VersionDiffReport report, GitChangeService.ReleaseChanges rc,
+                            Map<String, List<GitChangeService.CommitRef>> refsByApi,
+                            Map<String, RouteXmlDiff.RouteLocation> locations,
+                            Map<String, List<String>> flowByApi) {
+        Set<String> releaseHashes = rc.commitHashes();
+        List<ApiDiff> apis = report.getApis();
+        for (int i = 0; i < apis.size(); i++) {
+            ApiDiff a = apis.get(i);
+            List<GitChangeService.CommitRef> refs = new ArrayList<>(refsByApi.getOrDefault(a.api(), List.of()));
+            for (RouteStepDiff rd : a.routeDiffs() == null ? List.<RouteStepDiff>of() : a.routeDiffs()) {
+                addReleaseBlame(refs, locations.get(rd.targetRoute()), releaseHashes);
+            }
+            if (ApiDiff.NEW.equals(a.status()) && a.targetVersion() != null) {
+                String prefix = "R" + a.targetVersion() + "_";
+                for (String routeId : flowByApi.getOrDefault(a.api(), List.of())) {
+                    if (routeId != null && routeId.startsWith(prefix)) {
+                        addReleaseBlame(refs, locations.get(routeId), releaseHashes);
+                    }
+                }
+            }
+            if (!refs.isEmpty()) {
+                apis.set(i, a.withJira(consolidateJira(refs)));
+            }
+        }
+    }
+
+    private void addReleaseBlame(List<GitChangeService.CommitRef> into, RouteXmlDiff.RouteLocation loc, Set<String> releaseHashes) {
+        for (GitBlameService.BlameCommit c : blameCommits(loc)) {
+            if (releaseHashes.contains(c.hash())) {
+                into.add(GitChangeService.CommitRef.of(c.hash(), c.author(), c.summary()));
+            }
+        }
+    }
+
+    /** One entry per Jira ticket (no-ticket commits last), developers and messages distinct, first-seen order. */
+    static List<JiraRef> consolidateJira(List<GitChangeService.CommitRef> refs) {
+        Map<String, List<String>> devs = new LinkedHashMap<>();
+        Map<String, List<String>> msgs = new LinkedHashMap<>();
+        Set<String> seenHashes = new HashSet<>();
+        for (GitChangeService.CommitRef r : refs) {
+            if (r.hash() != null && !seenHashes.add(r.hash() + "|" + r.author())) {
+                continue;   // the same commit reached this API through several files
+            }
+            String key = r.ticket() == null ? "" : r.ticket();
+            List<String> d = devs.computeIfAbsent(key, k -> new ArrayList<>());
+            if (!r.author().isEmpty() && d.stream().noneMatch(x -> x.equalsIgnoreCase(r.author()))) {
+                d.add(r.author());
+            }
+            List<String> m = msgs.computeIfAbsent(key, k -> new ArrayList<>());
+            if (!r.message().isEmpty() && m.stream().noneMatch(x -> x.equalsIgnoreCase(r.message()))) {
+                m.add(r.message());
+            }
+        }
+        List<JiraRef> out = new ArrayList<>();
+        for (String key : devs.keySet()) {
+            if (!key.isEmpty()) {
+                out.add(new JiraRef(key, devs.get(key), msgs.get(key)));
+            }
+        }
+        if (devs.containsKey("")) {
+            out.add(new JiraRef(null, devs.get(""), msgs.get("")));
+        }
+        return out;
     }
 
     /**

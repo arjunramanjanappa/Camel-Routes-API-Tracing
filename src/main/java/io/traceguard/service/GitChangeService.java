@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -81,10 +82,22 @@ public class GitChangeService {
                                  String baselineRef,
                                  Map<String, String> fileBeforeRef,
                                  Map<String, String> fileAfterRef,
-                                 Map<String, List<String>> fileReleaseCommits) {
+                                 Map<String, List<String>> fileReleaseCommits,
+                                 Map<String, List<CommitRef>> fileCommitRefs) {
         public static ReleaseChanges none() {
             return new ReleaseChanges(Set.of(), 0, false, Map.of(), Map.of(), Set.of(), null,
-                    Map.of(), Map.of(), Map.of());
+                    Map.of(), Map.of(), Map.of(), Map.of());
+        }
+
+        /** Every matched release commit's hash — to tell a blamed line that the release wrote from an older one. */
+        public Set<String> commitHashes() {
+            Set<String> out = new LinkedHashSet<>();
+            for (List<CommitRef> refs : fileCommitRefs.values()) {
+                for (CommitRef r : refs) {
+                    out.add(r.hash());
+                }
+            }
+            return out;
         }
 
         /** Pre-release commit-ish for THIS file (parent of the OLDEST matched commit that touched it), so a diff
@@ -105,6 +118,24 @@ public class GitChangeService {
     }
 
     private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]+)\\]");
+    /** A Jira key inside a bracket token of the commit subject: {@code [SGMB-4601]}. */
+    private static final Pattern TICKET = Pattern.compile("\\[\\s*([A-Za-z][A-Za-z0-9]*-\\d+)\\s*\\]");
+
+    /**
+     * One release commit as the report attributes it: who, under which Jira ticket, and the message. Parsed from
+     * the subject {@code [SGMB-4601][SG][19.18.0] Add qrType XN branch}: the ticket is the bracket token shaped
+     * like {@code KEY-123} (null when none), the message is what follows the last bracket token.
+     */
+    public record CommitRef(String hash, String author, String ticket, String message) {
+        public static CommitRef of(String hash, String author, String subject) {
+            String s = subject == null ? "" : subject.strip();
+            Matcher t = TICKET.matcher(s);
+            String ticket = t.find() ? t.group(1).toUpperCase(Locale.ROOT) : null;
+            int last = s.lastIndexOf(']');
+            String message = (last >= 0 ? s.substring(last + 1) : s).replaceFirst("^[\\s\\-:–—]+", "").strip();
+            return new CommitRef(hash, author == null ? "" : author.strip(), ticket, message);
+        }
+    }
 
     public ReleaseChanges changedFor(Path repoDir, String appVersion) {
         if (repoDir == null) {
@@ -125,6 +156,7 @@ public class GitChangeService {
         }
         List<String> matched = new ArrayList<>();
         Map<String, List<String>> commitVersions = new LinkedHashMap<>();   // hash -> the requested version(s) it carries
+        Map<String, String> commitSubjects = new LinkedHashMap<>();         // hash -> subject (ticket + message)
         // git log is newest-first (and never lists a parent before its child), so the LAST matched commit we
         // see is the oldest — a robust pre-release baseline even when several commits share a timestamp
         // (which timestamp comparison would tie-break wrongly).
@@ -143,12 +175,13 @@ public class GitChangeService {
                 String hash = f[0].trim();
                 matched.add(hash);
                 commitVersions.put(hash, vs);
+                commitSubjects.put(hash, f[2]);
                 earliest = hash;   // overwritten each match → ends on the oldest matched commit
             }
         }
         if (matched.isEmpty()) {
             return new ReleaseChanges(Set.of(), 0, true, Map.of(), Map.of(), Set.of(), null,
-                    Map.of(), Map.of(), Map.of());   // no commit matched any version
+                    Map.of(), Map.of(), Map.of(), Map.of());   // no commit matched any version
         }
 
         // 2. Candidate files + their authors + the version(s) that touched them: non-whitespace changes across
@@ -167,6 +200,8 @@ public class GitChangeService {
         // release commit against its OWN parent and accumulate — capturing ONLY the release's changes, never an
         // unrelated commit interleaved between two release commits on the same file.
         Map<String, List<String>> fileCommits = new LinkedHashMap<>();
+        // The same commits as the report attributes them (author, Jira ticket, message), per file, newest first.
+        Map<String, List<CommitRef>> fileCommitRefs = new LinkedHashMap<>();
         List<String> showArgs = new ArrayList<>(List.of("show", "--format=@@@%H|%an", "-w", "-M", "--numstat"));
         showArgs.addAll(matched);
         List<String> stat = run(repoDir, 30, showArgs.toArray(new String[0]));
@@ -203,6 +238,8 @@ public class GitChangeService {
                         List<String> fc = fileCommits.computeIfAbsent(file, k -> new ArrayList<>());
                         if (fc.isEmpty() || !fc.get(fc.size() - 1).equals(curHash)) {
                             fc.add(curHash);   // newest-first; one entry per matched commit that touched the file
+                            fileCommitRefs.computeIfAbsent(file, k -> new ArrayList<>())
+                                    .add(CommitRef.of(curHash, curAuthor, commitSubjects.get(curHash)));
                         }
                     }
                 }
@@ -278,8 +315,15 @@ public class GitChangeService {
                 fileReleaseCommits.put(f, chrono);
             }
         }
+        Map<String, List<CommitRef>> refs = new LinkedHashMap<>();
+        for (String f : candidates) {
+            List<CommitRef> cr = fileCommitRefs.get(f);
+            if (cr != null) {
+                refs.put(f, List.copyOf(cr));
+            }
+        }
         return new ReleaseChanges(candidates, matched.size(), true, fileAuthors, fileVersions, deleted, baselineRef,
-                fileBeforeRef, fileAfterRef, fileReleaseCommits);
+                fileBeforeRef, fileAfterRef, fileReleaseCommits, refs);
     }
 
     /**

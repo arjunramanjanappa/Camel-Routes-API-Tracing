@@ -97,20 +97,19 @@ See what a release changed versus the version before it.
 2. *(optional)* enter the **commit/app version** (e.g. `19.18.0`) to also detect, from git
    history, **shared code changes** and **in-place edits to production (BAU) routes** — the
    actual `.ftl`/route diff, whitespace-ignored, attributed to the commit author.
-- **Summary** view (for managers) reads as a test plan in four buckets, each saying what
-  changed, what to test and who tests it:
-  - **BAU regression** — live behaviour changes; regression-test the current app (BAU team).
-  - **Backward compatibility** — old app versions still call what changed; an old client
-    against the new build must pass.
-  - **New app only** — versioned to the release; the old app never sees it (new-app team).
-  - **Shared code** — one class, several route versions; test each version that runs it.
+- **Summary** view (for managers) and the **Summary PDF** read the same way: the four
+  counts (BAU regression · Backward compatibility · New app only · Shared code), then each
+  **business area** ("Funds Transfer & Payments"), highest impact first, with one row per API:
+  **API · Which App · Change · Jira Details · Commit Message**. Which App is the app to
+  test (BAU app, New app, Both apps). Jira Details is the ticket and the developers from the
+  release commits, one line per ticket (`SGMB-4588 · Swapna, Deepak`); Commit Message is the
+  message after the bracket tokens. A commit without a ticket token shows as `no Jira`.
+  Each area has a "Changed by" line, and a **Jira in this release** table closes the report.
+  The Jira columns appear only when a commit/app version was entered.
 - **Detailed** view (for developers and testers) shows the per-API cards with the full
-  route, class and payload diffs, risk and **BC** markers.
-- **Summary PDF** — the release by **business area** ("Funds Transfer & Payments"), highest
-  impact first: risk and why, the APIs under their sub-features with who tests them, the
-  backward-compatibility position and the testing focus; shared code and the four
-  definitions close it. **Detailed PDF** — every change in full, grouped by version and
-  area. Files are named `TraceGuard-Release-<version>-Impact-Summary.pdf` /
+  route, class and payload diffs, risk and **BC** markers, and the same Jira line under each
+  API. **Detailed PDF** — every change in full, grouped by version and area.
+- Files are named `TraceGuard-Release-<version>-Impact-Summary.pdf` /
   `…-Impact-Detailed.pdf` (Scope and Test reports follow the same pattern).
 
 ---

@@ -4,7 +4,7 @@
  * so two builds of the same version are still distinguishable (a stale bundle served from an old target/ shows
  * an older time).
  */
-export const APP_VERSION = 'v3.386';
+export const APP_VERSION = 'v3.387';
 
 declare const __BUILD_TIME__: string;
 /** ISO timestamp of the bundle build (injected by vite.config.ts); empty in a plain type-check. */

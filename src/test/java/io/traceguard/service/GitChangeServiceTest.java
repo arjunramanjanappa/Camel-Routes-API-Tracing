@@ -2,6 +2,8 @@ package io.traceguard.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -294,6 +296,44 @@ class GitChangeServiceTest {
         assertThat(atFirst).containsExactly("v1");
         assertThat(atSecond).containsExactly("v2");
         assertThat(svc.statsAndReset().memoHits()).isZero();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "[SGMB-4601][SG][19.18.0] Add qrType XN branch | SGMB-4601 | Add qrType XN branch",
+            "[sgmb-12][MY][19.18.0]-hotfix null check      | SGMB-12   | hotfix null check",
+            "[SG][19.18.0] : reformat template             |           | reformat template",
+            "plain subject without brackets                |           | plain subject without brackets",
+    })
+    void shouldReadTheJiraTicketAndMessageOffTheCommitSubject(String subject, String ticket, String message) {
+        GitChangeService.CommitRef ref = GitChangeService.CommitRef.of("abc", " Rakesh ", subject.strip());
+
+        assertThat(ref.ticket()).isEqualTo(ticket);
+        assertThat(ref.message()).isEqualTo(message.strip());
+        assertThat(ref.author()).isEqualTo("Rakesh");
+    }
+
+    @Test
+    void shouldKeepEveryReleaseCommitOnAFileWithItsDeveloperTicketAndMessage(@TempDir Path dir) throws Exception {
+        assumeTrue(gitAvailable(), "git CLI not available");
+        initRepo(dir);
+        Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\" }\n");
+        commit(dir, "[JIRA-1][SG][19.8.0] baseline");
+        git(dir, "config", "user.name", "Deepak");
+        Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\", \"y\": \"2\" }\n");
+        commit(dir, "[SGMB-4588][SG][19.18.0] Validate system params");
+        git(dir, "config", "user.name", "Swapna");
+        Files.writeString(dir.resolve("a.ftl"), "{ \"x\": \"1\", \"y\": \"2\", \"z\": \"3\" }\n");
+        commit(dir, "[SGMB-4588][SG][19.18.0] Validate system params for new payee types");
+
+        GitChangeService.ReleaseChanges rc = new GitChangeService().changedFor(dir, "19.18.0");
+
+        List<GitChangeService.CommitRef> refs = rc.fileCommitRefs().get("a.ftl");
+        assertThat(refs).extracting(GitChangeService.CommitRef::author).containsExactly("Swapna", "Deepak");   // newest first
+        assertThat(refs).extracting(GitChangeService.CommitRef::ticket).containsOnly("SGMB-4588");
+        assertThat(refs).extracting(GitChangeService.CommitRef::message)
+                .containsExactly("Validate system params for new payee types", "Validate system params");
+        assertThat(rc.commitHashes()).hasSize(2).allMatch(h -> h.matches("[0-9a-f]{40}"));
     }
 
     @Test

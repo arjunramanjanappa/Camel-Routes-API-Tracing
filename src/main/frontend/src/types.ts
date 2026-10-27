@@ -175,6 +175,16 @@ export interface ApiDiff {
   /** In-place edits the release made to this API's BAU (pre-existing/lower) routes, git-diffed against their
    *  own pre-release version. A removed step is backward-incompatible (High + BC); an added step is Medium. */
   bauRouteEdits?: BauRouteEdit[];
+  /** The release's Jira tickets behind this API's change: one entry per ticket with its developers and commit
+   *  messages, consolidated across every release commit on the API's routes, templates and shared classes. */
+  jira?: JiraRef[];
+}
+
+/** One Jira ticket's share of an API's change. `ticket` null = commits without a ticket token ("no Jira"). */
+export interface JiraRef {
+  ticket: string | null;
+  developers: string[];
+  messages: string[];
 }
 
 /** An in-place change the release made to a BAU (pre-existing/lower) route the old app still runs — its route

@@ -1,9 +1,9 @@
 import type { ApiDiff, ApiLogResult, DiffStatus, VersionDiffReport } from './types';
-import { ReportDoc, PAL, PAGE, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, type Ramp } from './pdfReport';
+import { ReportDoc, PAL, PAGE, M, CONTENT_W, generatedStamp, logWindowLine, passRateLine, ascii, type Ramp } from './pdfReport';
 import { appLabel } from './appName';
 import { versionLabel } from './feature';
 import { backendPath } from './spl';
-import { buildTestPlan, buckets, planRowFor, bcTestsFor, verdictFor, SHARED_GROUP } from './testPlan';
+import { buildTestPlan, planRowFor, bcTestsFor, verdictFor, SHARED_GROUP } from './testPlan';
 import { areaOf, type FeatureLabels } from './labels';
 
 // Only changed + new APIs are listed in the report body — the utility goal is "what to test this
@@ -132,9 +132,6 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
     { n: tot.bc, label: 'BC required', ramp: PAL.purple },
     { n: tot.high, label: 'High risk', ramp: PAL.red },
   ]);
-  r.paragraph(`Release ${ver}${country ? ' in ' + country : ''} across ${mods.length} module(s): `
-    + `${tot.changed} changed, ${tot.added} new, ${tot.unchanged} unchanged`
-    + `${appVersion ? `. App version ${appVersion}: ${tot.code} API(s) run shared code that changed` : ''}. Impact by module:`);
   // The four test-plan buckets (same model and words as the Summary view / Summary PDF).
   const plans = mods.filter((m) => m.report).map((m) => buildTestPlan(m.report!));
   const pb = plans.reduce((n, p) => n + p.bau.length, 0), pbc = plans.reduce((n, p) => n + p.bc.length, 0),
@@ -158,15 +155,6 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
       : ['Total', '', tot.changed, tot.added, tot.unchanged],
   );
 
-  // ===== How to read =====
-  r.legend('How to read this report', [
-    'Each module (repo) is compared for the same release; an unversioned (N/A) module shows a latest-routes snapshot instead.',
-    'Only changed and new APIs are listed - the ones to test this release. Unchanged APIs are counted above but not listed.',
-    ...buckets(ver).map((b) => `${b.title} - ${b.define}`),
-    ...(appVersion ? [`Shared code is detected from the commits tagged [${appVersion}] (exact match; whitespace-only changes ignored; a class used only by the new route is not shared). "Versions to test" lists This release / Live now / Upcoming routes - each must be run now; the change is not flagged again under their own version.`] : []),
-    'In diffs, lines marked - were removed and + were added.',
-  ]);
-
   const footer = `TraceGuard - Release impact ${ver}${app ? ' - ' + app : ''}`;
 
   // ===== Backward compatibility (executive callout) =====
@@ -181,9 +169,8 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
         test: bcTestsFor(a).join('; ') };
     }));
   if (bcItems.length) {
-    const b = buckets(ver)[1];
     r.bookmark('Backward compatibility');
-    r.section('Backward compatibility', bcItems.length, PAL.purple, b.define);
+    r.section('Backward compatibility', bcItems.length, PAL.purple, '');
     r.wrapTable(
       [{ header: 'API', w: 0.30, mono: true }, { header: 'Module', w: 0.18 }, { header: 'Still called by', w: 0.16 }, { header: 'Test focus', w: 0.36 }],
       bcItems.map((it) => [
@@ -196,7 +183,7 @@ export async function exportDiffPdf(mods: ModuleDiff[], app?: string, logWindow?
 
   // ===== Impact by module =====
   r.bookmark('Impact by module');
-  r.banner('Impact by module', PAL.blue, 'Each module’s changed + new APIs to test (changed first). N/A modules list their latest routes.');
+  r.banner('Impact by module', PAL.blue);
   for (const m of mods) {
     r.bookmark('Module — ' + m.name);
     if (m.error) { r.section('Module — ' + m.name, 0, PAL.red, 'Not analysed: ' + m.error); continue; }
@@ -333,7 +320,7 @@ function codeChangeLines(r: ReportDoc, a: ApiDiff, logByVer?: Record<string, Rec
       }
       return row;
     }));
-  r.para('Shared code - versions to test (This release = verify here; Live now = regression-test the current app; Upcoming = pre-test now; Untraced = trace manually):',
+  r.para('Shared code - versions to test:',
     M + 4, CONTENT_W - 4, 'bold', 9, PAL.amber.text, 12);
   r.wrapTable(
     withTested
@@ -391,6 +378,11 @@ function apiBlock(r: ReportDoc, a: ApiDiff, status: DiffStatus, logByVer?: Recor
   r.para(verdictFor(plan, single).replace(' · ', ' - '), M, CONTENT_W, 'bold', 9.5, plan.bucket === 'bau' ? PAL.red.text : PAL.green.text, 13);
   const focus = [...plan.test, ...(plan.bucket === 'bau' ? bcTestsFor(a, single).map((t) => 'BC: ' + t) : [])];
   r.para(`Test focus (${plan.who}): ${focus.join('; ')}.`, M, CONTENT_W, 'normal', 9, PAL.body, 12);
+  // Jira Details: the release commits behind this API — ticket, developers, message (as in the Summary).
+  for (const j of a.jira || []) {
+    r.para(ascii(`Jira: ${j.ticket || 'no Jira'} - ${j.developers.join(', ')}${j.messages.length ? ' - ' + j.messages.join(' | ') : ''}`),
+      M, CONTENT_W, 'normal', 9, PAL.accent, 12);
+  }
 
   if (status === 'NEW') {
     r.para(`Introduced in ${a.targetVersion}. Entry route ${a.targetRoute}. No earlier version to compare against.`,

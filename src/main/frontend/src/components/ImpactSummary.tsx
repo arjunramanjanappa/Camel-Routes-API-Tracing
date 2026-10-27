@@ -1,15 +1,16 @@
 import { Fragment, type ReactNode } from 'react';
 import { CircleCheck, CircleX, Minus } from 'lucide-react';
-import { groupItemsByFeature } from '../feature';
-import { humanize, type FeatureLabels } from '../labels';
+import type { FeatureLabels } from '../labels';
 import type { ApiLogResult, VersionDiffReport } from '../types';
-import { buildTestPlan, buckets, logForRow, testedState, type Bucket, type PlanRow, type SharedClass } from '../testPlan';
+import { buildTestPlan, buckets, logForRow, testedState, appOf, jiraOf, jiraSummary, jiraApp, changedBy,
+  type AppTag, type Bucket, type PlanRow, type SharedClass } from '../testPlan';
+import { buildAreas, changeTag, type Area } from '../areas';
 
 /**
- * The manager-facing "Summary" of a Release Impact report, laid out as a test plan: four buckets (BAU
- * regression · Backward compatibility · New app only · Shared code), each answering what changed, what to
- * test and who tests it. Same model as the Summary PDF ({@link buildTestPlan}), so screen and paper agree.
- * Derived entirely from the existing report — no backend data is added.
+ * The manager-facing "Summary" of a Release Impact report — the same model and the same order as the Summary
+ * PDF: the verdict and the four counts, then each business area (highest impact first) with its sub-features and
+ * one row per API: API · Which App · Change · Jira Details · Commit Message. Shared code and the release's Jira
+ * tickets close it. Derived entirely from the existing report ({@link buildTestPlan}, {@link buildAreas}).
  */
 export default function ImpactSummary({ report, log, logByVer, labels = {} }: {
   report: VersionDiffReport;
@@ -17,7 +18,7 @@ export default function ImpactSummary({ report, log, logByVer, labels = {} }: {
   log?: Record<string, ApiLogResult>;
   /** Per-version results (version → api → result) so a BAU row is verified at the LIVE route's version. */
   logByVer?: Record<string, Record<string, ApiLogResult>>;
-  /** Business-area labels (⚙ Config) for the feature headers; a missing label falls back to the path segment. */
+  /** Business-area labels (⚙ Config) for the area and sub-feature headers; a missing label falls back to the path segment. */
   labels?: FeatureLabels;
 }) {
   const plan = buildTestPlan(report);
@@ -25,6 +26,10 @@ export default function ImpactSummary({ report, log, logByVer, labels = {} }: {
   const [B_BAU, B_BC, B_NEW, B_SHARED] = buckets(plan.version, plan.snapshot);
   const tested = (r: PlanRow) => (hasLog ? <Tested l={logForRow(r, logByVer, log)} /> : null);
   const sharedVersions = new Set(plan.shared.flatMap((s) => s.routes.map((x) => x.version))).size;
+  const rows = [...plan.bau, ...plan.newOnly];
+  const areas: Area[] = buildAreas(rows, labels);
+  const jira = jiraSummary(rows);
+  const hasJira = jira.length > 0;
 
   return (
     <div className="tp">
@@ -37,52 +42,33 @@ export default function ImpactSummary({ report, log, logByVer, labels = {} }: {
         <Tile b={B_SHARED} n={plan.shared.length} sub={plan.shared.length ? `${plan.shared.length} class${plan.shared.length === 1 ? '' : 'es'} · ${sharedVersions} version${sharedVersions === 1 ? '' : 's'}` : undefined} />
       </div>
 
-      {/* BAU regression — every row is High by rule, so no Risk column; Who distinguishes BAU-only from Both. */}
-      <Section b={B_BAU} count={plan.bau.length} empty="None — no live route or shared class changed.">
-        <table className="tp-table">
-          <thead><tr><th>API</th><th>Change</th><th>Test focus</th><th>Who</th>{hasLog && <th>Tested</th>}</tr></thead>
-          <tbody>{withFeatures(labels, plan.bau, hasLog ? 5 : 4, (r) => (
-            <tr key={r.a.api + '|' + r.a.operation}>
-              <ApiCell r={r} />
-              <td className="tp-what">{r.what}{r.detail && <small>{r.detail}</small>}</td>
-              <td><Focus items={r.test} /></td>
-              <td><Who who={r.who} /></td>
-              {hasLog && <td>{tested(r)}</td>}
-            </tr>
-          ))}</tbody>
-        </table>
-      </Section>
-
-      {/* Backward compatibility — the BAU set seen from the old client's side. */}
-      <Section b={B_BC} count={plan.bc.length} empty="None.">
-        <table className="tp-table">
-          <thead><tr><th>API</th><th>Still called by</th><th>Test focus</th>{hasLog && <th>Tested</th>}</tr></thead>
-          <tbody>{withFeatures(labels, plan.bc, hasLog ? 4 : 3, (r) => (
-            <tr key={r.a.api + '|' + r.a.operation}>
-              <ApiCell r={r} />
-              <td className="tp-what">{r.oldVersions.length ? r.oldVersions.map((v) => <code key={v} className="tp-ver">{v}</code>) : 'current app'}</td>
-              <td><Focus items={r.test} /></td>
-              {hasLog && <td>{tested(r)}</td>}
-            </tr>
-          ))}</tbody>
-        </table>
-      </Section>
-
-      {/* New app only — Low/Medium risk, so Risk stays; everyone here is the new-app team. */}
-      <Section b={B_NEW} count={plan.newOnly.length} empty="None.">
-        <table className="tp-table">
-          <thead><tr><th>API</th><th>Change</th><th>Test focus</th><th>Risk</th>{hasLog && <th>Tested</th>}</tr></thead>
-          <tbody>{withFeatures(labels, plan.newOnly, hasLog ? 5 : 4, (r) => (
-            <tr key={r.a.api + '|' + r.a.operation}>
-              <ApiCell r={r} />
-              <td className="tp-what">{r.what}{r.detail && <small>{r.detail}</small>}</td>
-              <td><Focus items={r.test} /></td>
-              <td><span className={'sumv-risk ' + r.risk}><span className="dot" />{r.risk}</span></td>
-              {hasLog && <td>{tested(r)}</td>}
-            </tr>
-          ))}</tbody>
-        </table>
-      </Section>
+      {areas.map((area) => {
+        const owners = hasJira ? changedBy(area.rows) : null;
+        return (
+          <section className="tp-area" key={area.key}>
+            <div className={'tp-area-head risk-' + area.risk.toLowerCase()}>
+              <span className="k">{area.label}</span>
+              <span className="c">{area.rows.length} · {area.risk}</span>
+            </div>
+            {owners && owners.developers.length > 0 && (
+              <p className="tp-owners"><b>Changed by</b> {owners.developers.map((d) => `${d.name} (${d.tickets})`).join(' · ')}
+                <span className="tp-owners-tickets">{owners.tickets.map((t) => <code key={t} className="tp-jira">{t}</code>)}</span></p>
+            )}
+            {area.subs.map((sub) => (
+              <Fragment key={sub.key}>
+                <div className="tp-sub">{sub.label} <span className="c">{sub.rows.length}</span></div>
+                <RowsTable rows={sub.rows} hasLog={hasLog} hasJira={hasJira} tested={tested} />
+              </Fragment>
+            ))}
+            {area.direct.length > 0 && (
+              <>
+                {area.subs.length > 0 && <div className="tp-sub">Other <span className="c">{area.direct.length}</span></div>}
+                <RowsTable rows={area.direct} hasLog={hasLog} hasJira={hasJira} tested={tested} />
+              </>
+            )}
+          </section>
+        );
+      })}
 
       <Section b={B_SHARED} count={plan.shared.length} empty="None — no shared class changed.">
         <table className="tp-table">
@@ -91,20 +77,74 @@ export default function ImpactSummary({ report, log, logByVer, labels = {} }: {
         </table>
       </Section>
 
-      <div className="tp-gloss">
-        <h4>What the labels mean</h4>
-        <dl>
-          {[B_BAU, B_BC, B_NEW, B_SHARED].map((b) => (
-            <div key={b.key} className={'tp-g ' + b.key}><dt>{b.title}</dt><dd>{b.define}</dd></div>
-          ))}
-        </dl>
-      </div>
+      {hasJira && (
+        <section className="tp-area">
+          <div className="tp-area-head jira"><span className="k">Jira in this release</span><span className="c">{jira.length}</span></div>
+          <div className="tp-tablewrap">
+            <table className="tp-table">
+              <thead><tr><th>Jira Details</th><th>Which App</th><th>Commit Message</th><th>APIs</th></tr></thead>
+              <tbody>
+                {jira.map((j) => (
+                  <tr key={j.ticket || 'none'}>
+                    <td className="tp-jcell"><code className="tp-jira">{j.ticket || 'no Jira'}</code>{j.developers.length > 0 && <> · <b>{j.developers.join(', ')}</b></>}</td>
+                    <td><App app={jiraApp(j)} /></td>
+                    <td className="tp-msg">{j.messages.map((m, i) => <span key={i}>{m}</span>)}</td>
+                    <td className="tp-num">{j.apis.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {plan.unchanged > 0 && (
         <div className="tp-carry">{plan.unchanged} unchanged API{plan.unchanged === 1 ? '' : 's'} — carried forward, no action.</div>
       )}
     </div>
   );
+}
+
+/** API · Which App · Change · Jira Details · Commit Message (· Tested). Each Jira ticket is its own sub-row. */
+function RowsTable({ rows, hasLog, hasJira, tested }: { rows: PlanRow[]; hasLog: boolean; hasJira: boolean; tested: (r: PlanRow) => ReactNode }) {
+  return (
+    <div className="tp-tablewrap">
+      <table className="tp-table tp-rows">
+        <thead><tr><th>API</th><th>Which App</th><th>Change</th>{hasJira && <><th>Jira Details</th><th>Commit Message</th></>}{hasLog && <th>Tested</th>}</tr></thead>
+        <tbody>
+          {rows.map((r) => {
+            const refs = hasJira ? jiraOf(r.a) : [];
+            const span = Math.max(1, refs.length);
+            const key = r.a.api + '|' + r.a.operation;
+            return (
+              <Fragment key={key}>
+                <tr className={span > 1 ? 'tp-first' : 'tp-last'}>
+                  <td className="tp-api" rowSpan={span}><span className="path">{r.a.api}</span><span className="op">{r.a.operation}{r.a.targetVersion && r.a.lowerVersion ? ` · ${r.a.lowerVersion} → ${r.a.targetVersion}` : ''}</span></td>
+                  <td rowSpan={span}><App app={appOf(r)} /></td>
+                  <td className="tp-what" rowSpan={span}>{changeTag(r)}</td>
+                  {hasJira && (refs.length
+                    ? <><td className="tp-jcell"><code className="tp-jira">{refs[0].ticket || 'no Jira'}</code>{refs[0].developers.length > 0 && <> · <b>{refs[0].developers.join(', ')}</b></>}</td><td className="tp-msg">{refs[0].messages.map((m, i) => <span key={i}>{m}</span>)}</td></>
+                    : <><td className="tp-jcell muted">—</td><td className="tp-msg muted">—</td></>)}
+                  {hasLog && <td rowSpan={span}>{tested(r)}</td>}
+                </tr>
+                {refs.slice(1).map((j, i) => (
+                  <tr key={key + '|' + i} className={i === refs.length - 2 ? 'tp-last' : 'tp-cont'}>
+                    <td className="tp-jcell"><code className="tp-jira">{j.ticket || 'no Jira'}</code>{j.developers.length > 0 && <> · <b>{j.developers.join(', ')}</b></>}</td>
+                    <td className="tp-msg">{j.messages.map((m, k) => <span key={k}>{m}</span>)}</td>
+                  </tr>
+                ))}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function App({ app }: { app: AppTag }) {
+  const cls = app === 'BAU app' ? 'bau' : app === 'New app' ? 'new' : app === 'All clients' ? 'all' : 'both';
+  return <span className={'tp-app ' + cls}>{app}</span>;
 }
 
 function Tile({ b, n, sub }: { b: Bucket; n: number; sub?: string }) {
@@ -129,19 +169,6 @@ function Section({ b, count, empty, children }: { b: Bucket; count: number; empt
       {count === 0 ? <div className="tp-empty">{empty}</div> : <div className="tp-tablewrap">{children}</div>}
     </section>
   );
-}
-
-function ApiCell({ r }: { r: PlanRow }) {
-  return <td className="tp-api"><span className="path">{r.a.api}</span><span className="op">{r.a.operation}{r.a.targetVersion && r.a.lowerVersion ? ` · ${r.a.lowerVersion} → ${r.a.targetVersion}` : ''}</span></td>;
-}
-
-function Focus({ items }: { items: string[] }) {
-  return <ul className="tp-focus">{items.map((t, i) => <li key={i}>{t}</li>)}</ul>;
-}
-
-function Who({ who }: { who: PlanRow['who'] }) {
-  const cls = who === 'BAU team' ? 'bau' : who === 'New-app team' ? 'new' : who === 'All clients' ? 'all' : 'both';
-  return <span className={'tp-who ' + cls}>{who}</span>;
 }
 
 function Tested({ l }: { l?: ApiLogResult }) {
@@ -179,15 +206,4 @@ function SharedRow({ s, logByVer, hasLog }: { s: SharedClass; logByVer?: Record<
       <td className="tp-what">{s.apis.slice(0, 3).map((p) => <code key={p} className="tp-ver">{p}</code>)}{s.apis.length > 3 ? ` +${s.apis.length - 3}` : ''}</td>
     </tr>
   );
-}
-
-/** Rows grouped by business feature (payment, manage, …), each group led by a header row — like the screen.
- *  Order within a feature is preserved, so the risk sort survives. */
-function withFeatures(labels: FeatureLabels, rows: PlanRow[], colSpan: number, render: (r: PlanRow) => ReactNode): ReactNode[] {
-  return groupItemsByFeature(rows, (r) => r.a.api).map((fg) => (
-    <Fragment key={fg.feature}>
-      <tr className="tp-feat-row"><td colSpan={colSpan}><span className="tp-feat-name">{labels[fg.feature.toLowerCase()] || humanize(fg.feature)}</span><span className="tp-feat-cnt">{fg.items.length}</span></td></tr>
-      {fg.items.map(render)}
-    </Fragment>
-  ));
 }

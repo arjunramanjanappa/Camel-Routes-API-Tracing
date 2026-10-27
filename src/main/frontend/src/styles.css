@@ -1384,3 +1384,39 @@ button.isb.bau.on { background: #9a3412; color: #fff; border-color: #9a3412; }
 .stale-bar button { padding: 4px 12px; border-radius: 999px; border: 1px solid rgb(var(--tg-warn) / .5); background: rgb(var(--tg-surface)); color: rgb(var(--tg-warn)); font-weight: 700; font-size: 12px; cursor: pointer; }
 .stale-bar button:hover { background: rgb(var(--tg-warn)); color: #fff; }
 .tp-who.all { color: rgb(var(--tg-accent-ink)); }
+
+/* Summary view, area-first like the Summary PDF: area header, Changed-by line, sub-feature label, one sub-row per
+   Jira ticket (API / Which App / Change span the API's rows). */
+.tp-area { margin-top: 22px; }
+.tp-area-head { display: flex; align-items: baseline; gap: 10px; padding: 8px 12px; border-left: 4px solid rgb(var(--tg-crit)); border-radius: 0 8px 8px 0; background: rgb(var(--tg-crit-soft)); }
+.tp-area-head .k { font-size: 15px; font-weight: 750; letter-spacing: -.01em; color: rgb(var(--tg-ink)); }
+.tp-area-head .c { font-size: 12px; font-weight: 700; color: rgb(var(--tg-muted)); }
+.tp-area-head.risk-medium { border-left-color: rgb(var(--tg-warn)); background: rgb(var(--tg-warn-soft)); }
+.tp-area-head.risk-low { border-left-color: rgb(var(--tg-ok)); background: rgb(var(--tg-ok) / .10); }
+.tp-area-head.jira { border-left-color: rgb(var(--tg-accent)); background: rgb(var(--tg-accent-soft)); }
+.tp-owners { margin: 8px 0 0; font-size: 12.5px; color: rgb(var(--tg-ink-2)); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.tp-owners b { font-weight: 700; margin-right: 2px; }
+.tp-owners-tickets { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.tp-sub { margin: 12px 0 0; font-size: 12.5px; font-weight: 700; color: rgb(var(--tg-accent-ink)); }
+.tp-sub .c { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: rgb(var(--tg-muted)); background: rgb(var(--tg-hair-2)); border-radius: 999px; padding: 0 7px; }
+.tp-area .tp-tablewrap { margin-top: 6px; }
+.tp-rows td { vertical-align: top; }
+.tp-rows tr.tp-first td, .tp-rows tr.tp-cont td { border-bottom: 0; }
+.tp-rows tr.tp-first td.tp-jcell, .tp-rows tr.tp-first td.tp-msg, .tp-rows tr.tp-cont td.tp-jcell, .tp-rows tr.tp-cont td.tp-msg { border-bottom: 1px dashed rgb(var(--tg-hair)); }
+.tp-rows tr.tp-last td { border-bottom: 1px solid rgb(var(--tg-hair-2)); }
+.tp-rows tr:last-child td { border-bottom: 0; }
+.tp-jcell, .tp-msg { background: rgb(var(--tg-surface-2)); }
+.tp-jcell { white-space: nowrap; font-size: 12.5px; }
+.tp-jcell b { font-weight: 650; }
+.tp-msg { font-size: 12.5px; color: rgb(var(--tg-ink-2)); max-width: 36ch; }
+.tp-msg span { display: block; }
+.tp-num { font-variant-numeric: tabular-nums; }
+.tp-jira { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 11.5px; font-weight: 600; color: rgb(var(--tg-accent-ink)); background: rgb(var(--tg-accent-soft)); padding: 1px 6px; border-radius: 5px; }
+.tp-app { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.tp-app.bau { background: rgb(var(--tg-crit-soft)); color: rgb(var(--tg-crit)); }
+.tp-app.new { background: rgb(var(--tg-ok) / .12); color: rgb(var(--tg-ok)); }
+.tp-app.both { background: rgb(var(--tg-bc) / .12); color: rgb(var(--tg-bc)); }
+.tp-app.all { background: rgb(var(--tg-accent-soft)); color: rgb(var(--tg-accent-ink)); }
+/* Detailed view card: Jira Details line under the one-line verdict. */
+.card-jira { display: flex; flex-direction: column; gap: 3px; padding: 4px 14px 8px; font-size: 12.5px; }
+.card-jira-item b { font-weight: 650; }

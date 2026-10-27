@@ -41,6 +41,10 @@ import java.util.List;
  * @param bauRouteEdits         in-place edits the release made to this API's BAU (pre-existing/lower) routes, found
  *                              by git-diffing each such route's own XML across the release; a removed step is
  *                              backward-incompatible (High + BC), an added step changes PROD but is surfaced (Medium)
+ * @param jira                  the release's Jira tickets behind this API's change — one entry per ticket with the
+ *                              developers and commit messages, consolidated across every commit on the API's route
+ *                              XML, templates and shared classes (and, for a version bump or new route, the commits
+ *                              that authored the new route's lines); empty when no commit version was given
  */
 public record ApiDiff(String api, String operation,
                       String targetRoute, String targetVersion,
@@ -57,7 +61,8 @@ public record ApiDiff(String api, String operation,
                       List<ImpactedRoute> impactedRoutes,
                       String risk,
                       List<String> changedVersions,
-                      List<BauRouteEdit> bauRouteEdits) {
+                      List<BauRouteEdit> bauRouteEdits,
+                      List<JiraRef> jira) {
 
     public static final String NEW = "NEW";
     public static final String CHANGED = "CHANGED";
@@ -83,7 +88,7 @@ public record ApiDiff(String api, String operation,
                    List<String> authors) {
         this(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                false, List.of(), List.of(), RISK_LOW, List.of(), List.of());
+                false, List.of(), List.of(), RISK_LOW, List.of(), List.of(), List.of());
     }
 
     /** A copy of this diff annotated with the release's shared-class code changes for the flow. */
@@ -91,14 +96,14 @@ public record ApiDiff(String api, String operation,
                                   List<ImpactedRoute> impactedRoutes, List<String> changedVersions) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits, jira);
     }
 
     /** A copy of this diff with the release's in-place edits to its BAU (pre-existing/lower) routes. */
     public ApiDiff withBauRouteEdits(List<BauRouteEdit> bauRouteEdits) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits, jira);
     }
 
     /** A copy of this diff with a different status — used when a single-version (N/A) snapshot learns from the
@@ -106,7 +111,7 @@ public record ApiDiff(String api, String operation,
     public ApiDiff withStatus(String status) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits, jira);
     }
 
     /** A copy of this diff with the routes the release ADDED to its flow (single-version snapshot: an added
@@ -114,13 +119,20 @@ public record ApiDiff(String api, String operation,
     public ApiDiff withAddedRoutes(List<String> addedRoutes) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits, jira);
     }
 
     /** A copy of this diff with its computed test-priority. */
     public ApiDiff withRisk(String risk) {
         return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
                 routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
-                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits);
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits, jira);
+    }
+
+    /** A copy of this diff with the release's Jira tickets, developers and commit messages behind its change. */
+    public ApiDiff withJira(List<JiraRef> jira) {
+        return new ApiDiff(api, operation, targetRoute, targetVersion, lowerRoute, lowerVersion, status,
+                routeDiffs, addedRoutes, removedRoutes, backendVersionChanges, payloadChange, note, authors,
+                codeChanged, changedClasses, impactedRoutes, risk, changedVersions, bauRouteEdits, jira);
     }
 }
